@@ -26,29 +26,6 @@ public static class WeeklyReview
         "SystemSettings.exe", "dwm.exe",
     };
 
-    static readonly Dictionary<string, string> FriendlyNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Code.exe"] = "Visual Studio Code",
-        ["devenv.exe"] = "Visual Studio",
-        ["rider64.exe"] = "Rider",
-        ["Unity.exe"] = "Unity",
-        ["chrome.exe"] = "Chrome",
-        ["msedge.exe"] = "Edge",
-        ["firefox.exe"] = "Firefox",
-        ["opera.exe"] = "Opera",
-        ["brave.exe"] = "Brave",
-        ["WINWORD.EXE"] = "Word",
-        ["EXCEL.EXE"] = "Excel",
-        ["POWERPNT.EXE"] = "PowerPoint",
-        ["Discord.exe"] = "Discord",
-        ["Spotify.exe"] = "Spotify",
-        ["steam.exe"] = "Steam",
-        ["blender.exe"] = "Blender",
-        ["Photoshop.exe"] = "Photoshop",
-        ["notepad.exe"] = "Notepad",
-        ["WindowsTerminal.exe"] = "Windows Terminal",
-    };
-
     /// <summary>Where the project name sits in each editor's window title, split on " - ".</summary>
     static readonly Dictionary<string, Func<string[], string?>> ProjectInTitle = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -172,9 +149,7 @@ public static class WeeklyReview
 
     static int Days(IEnumerable<ActivityEntry> entries) => entries.Select(entry => entry.Start.Date).Distinct().Count();
 
-    static string Friendly(string exe) =>
-        FriendlyNames.TryGetValue(exe, out string? name) ? name
-        : exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? exe[..^4] : exe;
+    static string Friendly(string exe) => AppNames.Name(exe);
 
     static string Hours(double seconds) => seconds >= 3600 * 1.5 ? $"about {Math.Round(seconds / 3600)} h" : $"about {Math.Round(seconds / 60)} min";
 }

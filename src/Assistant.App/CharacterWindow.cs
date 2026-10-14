@@ -219,7 +219,8 @@ public sealed class CharacterWindow : Window
         Mood.Happy => (Color.FromRgb(0x7C, 0xC5, 0x42), "yay!", 16.0, 0.35, 0.0, 1.0),
         Mood.Tired => (Color.FromRgb(0x8A, 0x94, 0xA3), "tired: cloud unavailable", 3.0, 2.0, 0.0, 0.5),
         Mood.Sleepy => (Color.FromRgb(0x3F, 0x5A, 0x9E), "zzz", 3.0, 3.0, 0.0, 0.15),
-        Mood.Review => (Color.FromRgb(0xE8, 0xB3, 0x3A), "weekly review", 5.0, 1.6, 0.0, 1.0),
+        Mood.Review => (Color.FromRgb(0xE8, 0xB3, 0x3A), "! weekly review", 5.0, 1.6, 0.0, 1.0),
+        Mood.HandRaised => (Color.FromRgb(0xF5, 0xA6, 0x23), "!", 12.0, 0.6, 0.0, 1.0),
         _ => (Color.FromRgb(0x4A, 0x90, 0xE2), "", 6.0, 1.2, 0.0, 1.0),
     };
 

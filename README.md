@@ -3,7 +3,7 @@
 A modern, smarter Clippy-style desktop assistant for Windows. Free, local-first, and transparent:
 everything it learns lives in plain files in `Documents\Assistant\`.
 
-## Status: build steps 1–6
+## Status: build steps 1–7
 
 A placeholder character in the corner of the screen. Click it to chat in a speech bubble: the local model
 finds files on your computer, and optional free cloud chat handles conversation.
@@ -11,7 +11,7 @@ finds files on your computer, and optional free cloud chat handles conversation.
 - **Click** the character: open or close the chat bubble (Esc or clicking elsewhere also closes it).
 - **Drag** it anywhere; it snaps to screen edges and remembers its spot (`placement.json` in the data folder).
 - **Right-click** it, or use the **tray icon**: open data folder, hide for 1 hour, quit.
-- Its color and label show what it's doing: thinking, found it, hmm? (nothing found), tired (cloud unavailable), zzz (idle 10 minutes), weekly review (waiting for you).
+- Its color and label show what it's doing: thinking, found it, hmm? (nothing found), tired (cloud unavailable), zzz (idle 10 minutes), ! (hand raised), ! weekly review (waiting for you).
 - **Activity log:** which app and window title is in front, and for how long, in `activity\<date>.jsonl`. Idle time,
   the assistant itself and anything in `exclusions.json` are not recorded. Ask "what was I working on today?".
   Turn it off with `"activityLogging": false` in `config.json`.
@@ -25,6 +25,10 @@ finds files on your computer, and optional free cloud chat handles conversation.
 - **Weekly review:** once a week the character shows "weekly review"; open the bubble to Keep (or edit, then Keep) or
   Forget up to 5 facts noticed in the activity log. Unanswered after 2 days means forgotten. State is in `review.json`.
   The tray menu's **Weekly review now** runs it early (it needs a few days of activity to find anything).
+- **Hand-raise:** a silent "!" when you seem stuck: going back and forth between an app and search pages
+  (3 times in 5 minutes), or switching windows a lot and then sitting still in one. Open the chat to see why; ignored,
+  it lowers after 30 seconds. Every hand-raise is logged in `feedback\<date>.jsonl`; after 3 ignores in a row,
+  `searchLoopTrips` or `stuckSwitches` in `config.json` goes up by one. Turn it off with `"handRaiseEnabled": false`.
 
 - `src/Assistant.Core`: the logic, no WPF. Ollama client, tool-calling loop, `search_files` tool (Everything), data folder, dependency checks, diagnostic log.
 - `src/Assistant.App`: thin WPF shell. The overlay character, chat bubble, tray icon and the once-a-second foreground watcher.

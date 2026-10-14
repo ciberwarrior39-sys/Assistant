@@ -27,6 +27,13 @@ public sealed class AppConfig
     public bool GameModeEnabled { get; set; } = true;
     public string[] GameExecutables { get; set; } = [];
 
+    // Hand-raise: a silent "!" when you seem stuck. The numbers grow by one after 3 ignored hand-raises in a row.
+    // searchLoopTrips: back-and-forths between an app and search pages within 5 minutes.
+    // stuckSwitches: window switches within 3 minutes before sitting still in one window.
+    public bool HandRaiseEnabled { get; set; } = true;
+    public int SearchLoopTrips { get; set; } = 3;
+    public int StuckSwitches { get; set; } = 10;
+
     public static AppConfig Load(string path)
     {
         try

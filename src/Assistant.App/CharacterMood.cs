@@ -2,8 +2,9 @@ using System.Windows.Threading;
 
 namespace Assistant.App;
 
-// Review: a weekly review is waiting in the bubble. It stays until the bubble is opened.
-public enum Mood { Idle, Thinking, FoundIt, Confused, Happy, Tired, Sleepy, Review }
+// HandRaised: the silent "!" (it lowers after 30 seconds). Review: the weekly review's hand-raise,
+// which stays up until the bubble is opened because the review waits up to 2 days.
+public enum Mood { Idle, Thinking, FoundIt, Confused, Happy, Tired, Sleepy, Review, HandRaised }
 
 /// <summary>
 /// The character's state machine. Every expression has a cause, and timed moods

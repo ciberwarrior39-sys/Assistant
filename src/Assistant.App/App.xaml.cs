@@ -46,7 +46,8 @@ public partial class App : Application
         AppConfig config = AppConfig.Load(data.ConfigFile);
         Retention.Purge(data, Retention.RawLogs);
 
-        var activity = new ActivityTracker(new ActivityLog(data.ActivityFolder), new Exclusions(data.ExclusionsFile))
+        var exclusions = new Exclusions(data.ExclusionsFile);
+        var activity = new ActivityTracker(new ActivityLog(data.ActivityFolder), exclusions)
         {
             Enabled = config.ActivityLogging,
         };
@@ -104,6 +105,10 @@ public partial class App : Application
 
         tray = CreateTrayIcon(character, data.Root);
 
+        // The silent hand-raise, from the same snapshots as the activity log.
+        var handRaiser = new HandRaiser(mood, bubble, character, new StruggleDetector(exclusions),
+                                        new FeedbackLog(data.FeedbackFolder), config, data.ConfigFile);
+
         // Game mode: free the GPU, hide, and answer through the cloud while a game is in front.
         var gameMode = new GameModeDetector(config.GameExecutables);
         gameMode.Changed += async on =>
@@ -111,6 +116,8 @@ public partial class App : Application
             DiagnosticLog.Info(on ? "Game mode on" : "Game mode off");
             character.SetGameMode(on);
             assistant.CloudOnly = on;
+            handRaiser.Paused = on;
+            if (on) handRaiser.LowerNow();
             if (on) await localModel.UnloadAsync(CancellationToken.None);
         };
 
@@ -121,6 +128,7 @@ public partial class App : Application
             ForegroundSnapshot snapshot = Desktop.Capture();
             activity.Observe(snapshot);
             if (config.GameModeEnabled) gameMode.Observe(snapshot);
+            handRaiser.Observe(snapshot);
         };
         watcher.Start();
 
