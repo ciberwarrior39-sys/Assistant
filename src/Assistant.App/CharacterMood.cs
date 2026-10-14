@@ -2,7 +2,8 @@ using System.Windows.Threading;
 
 namespace Assistant.App;
 
-public enum Mood { Idle, Thinking, FoundIt, Confused, Happy, Tired, Sleepy }
+// Review: a weekly review is waiting in the bubble. It stays until the bubble is opened.
+public enum Mood { Idle, Thinking, FoundIt, Confused, Happy, Tired, Sleepy, Review }
 
 /// <summary>
 /// The character's state machine. Every expression has a cause, and timed moods

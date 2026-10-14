@@ -15,4 +15,13 @@ public interface ITool
 public sealed record ToolOutcome(string TextForModel)
 {
     public IReadOnlyList<FileHit> Files { get; init; } = [];
+
+    /// <summary>Lines the app shows under the reply, word for word (for example what was saved to memory).</summary>
+    public IReadOnlyList<string> Notes { get; init; } = [];
+
+    /// <summary>
+    /// When set, the app says this instead of the model's own words. The small model rambles and
+    /// invents paths after a search, while the file cards already show the real ones.
+    /// </summary>
+    public string? Reply { get; init; }
 }

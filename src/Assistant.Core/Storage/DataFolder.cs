@@ -22,6 +22,7 @@ public sealed class DataFolder(string root)
     public string SentFolder => Path.Combine(Root, "sent");
     public string ConfigFile => Path.Combine(Root, "config.json");
     public string ExclusionsFile => Path.Combine(Root, "exclusions.json");
+    public string ReviewFile => Path.Combine(Root, "review.json");
 
     /// <summary>Creates any missing folders and starter files. Never overwrites what the user has edited.</summary>
     public void EnsureCreated()
@@ -32,11 +33,11 @@ public sealed class DataFolder(string root)
         if (!File.Exists(ConfigFile)) new AppConfig().Save(ConfigFile);
         WriteIfMissing(ExclusionsFile, DefaultExclusions);
         WriteIfMissing(Path.Combine(MemoryFolder, "about-me.md"),
-            "# About me\n\nFacts the assistant has learned about you. Edit or delete any line.\n");
+            "# About me\n\nFacts the assistant has learned about you, one per line starting with \"- \". Edit or delete any line.\n");
         WriteIfMissing(Path.Combine(MemoryFolder, "preferences.md"),
-            "# Preferences\n\nHow the assistant should behave. Edit or delete any line.\n");
+            "# Preferences\n\nHow the assistant should behave, one per line starting with \"- \". Also sent with cloud chat.\n");
         WriteIfMissing(Path.Combine(MemoryFolder, "places.md"),
-            "# Places\n\nFolders and files that matter to you. Edit or delete any line.\n");
+            "# Places\n\nFolders and files that matter to you, one per line starting with \"- \". Edit or delete any line.\n");
     }
 
     static void WriteIfMissing(string path, string content)

@@ -131,7 +131,11 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
         // The model gets names and dates only; the app shows the full paths itself.
         var text = new StringBuilder($"Found {result.Files.Count} file(s), newest first:\n");
         foreach (FileHit file in result.Files) text.AppendLine($"- {file.FileName} (modified {file.Modified:yyyy-MM-dd})");
-        return new ToolOutcome(text.ToString()) { Files = result.Files };
+        return new ToolOutcome(text.ToString())
+        {
+            Files = result.Files,
+            Reply = result.Files.Count == 1 ? "Here's the file I found." : $"I found {result.Files.Count} files that match, newest first.",
+        };
     }
 
     static DateTime? ModifiedAfter(string period, DateTime now) => period switch

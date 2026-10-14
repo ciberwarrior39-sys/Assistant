@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using Assistant.Core;
 using Assistant.Core.Diagnostics;
 using Assistant.Core.Llm;
+using Assistant.Core.Memory;
 using Assistant.Core.Storage;
 
 namespace Assistant.App;
@@ -29,7 +30,8 @@ public partial class ChatBubbleWindow : Window
     readonly DependencyService dependencies;
     readonly DataFolder data;
     readonly CharacterMood mood;
-    readonly ObservableCollection<ChatItem> items = [];
+    readonly ObservableCollection<object> items = []; // ChatItem and ReviewItem
+    Action<ReviewCandidate, string?>? answerReview;     // kept text, or null for forget
     bool busy;
     int dialogsOpen; // while a dialog is up, losing focus must not hide the bubble
 
@@ -59,6 +61,12 @@ public partial class ChatBubbleWindow : Window
             Hide();
             e.Handled = true;
         };
+        // A review still waiting keeps the character's "weekly review" badge on while the bubble is closed.
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible && mood.Current == Mood.Review) mood.Set(Mood.Idle);
+            else if (!IsVisible && HasOpenReview) mood.Set(Mood.Review);
+        };
 
         _ = RefreshStatusAsync();
     }
@@ -82,6 +90,65 @@ public partial class ChatBubbleWindow : Window
         Activate();
         Input.Focus();
         ScrollToBottom();
+    }
+
+    public bool HasOpenReview => items.OfType<ReviewItem>().Any(item => item.IsOpen);
+
+    /// <summary>Adds the weekly review cards. Nothing is saved unless the user presses Keep.</summary>
+    public void ShowReview(IReadOnlyList<ReviewCandidate> candidates, Action<ReviewCandidate, string?> answer)
+    {
+        if (candidates.Count == 0 || HasOpenReview) return;
+        answerReview = answer;
+        items.Add(new ChatItem
+        {
+            Who = "Assistant · weekly review",
+            Text = "Here's what I noticed this week. Keep what's right (edit it first if you like). " +
+                   $"Anything you don't keep within {ReviewSchedule.AnswerWithin.TotalDays} days is forgotten.",
+        });
+        foreach (ReviewCandidate candidate in candidates) items.Add(new ReviewItem(candidate));
+        if (!IsVisible) mood.Set(Mood.Review);
+        ScrollToBottom();
+    }
+
+    /// <summary>A message from the assistant that isn't a reply, for example from the tray menu.</summary>
+    public void Say(string text)
+    {
+        items.Add(new ChatItem { Who = "Assistant", Text = text });
+        ScrollToBottom();
+    }
+
+    /// <summary>The review went unanswered: close its cards. Nothing was saved.</summary>
+    public void ExpireReview()
+    {
+        foreach (ReviewItem item in items.OfType<ReviewItem>().Where(item => item.IsOpen))
+            item.Close("Not reviewed, so forgotten.");
+        if (mood.Current == Mood.Review) mood.Set(Mood.Idle);
+    }
+
+    void OnKeepFact(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: ReviewItem item } || !item.IsOpen) return;
+        string text = item.Fact.Trim();
+        if (text.Length == 0) return; // an emptied fact: Forget is the way to drop it
+
+        try
+        {
+            answerReview?.Invoke(item.Candidate, text);
+            item.Close("Kept in memory.");
+            mood.Set(Mood.Happy, TimeSpan.FromSeconds(2));
+        }
+        catch (IOException ex)
+        {
+            DiagnosticLog.Error("Could not save a reviewed fact", ex);
+            Ask($"Couldn't save it: {ex.Message}");
+        }
+    }
+
+    void OnForgetFact(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: ReviewItem item } || !item.IsOpen) return;
+        answerReview?.Invoke(item.Candidate, null);
+        item.Close("Forgotten.");
     }
 
     async Task RefreshStatusAsync()
@@ -121,7 +188,7 @@ public partial class ChatBubbleWindow : Window
 
             // Always show which brain answered, so it's clear when a message went to the cloud.
             string who = reply.Source == "local" ? "Assistant" : $"Assistant · {reply.Source}";
-            items.Add(new ChatItem { Who = who, Text = reply.Text, Files = reply.Files });
+            items.Add(new ChatItem { Who = who, Text = reply.Text, Files = reply.Files, Notes = reply.Notes });
             ShowReplyMood(reply);
 
             // Timings only: never log what the user asked.
@@ -154,6 +221,8 @@ public partial class ChatBubbleWindow : Window
     {
         if (reply.Files.Count > 0)
             mood.Set(Mood.FoundIt, TimeSpan.FromSeconds(4));
+        else if (reply.Notes.Count > 0)
+            mood.Set(Mood.Happy, TimeSpan.FromSeconds(3)); // saved or forgot something
         else if (reply.ToolCalls > 0)
             mood.Set(Mood.Confused, TimeSpan.FromSeconds(4)); // searched, found nothing
         else if (reply.Source.Contains("cloud unavailable", StringComparison.Ordinal))
@@ -170,6 +239,14 @@ public partial class ChatBubbleWindow : Window
 
     void OnOpenFile(object sender, RoutedEventArgs e)
     {
+        // A card can also be a folder (a remembered place): open it in Explorer.
+        if (sender is FrameworkElement { Tag: string folder } && Directory.Exists(folder))
+        {
+            Shell.OpenFolder(folder);
+            mood.Set(Mood.Happy, TimeSpan.FromSeconds(2));
+            return;
+        }
+
         if (sender is not FrameworkElement { Tag: string path } || !File.Exists(path))
         {
             Ask("That file no longer exists.");
