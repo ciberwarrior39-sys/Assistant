@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The assistant's logic. No WPF here, so it stays testable and the UI stays swappable. -->
+  <PropertyGroup>
+    <RootNamespace>Assistant.Core</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Everything SDK DLL: copy it into the repo's lib folder. It travels to the app's output from here. -->
+  <ItemGroup>
+    <None Include="..\..\lib\Everything64.dll" Link="Everything64.dll" Condition="Exists('..\..\lib\Everything64.dll')" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

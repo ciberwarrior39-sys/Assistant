@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/Assistant.Core/Assistant.Core.csproj" />
+  <Project Path="src/Assistant.App/Assistant.App.csproj" />
+</Solution>

@@ -1,0 +1,12 @@
+# Build output
+bin/
+obj/
+
+# IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Third-party binary: check the Everything SDK's redistribution terms before committing it
+lib/Everything64.dll
