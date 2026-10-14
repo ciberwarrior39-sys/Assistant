@@ -4,6 +4,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using Assistant.Core;
+using Assistant.Core.Activity;
 using Assistant.Core.Diagnostics;
 using Assistant.Core.Llm;
 using Assistant.Core.Search;
@@ -16,6 +17,7 @@ public partial class App : Application
 {
     Mutex? singleInstance;
     System.Windows.Forms.NotifyIcon? tray;
+    ActivityTracker? tracker;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -40,6 +42,13 @@ public partial class App : Application
         DataFolder data = DataFolder.Default();
         data.EnsureCreated();
         AppConfig config = AppConfig.Load(data.ConfigFile);
+        Retention.Purge(data, Retention.RawLogs);
+
+        var activity = new ActivityTracker(new ActivityLog(data.ActivityFolder), new Exclusions(data.ExclusionsFile))
+        {
+            Enabled = config.ActivityLogging,
+        };
+        tracker = activity;
 
         // Development uses the Ollama already installed; the bundled one arrives with the installer (step 10).
         var ollama = new HttpClient
@@ -67,9 +76,10 @@ public partial class App : Application
                 .ToList(),
             new SentLog(data.SentFolder));
 
+        var localModel = new OllamaProvider(ollama, config.Model, config.ContextSize);
         var assistant = new AssistantService(
-            new OllamaProvider(ollama, config.Model, config.ContextSize),
-            [new SearchFilesTool(fileSearch)],
+            localModel,
+            [new SearchFilesTool(fileSearch), new RecentActivityTool(activity)],
             cloud);
         var dependencies = new DependencyService(ollama, config.Model, fileSearch, cloudEndpoints, cloudHttp);
 
@@ -80,6 +90,31 @@ public partial class App : Application
         character.Show();
 
         tray = CreateTrayIcon(character, data.Root);
+
+        // Game mode: free the GPU, hide, and answer through the cloud while a game is in front.
+        var gameMode = new GameModeDetector(config.GameExecutables);
+        gameMode.Changed += async on =>
+        {
+            DiagnosticLog.Info(on ? "Game mode on" : "Game mode off");
+            character.SetGameMode(on);
+            assistant.CloudOnly = on;
+            if (on) await localModel.UnloadAsync(CancellationToken.None);
+        };
+
+        // One look at the foreground window per second feeds both the activity log and game mode.
+        var watcher = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        watcher.Tick += (_, _) =>
+        {
+            ForegroundSnapshot snapshot = Desktop.Capture();
+            activity.Observe(snapshot);
+            if (config.GameModeEnabled) gameMode.Observe(snapshot);
+        };
+        watcher.Start();
+
+        // Raw logs older than 7 days go, checked at startup (above) and every 6 hours.
+        var purge = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
+        purge.Tick += (_, _) => Retention.Purge(data, Retention.RawLogs);
+        purge.Start();
     }
 
     // The character and the bubble stay out of the taskbar; the tray icon is how to find, hide or quit the app.
@@ -118,6 +153,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        tracker?.Flush(DateTime.Now); // write the window in progress
+
         // Without this, a dead icon lingers in the tray until the mouse passes over it.
         if (tray is not null)
         {

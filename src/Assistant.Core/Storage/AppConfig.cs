@@ -19,6 +19,14 @@ public sealed class AppConfig
     public string OpenRouterApiKey { get; set; } = "";
     public string OpenRouterModel { get; set; } = "openrouter/free";
 
+    // Activity log: which apps and window titles you use, kept 7 days in the activity folder, never sent anywhere.
+    public bool ActivityLogging { get; set; } = true;
+
+    // Game mode: when a fullscreen game runs, free the GPU and hide the character.
+    // Add a game's .exe name (for example "Game.exe") if it isn't detected automatically.
+    public bool GameModeEnabled { get; set; } = true;
+    public string[] GameExecutables { get; set; } = [];
+
     public static AppConfig Load(string path)
     {
         try

@@ -29,6 +29,7 @@ public sealed class CharacterWindow : Window
     readonly TextBlock badgeText = new() { Foreground = Brushes.White, FontSize = 11, FontWeight = FontWeights.SemiBold };
     readonly Border badge;
     readonly DispatcherTimer unhide = new();
+    bool inGameMode;
 
     public CharacterWindow(CharacterMood mood, ChatBubbleWindow bubble, string placementFile, string dataRoot, Action quit)
     {
@@ -90,7 +91,11 @@ public sealed class CharacterWindow : Window
         MouseLeftButtonDown += OnLeftButtonDown;
         ContextMenu = BuildMenu(dataRoot, quit);
         mood.Changed += ApplyMood;
-        unhide.Tick += (_, _) => ShowAgain();
+        unhide.Tick += (_, _) =>
+        {
+            unhide.Stop();
+            if (!inGameMode) ShowAgain(); // during a game, it comes back when the game ends
+        };
         Loaded += (_, _) => ApplyMood(mood.Current);
     }
 
@@ -121,6 +126,22 @@ public sealed class CharacterWindow : Window
         StopAnimations();
         unhide.Interval = duration;
         unhide.Start();
+    }
+
+    /// <summary>Game mode: get out of the way while a game runs, and come back afterwards.</summary>
+    public void SetGameMode(bool on)
+    {
+        inGameMode = on;
+        if (on)
+        {
+            bubble.Hide();
+            Hide();
+            StopAnimations();
+        }
+        else if (!unhide.IsEnabled)
+        {
+            ShowAgain(); // unless the user hid it for an hour, which still applies
+        }
     }
 
     public void ShowAgain()

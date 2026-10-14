@@ -31,6 +31,23 @@ public sealed class OllamaProvider(HttpClient http, string model, int contextSiz
         return ParseResponse(document.RootElement);
     }
 
+    /// <summary>Frees the model's VRAM right away (game mode). It reloads on the next request.</summary>
+    public async Task UnloadAsync(CancellationToken ct)
+    {
+        var body = new JsonObject { ["model"] = model, ["keep_alive"] = 0 };
+        try
+        {
+            using HttpResponseMessage response = await http.PostAsync("api/generate", AsContent(body), ct);
+        }
+        catch (HttpRequestException)
+        {
+            // Ollama isn't running, so nothing is loaded.
+        }
+        catch (TaskCanceledException)
+        {
+        }
+    }
+
     async Task<HttpResponseMessage> PostChatAsync(JsonObject body, CancellationToken ct)
     {
         if (sendThinkFlag) body["think"] = false;
