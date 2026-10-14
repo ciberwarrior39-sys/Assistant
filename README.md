@@ -11,7 +11,7 @@ finds files on your computer, and optional free cloud chat handles conversation.
 - **Click** the character: open or close the chat bubble (Esc or clicking elsewhere also closes it).
 - **Drag** it anywhere; it snaps to screen edges and remembers its spot (`placement.json` in the data folder).
 - **Right-click** it, or use the **tray icon**: open data folder, hide for 1 hour, quit.
-- Its color and label show what it's doing: thinking, found it, hmm? (nothing found), tired (cloud unavailable), zzz (idle 10 minutes), ! (hand raised), ! weekly review (waiting for you), listening…, speaking.
+- Its color and label show what it's doing: thinking, found it, hmm? (nothing found), tired (cloud unavailable), zzz (idle 10 minutes), ! (hand raised), ! weekly review (waiting for you), listening…, speaking, time's up!.
 - **Activity log:** which app and window title is in front, and for how long, in `activity\<date>.jsonl`. Idle time,
   the assistant itself and anything in `exclusions.json` are not recorded. Ask "what was I working on today?".
   Turn it off with `"activityLogging": false` in `config.json`.
@@ -34,6 +34,11 @@ finds files on your computer, and optional free cloud chat handles conversation.
   and the reply is read aloud with a Windows voice. Typed questions stay silent. Audio is never saved. Closing the
   bubble or pressing the keys again stops the voice. Settings: `pushToTalkKey`, `voiceName` (e.g. "Zira"),
   `voiceRate` (-10 to 10), `voiceEnabled`. Off in game mode.
+- **Quick answers:** "flip a coin", "heads or tails", "roll 2 dice", "roll a d20", "pick a number between 1 and 50",
+  "pick pizza or sushi", "what time is it", "what's the date", "what's 12 times 7", "15% of 80",
+  "set a timer for 5 minutes", "remind me in 10 minutes to check the oven", "how much time is left", "cancel the timer".
+  Answered instantly by code, not the model (a model can't be random, doesn't know the time and gets sums wrong),
+  and they work in game mode too. Timers are said aloud when due and are lost if the app quits.
 - **Looking at the screen:** ask "look at this" or "what does this error mean?" and the local model looks at the window
   you were using (never the whole screen) and answers. The picture stays in memory, is never saved and never goes
   to the cloud. Windows in `exclusions.json` and minimized windows are refused. A green "Looked at:" line shows which window.

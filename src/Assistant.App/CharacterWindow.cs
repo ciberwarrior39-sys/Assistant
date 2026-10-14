@@ -223,6 +223,7 @@ public sealed class CharacterWindow : Window
         Mood.HandRaised => (Color.FromRgb(0xF5, 0xA6, 0x23), "!", 12.0, 0.6, 0.0, 1.0),
         Mood.Listening => (Color.FromRgb(0xE2, 0x4A, 0x6A), "listening…", 2.0, 0.4, 0.0, 1.0),
         Mood.Speaking => (Color.FromRgb(0x3E, 0xA8, 0xD8), "speaking", 10.0, 0.3, 0.0, 1.0),
+        Mood.TimeUp => (Color.FromRgb(0xF0, 0x5A, 0x28), "time's up!", 18.0, 0.3, 6.0, 1.0),
         _ => (Color.FromRgb(0x4A, 0x90, 0xE2), "", 6.0, 1.2, 0.0, 1.0),
     };
 

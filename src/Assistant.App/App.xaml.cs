@@ -82,6 +82,7 @@ public partial class App : Application
             new SentLog(data.SentFolder));
 
         var memory = new MemoryStore(data.MemoryFolder);
+        var reminders = new Reminders(); // "set a timer for 5 minutes"
         var windowCapture = new WindowCapture(exclusions); // "look at this": the window the user was using
         var localModel = new OllamaProvider(ollama, config.Model, config.ContextSize);
         AssistantService? service = null; // the memory tools check the message being answered
@@ -97,7 +98,8 @@ public partial class App : Application
                 new LookAtScreenTool(localModel, windowCapture.Capture),
             ],
             cloud,
-            memory);
+            memory,
+            reminders);
         service = assistant;
         var dependencies = new DependencyService(ollama, config.Model, fileSearch, cloudEndpoints, cloudHttp);
 
@@ -124,6 +126,21 @@ public partial class App : Application
                                         bubble, character, mood);
         }
 
+        // A timer is due: show it on the character and in the bubble without stealing focus, and say it aloud.
+        // In game mode the character stays hidden, so it is only said.
+        bool gaming = false;
+        reminders.Due += text =>
+        {
+            bubble.Say(text);
+            if (!gaming)
+            {
+                character.ShowAgain();
+                mood.Set(Mood.TimeUp, TimeSpan.FromSeconds(15));
+            }
+            if (voice is not null) voice.Announce(text);
+            else System.Media.SystemSounds.Exclamation.Play();
+        };
+
         // The silent hand-raise, from the same snapshots as the activity log.
         var handRaiser = new HandRaiser(mood, bubble, character, new StruggleDetector(exclusions),
                                         new FeedbackLog(data.FeedbackFolder), config, data.ConfigFile);
@@ -133,6 +150,7 @@ public partial class App : Application
         gameMode.Changed += async on =>
         {
             DiagnosticLog.Info(on ? "Game mode on" : "Game mode off");
+            gaming = on;
             character.SetGameMode(on);
             assistant.CloudOnly = on;
             handRaiser.Paused = on;

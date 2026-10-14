@@ -157,6 +157,9 @@ public sealed class VoiceController : IDisposable
         }
     }
 
+    /// <summary>Says something the user asked for in advance, like a timer, even in game mode.</summary>
+    public void Announce(string text) => speaker.Speak(text);
+
     void Tell(string text)
     {
         character.ShowAgain();
