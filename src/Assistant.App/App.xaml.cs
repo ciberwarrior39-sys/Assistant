@@ -82,6 +82,7 @@ public partial class App : Application
             new SentLog(data.SentFolder));
 
         var memory = new MemoryStore(data.MemoryFolder);
+        var windowCapture = new WindowCapture(exclusions); // "look at this": the window the user was using
         var localModel = new OllamaProvider(ollama, config.Model, config.ContextSize);
         AssistantService? service = null; // the memory tools check the message being answered
         Func<string> currentUserText = () => service?.CurrentUserText ?? "";
@@ -93,6 +94,7 @@ public partial class App : Application
                 new RememberTool(memory, currentUserText),
                 new RecallTool(memory),
                 new ForgetTool(memory, currentUserText),
+                new LookAtScreenTool(localModel, windowCapture.Capture),
             ],
             cloud,
             memory);
@@ -145,6 +147,7 @@ public partial class App : Application
         {
             ForegroundSnapshot snapshot = Desktop.Capture();
             activity.Observe(snapshot);
+            windowCapture.Observe(snapshot);
             if (config.GameModeEnabled) gameMode.Observe(snapshot);
             handRaiser.Observe(snapshot);
         };

@@ -13,6 +13,9 @@ public sealed record ChatMessage(ChatRole Role, string Content)
     public IReadOnlyList<ToolCall> ToolCalls { get; init; } = [];
     public string? ToolName { get; init; }
 
+    /// <summary>Base64 images for a vision model (only the local model ever gets these).</summary>
+    public IReadOnlyList<string> Images { get; init; } = [];
+
     public static ChatMessage ForSystem(string text) => new(ChatRole.System, text);
     public static ChatMessage ForUser(string text) => new(ChatRole.User, text);
     public static ChatMessage ForAssistant(string text) => new(ChatRole.Assistant, text);

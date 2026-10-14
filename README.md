@@ -3,7 +3,7 @@
 A modern, smarter Clippy-style desktop assistant for Windows. Free, local-first, and transparent:
 everything it learns lives in plain files in `Documents\Assistant\`.
 
-## Status: build steps 1–8
+## Status: build steps 1–9
 
 A placeholder character in the corner of the screen. Click it to chat in a speech bubble: the local model
 finds files on your computer, and optional free cloud chat handles conversation.
@@ -34,6 +34,9 @@ finds files on your computer, and optional free cloud chat handles conversation.
   and the reply is read aloud with a Windows voice. Typed questions stay silent. Audio is never saved. Closing the
   bubble or pressing the keys again stops the voice. Settings: `pushToTalkKey`, `voiceName` (e.g. "Zira"),
   `voiceRate` (-10 to 10), `voiceEnabled`. Off in game mode.
+- **Looking at the screen:** ask "look at this" or "what does this error mean?" and the local model looks at the window
+  you were using (never the whole screen) and answers. The picture stays in memory, is never saved and never goes
+  to the cloud. Windows in `exclusions.json` and minimized windows are refused. A green "Looked at:" line shows which window.
 
 - `src/Assistant.Core`: the logic, no WPF. Ollama client, tool-calling loop, `search_files` tool (Everything), data folder, dependency checks, diagnostic log.
 - `src/Assistant.App`: thin WPF shell. The overlay character, chat bubble, tray icon and the once-a-second foreground watcher.

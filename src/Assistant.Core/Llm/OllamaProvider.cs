@@ -126,6 +126,7 @@ public sealed class OllamaProvider(HttpClient http, string model, int contextSiz
         }
 
         if (message.ToolName is not null) json["tool_name"] = message.ToolName;
+        if (message.Images.Count > 0) json["images"] = new JsonArray(message.Images.Select(image => (JsonNode?)JsonValue.Create(image)).ToArray());
         return json;
     }
 

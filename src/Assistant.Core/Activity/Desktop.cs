@@ -13,7 +13,8 @@ public sealed record ForegroundSnapshot(
     TimeSpan Idle,
     bool FullscreenGame,
     bool PresentationMode,
-    bool BorderlessFullscreen);
+    bool BorderlessFullscreen,
+    IntPtr Window = default); // the window itself, so "look at this" can capture it
 
 /// <summary>Reads the foreground window, the user's idle time and Windows' fullscreen state.</summary>
 public static class Desktop
@@ -45,7 +46,8 @@ public static class Desktop
             idle,
             fullscreenGame,
             presentation,
-            IsBorderlessFullscreen(window));
+            IsBorderlessFullscreen(window),
+            window);
     }
 
     static TimeSpan IdleTime()
