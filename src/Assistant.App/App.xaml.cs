@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Windows;
@@ -14,6 +15,7 @@ namespace Assistant.App;
 public partial class App : Application
 {
     Mutex? singleInstance;
+    System.Windows.Forms.NotifyIcon? tray;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -30,6 +32,8 @@ public partial class App : Application
             return;
         }
 
+        // The windows hide instead of closing, so the app ends only through Quit.
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
         DispatcherUnhandledException += OnUnhandledException;
         DiagnosticLog.Info("Starting");
 
@@ -69,9 +73,38 @@ public partial class App : Application
             cloud);
         var dependencies = new DependencyService(ollama, config.Model, fileSearch, cloudEndpoints, cloudHttp);
 
-        var window = new MainWindow(assistant, dependencies, data);
-        MainWindow = window;
-        window.Show();
+        var mood = new CharacterMood();
+        var bubble = new ChatBubbleWindow(assistant, dependencies, data, mood);
+        var character = new CharacterWindow(mood, bubble, Path.Combine(data.Root, "placement.json"), data.Root, Shutdown);
+        MainWindow = character;
+        character.Show();
+
+        tray = CreateTrayIcon(character, data.Root);
+    }
+
+    // The character and the bubble stay out of the taskbar; the tray icon is how to find, hide or quit the app.
+    System.Windows.Forms.NotifyIcon CreateTrayIcon(CharacterWindow character, string dataRoot)
+    {
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+        menu.Items.Add("Show assistant", null, (_, _) => character.ShowAgain());
+        menu.Items.Add("Hide for 1 hour", null, (_, _) => character.HideFor(TimeSpan.FromHours(1)));
+        menu.Items.Add("Open data folder", null, (_, _) => Shell.OpenFolder(dataRoot));
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add("Quit", null, (_, _) => Shutdown());
+
+        var icon = new System.Windows.Forms.NotifyIcon
+        {
+            Icon = System.Drawing.SystemIcons.Application,
+            Text = "Assistant",
+            ContextMenuStrip = menu,
+            Visible = true,
+        };
+        icon.DoubleClick += (_, _) =>
+        {
+            character.ShowAgain();
+            character.OpenChat();
+        };
+        return icon;
     }
 
     void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
@@ -85,6 +118,12 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // Without this, a dead icon lingers in the tray until the mouse passes over it.
+        if (tray is not null)
+        {
+            tray.Visible = false;
+            tray.Dispose();
+        }
         singleInstance?.Dispose();
         base.OnExit(e);
     }

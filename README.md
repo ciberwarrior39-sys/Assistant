@@ -3,9 +3,15 @@
 A modern, smarter Clippy-style desktop assistant for Windows. Free, local-first, and transparent:
 everything it learns lives in plain files in `Documents\Assistant\`.
 
-## Status: build steps 1, 2 and 5
+## Status: build steps 1, 2, 3 and 5
 
-A chat window where the local model finds files on your computer, with optional free cloud chat.
+A placeholder character in the corner of the screen. Click it to chat in a speech bubble: the local model
+finds files on your computer, and optional free cloud chat handles conversation.
+
+- **Click** the character: open or close the chat bubble (Esc or clicking elsewhere also closes it).
+- **Drag** it anywhere; it snaps to screen edges and remembers its spot (`placement.json` in the data folder).
+- **Right-click** it, or use the **tray icon**: open data folder, hide for 1 hour, quit.
+- Its color and label show what it's doing: thinking, found it, hmm? (nothing found), tired (cloud unavailable), zzz (idle 10 minutes).
 
 - `src/Assistant.Core`: the logic, no WPF. Ollama client, tool-calling loop, `search_files` tool (Everything), data folder, dependency checks, diagnostic log.
 - `src/Assistant.App`: thin WPF shell. A plain chat window for now; the overlay character comes in step 3.
