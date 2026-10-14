@@ -11,6 +11,7 @@ using Assistant.Core.Memory;
 using Assistant.Core.Search;
 using Assistant.Core.Storage;
 using Assistant.Core.Tools;
+using Assistant.Core.Voice;
 
 namespace Assistant.App;
 
@@ -20,6 +21,7 @@ public partial class App : Application
     System.Windows.Forms.NotifyIcon? tray;
     ActivityTracker? tracker;
     Action? reviewNow; // set once the review is wired up, used by the tray menu
+    VoiceController? voice;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -105,6 +107,21 @@ public partial class App : Application
 
         tray = CreateTrayIcon(character, data.Root);
 
+        // Push-to-talk. The speech model lives with the app's own files, not in the user's data folder.
+        if (config.VoiceEnabled)
+        {
+            var hotkey = new PushToTalkHotkey(character, config.PushToTalkKey);
+            if (!hotkey.IsRegistered)
+            {
+                DiagnosticLog.Info("Push-to-talk keys could not be registered");
+                bubble.Say($"Push-to-talk is off: {config.PushToTalkKey} is already used by another app or isn't a valid key. " +
+                           "Change pushToTalkKey in config.json and restart.");
+            }
+            string models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Assistant", "models");
+            voice = new VoiceController(hotkey, new SpeechToText(models), new Speaker(config.VoiceName, config.VoiceRate),
+                                        bubble, character, mood);
+        }
+
         // The silent hand-raise, from the same snapshots as the activity log.
         var handRaiser = new HandRaiser(mood, bubble, character, new StruggleDetector(exclusions),
                                         new FeedbackLog(data.FeedbackFolder), config, data.ConfigFile);
@@ -117,6 +134,7 @@ public partial class App : Application
             character.SetGameMode(on);
             assistant.CloudOnly = on;
             handRaiser.Paused = on;
+            if (voice is not null) voice.Paused = on;
             if (on) handRaiser.LowerNow();
             if (on) await localModel.UnloadAsync(CancellationToken.None);
         };
@@ -206,6 +224,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         tracker?.Flush(DateTime.Now); // write the window in progress
+        voice?.Dispose();
 
         // Without this, a dead icon lingers in the tray until the mouse passes over it.
         if (tray is not null)

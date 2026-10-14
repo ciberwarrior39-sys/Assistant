@@ -34,6 +34,13 @@ public sealed class AppConfig
     public int SearchLoopTrips { get; set; } = 3;
     public int StuckSwitches { get; set; } = 10;
 
+    // Voice: hold the push-to-talk keys while talking (no always-on microphone). Replies to spoken questions are
+    // read aloud with a Windows voice; voiceName picks one by part of its name (e.g. "Zira"), voiceRate is -10 to 10.
+    public bool VoiceEnabled { get; set; } = true;
+    public string PushToTalkKey { get; set; } = "Ctrl+Alt+Space";
+    public string VoiceName { get; set; } = "";
+    public int VoiceRate { get; set; } = 0;
+
     public static AppConfig Load(string path)
     {
         try

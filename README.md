@@ -3,7 +3,7 @@
 A modern, smarter Clippy-style desktop assistant for Windows. Free, local-first, and transparent:
 everything it learns lives in plain files in `Documents\Assistant\`.
 
-## Status: build steps 1–7
+## Status: build steps 1–8
 
 A placeholder character in the corner of the screen. Click it to chat in a speech bubble: the local model
 finds files on your computer, and optional free cloud chat handles conversation.
@@ -11,7 +11,7 @@ finds files on your computer, and optional free cloud chat handles conversation.
 - **Click** the character: open or close the chat bubble (Esc or clicking elsewhere also closes it).
 - **Drag** it anywhere; it snaps to screen edges and remembers its spot (`placement.json` in the data folder).
 - **Right-click** it, or use the **tray icon**: open data folder, hide for 1 hour, quit.
-- Its color and label show what it's doing: thinking, found it, hmm? (nothing found), tired (cloud unavailable), zzz (idle 10 minutes), ! (hand raised), ! weekly review (waiting for you).
+- Its color and label show what it's doing: thinking, found it, hmm? (nothing found), tired (cloud unavailable), zzz (idle 10 minutes), ! (hand raised), ! weekly review (waiting for you), listening…, speaking.
 - **Activity log:** which app and window title is in front, and for how long, in `activity\<date>.jsonl`. Idle time,
   the assistant itself and anything in `exclusions.json` are not recorded. Ask "what was I working on today?".
   Turn it off with `"activityLogging": false` in `config.json`.
@@ -29,6 +29,11 @@ finds files on your computer, and optional free cloud chat handles conversation.
   (3 times in 5 minutes), or switching windows a lot and then sitting still in one. Open the chat to see why; ignored,
   it lowers after 30 seconds. Every hand-raise is logged in `feedback\<date>.jsonl`; after 3 ignores in a row,
   `searchLoopTrips` or `stuckSwitches` in `config.json` goes up by one. Turn it off with `"handRaiseEnabled": false`.
+- **Voice:** hold **Ctrl+Alt+Space** while talking and let go when done. Speech is turned into text on this computer
+  (Whisper base.en on the CPU; the ~140 MB model downloads to `%LocalAppData%\Assistant\models` on the first press),
+  and the reply is read aloud with a Windows voice. Typed questions stay silent. Audio is never saved. Closing the
+  bubble or pressing the keys again stops the voice. Settings: `pushToTalkKey`, `voiceName` (e.g. "Zira"),
+  `voiceRate` (-10 to 10), `voiceEnabled`. Off in game mode.
 
 - `src/Assistant.Core`: the logic, no WPF. Ollama client, tool-calling loop, `search_files` tool (Everything), data folder, dependency checks, diagnostic log.
 - `src/Assistant.App`: thin WPF shell. The overlay character, chat bubble, tray icon and the once-a-second foreground watcher.

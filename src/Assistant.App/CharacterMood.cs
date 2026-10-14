@@ -4,7 +4,8 @@ namespace Assistant.App;
 
 // HandRaised: the silent "!" (it lowers after 30 seconds). Review: the weekly review's hand-raise,
 // which stays up until the bubble is opened because the review waits up to 2 days.
-public enum Mood { Idle, Thinking, FoundIt, Confused, Happy, Tired, Sleepy, Review, HandRaised }
+// Listening: push-to-talk is held. Speaking: a reply is being read aloud.
+public enum Mood { Idle, Thinking, FoundIt, Confused, Happy, Tired, Sleepy, Review, HandRaised, Listening, Speaking }
 
 /// <summary>
 /// The character's state machine. Every expression has a cause, and timed moods

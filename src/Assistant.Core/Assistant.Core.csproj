@@ -10,4 +10,13 @@
     <None Include="..\..\lib\Everything64.dll" Link="Everything64.dll" Condition="Exists('..\..\lib\Everything64.dll')" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Voice (build step 8), all free and open source: microphone capture, local Whisper speech-to-text
+       on the CPU, and Windows' own text-to-speech voices. NAudio stays on 2.2.1, whose API is known to work here. -->
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageReference Include="System.Speech" Version="10.0.12" />
+  </ItemGroup>
+
 </Project>

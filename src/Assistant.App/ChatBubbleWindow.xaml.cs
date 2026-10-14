@@ -173,10 +173,19 @@ public partial class ChatBubbleWindow : Window
     {
         string text = Input.Text.Trim();
         if (text.Length == 0 || busy) return;
-
-        mood.Touch();
         Input.Clear();
-        items.Add(new ChatItem { Who = "You", Text = text });
+        await SendAsync(text, "You");
+    }
+
+    /// <summary>A question said aloud: shown as "You (voice)" and answered like a typed one. Null if busy or it failed.</summary>
+    public Task<AssistantReply?> AskSpokenAsync(string text) => busy ? Task.FromResult<AssistantReply?>(null) : SendAsync(text, "You (voice)");
+
+    public bool IsBusy => busy;
+
+    async Task<AssistantReply?> SendAsync(string text, string who)
+    {
+        mood.Touch();
+        items.Add(new ChatItem { Who = who, Text = text });
         ScrollToBottom();
         SetBusy(true);
         mood.Set(Mood.Thinking);
@@ -187,12 +196,13 @@ public partial class ChatBubbleWindow : Window
             AssistantReply reply = await assistant.SendAsync(text, CancellationToken.None);
 
             // Always show which brain answered, so it's clear when a message went to the cloud.
-            string who = reply.Source == "local" ? "Assistant" : $"Assistant · {reply.Source}";
-            items.Add(new ChatItem { Who = who, Text = reply.Text, Files = reply.Files, Notes = reply.Notes });
+            string from = reply.Source == "local" ? "Assistant" : $"Assistant · {reply.Source}";
+            items.Add(new ChatItem { Who = from, Text = reply.Text, Files = reply.Files, Notes = reply.Notes });
             ShowReplyMood(reply);
 
             // Timings only: never log what the user asked.
             DiagnosticLog.Info($"Reply in {timer.ElapsedMilliseconds} ms from {reply.Source}, {reply.ToolCalls} tool call(s), {reply.Files.Count} file(s)");
+            return reply;
         }
         catch (HttpRequestException ex)
         {
@@ -213,8 +223,9 @@ public partial class ChatBubbleWindow : Window
         {
             SetBusy(false);
             ScrollToBottom();
-            Input.Focus();
+            if (IsVisible) Input.Focus();
         }
+        return null;
     }
 
     void ShowReplyMood(AssistantReply reply)
