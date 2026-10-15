@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Assistant.Core.Llm;
 using Assistant.Core.Memory;
 using Assistant.Core.Search;
@@ -46,6 +47,58 @@ public sealed class RememberTool(MemoryStore memory, Func<string> currentUserTex
     public static bool IsRequest(string userText) =>
         MemoryArguments.Mentions(userText, Cues) && !MemoryArguments.Mentions(userText, Questions);
 
+    // Facts about how the assistant should behave. Only these go to preferences.md, the one file sent to the cloud,
+    // so anything unclear stays in about-me.md, which never leaves this computer.
+    static readonly Regex PreferenceWords = new(
+        @"\b(call me|talk to me|speak to me|answers?|repl(y|ies)|respond)\b|^(you should|you must|always|never|don't|do not|be)\b",
+        RegexOptions.IgnoreCase);
+    static readonly Regex PlaceWords = new(@"[A-Za-z]:\\|\b(folder|file|drive)\b", RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// The fact in the user's own words, for when the model didn't call remember:
+    /// "Please remember that my name is Poni" -> "my name is Poni"; "my name is Poni, remember that" -> "my name is Poni".
+    /// </summary>
+    public static (string Fact, MemoryKind Kind)? FromMessage(string userText)
+    {
+        if (!IsRequest(userText)) return null;
+
+        // Lower-casing keeps the length, so positions match the original text.
+        string lower = userText.ToLowerInvariant().Replace('’', '\'');
+        (int index, string cue) = Cues.Select(word => (index: lower.IndexOf(word, StringComparison.Ordinal), word))
+            .Where(found => found.index >= 0)
+            .MinBy(found => found.index);
+
+        string after = Tidy(userText[(index + cue.Length)..]);
+        foreach (string lead in new[] { "that ", "this: ", "this " })
+        {
+            if (after.StartsWith(lead, StringComparison.OrdinalIgnoreCase)) after = after[lead.Length..].TrimStart();
+        }
+        string fact = after.Length >= 3 && !after.Equals("this", StringComparison.OrdinalIgnoreCase)
+                      && !after.Equals("that", StringComparison.OrdinalIgnoreCase)
+            ? after
+            : Tidy(userText[..index]);
+        if (fact.Length < 3) return null;
+
+        MemoryKind kind = PlaceWords.IsMatch(fact) ? MemoryKind.Places
+            : PreferenceWords.IsMatch(fact) ? MemoryKind.Preferences
+            : MemoryKind.AboutMe;
+        return (fact, kind);
+    }
+
+    // Drops punctuation and filler around the fact: ", please", "and", "can you", trailing "?".
+    static string Tidy(string text)
+    {
+        string result = text.Trim().Trim(',', ':', ';', '-', '.', '!', '?', ' ');
+        foreach (string filler in new[] { "please", "can you", "could you", "and", "so", "ok", "okay", "hey" })
+        {
+            if (result.StartsWith(filler + " ", StringComparison.OrdinalIgnoreCase)) result = result[filler.Length..];
+            if (result.EndsWith(" " + filler, StringComparison.OrdinalIgnoreCase)) result = result[..^filler.Length];
+            if (result.Equals(filler, StringComparison.OrdinalIgnoreCase)) result = "";
+            result = result.Trim().Trim(',', ':', ';', '-', '.', '!', '?', ' ');
+        }
+        return result;
+    }
+
     public Task<ToolOutcome> ExecuteAsync(JsonElement arguments, CancellationToken ct)
     {
         if (!IsRequest(currentUserText()))
@@ -68,6 +121,28 @@ public sealed class RememberTool(MemoryStore memory, Func<string> currentUserTex
 public sealed class RecallTool(MemoryStore memory) : ITool
 {
     const int MaxFacts = 15;
+
+    // Always about saved facts.
+    static readonly string[] MemoryQuestions =
+        ["do you remember", "what do you remember", "what do you know about me", "did i tell you", "what did i tell you", "who am i"];
+
+    // "What's my name?": about saved facts only when one matches; otherwise ordinary chat ("what's my IP?").
+    static readonly string[] MyQuestions =
+        ["what's my", "whats my", "what is my", "what are my", "when is my", "when's my", "who is my", "who's my",
+         "how old am i", "where do i", "where am i", "do i like", "what do i"];
+
+    /// <summary>A question the saved facts answer, for when the model didn't call recall itself.</summary>
+    public static bool ShouldLookUp(string userText, MemoryStore memory)
+    {
+        if (RememberTool.IsRequest(userText)) return false;
+        if (MemoryArguments.Mentions(userText, MemoryQuestions)) return true;
+        if (!MemoryArguments.Mentions(userText, MyQuestions)) return false;
+
+        string[] words = MemoryStore.Words(userText);
+        return memory.AllFacts().Any(fact => MemoryStore.Overlap(words, MemoryStore.Words(fact.Text)) > 0);
+    }
+
+    public static JsonElement TopicArguments(string userText) => JsonSerializer.SerializeToElement(new { topic = userText });
 
     public ToolDefinition Definition { get; } = new(
         "recall",
@@ -94,7 +169,8 @@ public sealed class RecallTool(MemoryStore memory) : ITool
         string topic = MemoryArguments.Text(arguments, "topic");
         IReadOnlyList<MemoryFact> facts = memory.Search(topic, all).Take(MaxFacts).ToList();
 
-        var text = new StringBuilder("Saved facts, most related first. Answer only from these; if none fits, say you don't know:\n");
+        var text = new StringBuilder("Saved facts, most related first (\"I\" and \"my\" in a fact mean the user). "
+                                     + "Answer only from these; if none fits, say you don't know:\n");
         foreach (MemoryFact fact in facts) text.AppendLine($"- {fact.Text}");
 
         // The files themselves, so the user can open and edit what is stored.

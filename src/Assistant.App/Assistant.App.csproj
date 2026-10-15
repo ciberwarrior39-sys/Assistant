@@ -8,6 +8,12 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>Assistant.App</RootNamespace>
     <AssemblyName>Assistant</AssemblyName>
+    <!-- Velopack must run before WPF starts, so Main is written by hand in App.xaml.cs. -->
+    <StartupObject>Assistant.App.App</StartupObject>
+    <!-- Set by build-release.ps1 for each release. -->
+    <Version>0.1.0</Version>
+    <!-- The GitHub repository releases are uploaded to; empty means no update checks. Set by build-release.ps1. -->
+    <UpdateRepo></UpdateRepo>
   </PropertyGroup>
 
   <!-- Keep Windows Forms names out of the global usings, or Application, MessageBox, Button
@@ -15,6 +21,21 @@
   <ItemGroup>
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <!-- App.xaml as a Page, so WPF doesn't generate its own Main. -->
+  <ItemGroup>
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="UpdateRepo" Value="$(UpdateRepo)" />
+  </ItemGroup>
+
+  <!-- Installer, automatic updates and uninstall (free, open source). -->
+  <ItemGroup>
+    <PackageReference Include="Velopack" Version="1.2.161" />
   </ItemGroup>
 
   <ItemGroup>

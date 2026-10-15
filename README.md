@@ -3,7 +3,7 @@
 A modern, smarter Clippy-style desktop assistant for Windows. Free, local-first, and transparent:
 everything it learns lives in plain files in `Documents\Assistant\`.
 
-## Status: build steps 1–9, plus the setup wizard from step 10
+## Status: build steps 1–10
 
 A placeholder character in the corner of the screen. Click it to chat in a speech bubble: the local model
 finds files on your computer, and optional free cloud chat handles conversation.
@@ -68,6 +68,24 @@ On first start (or tray > **Run setup again**) a wizard sets everything up, so n
 5. **Done:** a few tips, and the assistant appears.
 
 Cloud keys are saved encrypted for the Windows user (DPAPI) as `"dpapi:..."` in `config.json`.
+
+## Making an installer
+
+```
+.\build-release.ps1 -Version 1.0.0
+```
+
+This publishes the app self-contained (the other PC needs no .NET) and packs it with Velopack into
+`Releases\DesktopAssistant-win-Setup.exe`: one file to share. Installing needs no admin rights and adds Desktop and
+Start menu shortcuts; the first start opens the setup wizard.
+
+- **Updates:** add `-Repo https://github.com/<you>/<repo>` and the app checks that repository's GitHub Releases once a
+  day, downloads new versions quietly and installs them on the next start (or tray > Restart to update). Add
+  `-Token <GitHub token>` to upload the release too. Bump `-Version` every time.
+- **Uninstall** (Windows Settings > Apps) removes the app, its own Ollama, models and logs (`%LocalAppData%\Assistant`),
+  but keeps `Documents\Assistant`. Settings > Features > "Delete all my data" removes that too.
+- **SmartScreen:** the installer isn't code-signed, so Windows shows "Windows protected your PC" the first time.
+  Click More info > Run anyway.
 
 ## Requirements (development)
 

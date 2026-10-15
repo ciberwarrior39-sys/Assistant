@@ -161,8 +161,14 @@ public sealed partial class AssistantService
         for (int round = 0; round < MaxToolRounds; round++)
         {
             LlmResponse response = await llm.ChatAsync(BuildMessages(), definitions, ct);
+            IReadOnlyList<ToolCall> calls = response.ToolCalls;
 
-            if (response.ToolCalls.Count == 0)
+            // The small model sometimes answers "what's my name?" without looking it up, and then the cloud
+            // (which never sees about-me facts) says it doesn't know. Look it up for it, and stay local.
+            if (calls.Count == 0 && toolCalls == 0 && !memoryRequest && memory is not null && RecallTool.ShouldLookUp(userText, memory))
+                calls = [new ToolCall("recall", RecallTool.TopicArguments(userText))];
+
+            if (calls.Count == 0)
             {
                 // Plain conversation, with no tools anywhere in this turn: the cloud may answer it.
                 if (toolCalls == 0 && !memoryRequest && cloud is { IsConfigured: true })
@@ -178,16 +184,16 @@ public sealed partial class AssistantService
                         ? CheckPaths(response.Content, files)
                         : files.Count > 0 ? "Here's what I found." : "I'm not sure how to help with that.";
                 if (replies.Count == 0) AddPathCards(text, files);
-                // The small model sometimes says "got it" without saving: say what really happened.
+                // The small model sometimes says "got it" without saving: then the app saves the user's own words.
                 if (saveRequest && !rememberCalled)
-                    text += "\n(Nothing was saved to memory. Try again with \"remember that ...\".)";
+                    text = SaveDirectly(userText, notes);
 
                 string source = toolCalls == 0 && !memoryRequest && cloud is { IsConfigured: true } ? "local, cloud unavailable" : "local";
                 return Finish(text, files, notes, toolCalls, source);
             }
 
-            history.Add(ChatMessage.ForAssistantToolCalls(response.Content, response.ToolCalls));
-            foreach (ToolCall call in response.ToolCalls)
+            history.Add(ChatMessage.ForAssistantToolCalls(calls == response.ToolCalls ? response.Content : "", calls));
+            foreach (ToolCall call in calls)
             {
                 toolCalls++;
                 rememberCalled |= call.Name == "remember";
@@ -225,6 +231,22 @@ public sealed partial class AssistantService
             return "I'm not sure where that is. Ask me to find it by name, for example \"find my CV\".";
         }
         return text;
+    }
+
+    /// <summary>
+    /// "Remember that..." the model didn't act on: saved by code, in the user's own words. The reply is fixed text,
+    /// because whatever the model said instead can't be trusted to match what happened.
+    /// </summary>
+    string SaveDirectly(string userText, List<string> notes)
+    {
+        if (memory is null || RememberTool.FromMessage(userText) is not { } saved)
+            return "I'm not sure what to remember. Try \"remember that ...\" with the fact after it.";
+
+        if (!memory.Add(saved.Kind, saved.Fact, "you asked me to remember it")) return "I already had that saved.";
+
+        DiagnosticLog.Info("Model skipped the remember tool; saved by the app");
+        notes.Add($"Saved to {Path.GetFileName(memory.FileFor(saved.Kind))}: {saved.Fact}");
+        return "Got it, I'll remember that.";
     }
 
     /// <summary>

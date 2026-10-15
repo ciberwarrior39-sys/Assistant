@@ -18,7 +18,9 @@ public sealed record SettingsHost(
     Action<bool> PreviewBubble,        // show or hide the bubble next to the character, without focus
     Action<string> TestVoice,          // say a sample sentence with the current voice settings
     Action Restart,
-    Action TryScreensaver);            // start the screensaver in 2 seconds
+    Action TryScreensaver,             // start the screensaver in 2 seconds
+    Action DeleteAllData,              // remove Documents\Assistant and close the app
+    string Version);
 
 /// <summary>
 /// Settings, saved to config.json. Most changes show up immediately on the character and the bubble;
@@ -340,6 +342,26 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(Labeled("Groq key", KeyBox(edited.GroqApiKey, value => edited.GroqApiKey = value)));
         panel.Children.Add(Labeled("OpenRouter key", KeyBox(edited.OpenRouterApiKey, value => edited.OpenRouterApiKey = value)));
         panel.Children.Add(Hint("Keys are saved encrypted for your Windows account, in config.json on this computer only."));
+
+        panel.Children.Add(Heading("Updates"));
+        panel.Children.Add(Check("Check for a new version once a day and install it on the next start", edited.AutoUpdate,
+            value => edited.AutoUpdate = value));
+        panel.Children.Add(Hint($"This is version {host.Version}."));
+
+        panel.Children.Add(Heading("Your data"));
+        panel.Children.Add(Hint("Uninstalling the app keeps Documents\\Assistant (memory, settings, logs) in case you come back. " +
+                                "To remove it all now, use this button. The assistant closes afterwards and starts fresh next time."));
+        var delete = new Button { Content = "Delete all my data…", Padding = new Thickness(10, 2, 10, 2), HorizontalAlignment = HorizontalAlignment.Left, Foreground = Brushes.DarkRed };
+        delete.Click += (_, _) =>
+        {
+            if (MessageBox.Show(this, "Delete everything in Documents\\Assistant: memory, settings, activity and chat logs? This can't be undone.",
+                    "Delete all my data", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+                return;
+            saved = true; // nothing to put back
+            Close();
+            host.DeleteAllData();
+        };
+        panel.Children.Add(delete);
         return panel;
     }
 

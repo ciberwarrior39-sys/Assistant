@@ -72,6 +72,10 @@ public sealed class AppConfig
     public int ScreensaverMinutesBeforeScreenOff { get; set; } = 3;
     public int ScreensaverFallbackMinutes { get; set; } = 10;
 
+    // Updates: once a day the installed app looks for a new version on the project's GitHub Releases,
+    // downloads it quietly and installs it on the next start.
+    public bool AutoUpdate { get; set; } = true;
+
     // The character's colors and size, and the chat bubble's theme. Easiest to change in Settings.
     public Appearance Appearance { get; set; } = new();
 

@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
+using Velopack;
 using Assistant.Core;
 using Assistant.Core.Activity;
 using Assistant.Core.Diagnostics;
@@ -19,6 +20,57 @@ namespace Assistant.App;
 
 public partial class App : Application
 {
+    /// <summary>
+    /// Velopack runs first: during install, update and uninstall it calls the app with special arguments,
+    /// handles them and exits before any window appears.
+    /// </summary>
+    [STAThread]
+    static void Main()
+    {
+        VelopackApp.Build()
+            .OnBeforeUninstallFastCallback(_ => RemoveAppFiles())
+            .Run();
+
+        var app = new App();
+        app.InitializeComponent();
+        app.Run();
+    }
+
+    /// <summary>
+    /// Uninstall: the app's own Ollama, the models and the logs in %LocalAppData%\Assistant go too.
+    /// Documents\Assistant (memory, settings, logs of what you did) is the user's and stays; Settings can delete it.
+    /// Runs without any window and must finish within Velopack's 30 seconds.
+    /// </summary>
+    static void RemoveAppFiles()
+    {
+        string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Assistant");
+        foreach (Process process in Process.GetProcessesByName("ollama"))
+        {
+            try
+            {
+                if (process.MainModule?.FileName.StartsWith(folder, StringComparison.OrdinalIgnoreCase) == true)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+            {
+                // Not ours, or already gone.
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+        try
+        {
+            Thread.Sleep(500); // let Windows release the killed process's files
+            if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Whatever is left is small; uninstalling must not fail because of it.
+        }
+    }
+
     Mutex? singleInstance;
     System.Windows.Forms.NotifyIcon? tray;
     ActivityTracker? tracker;
@@ -30,6 +82,8 @@ public partial class App : Application
     OllamaRuntime? ollamaRuntime; // the app's own Ollama, when setup chose it
     AppConfig? appConfig;
     string configFile = "";
+    Updater? updater;
+    System.Windows.Forms.ToolStripItem? updateItem; // "Restart to update", shown once an update is downloaded
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -133,6 +187,16 @@ public partial class App : Application
 
         tray = CreateTrayIcon(character, data.Root);
 
+        // Automatic updates (installed copies only): downloaded quietly, installed on the next start.
+        updater = new Updater();
+        updater.Ready += version =>
+        {
+            if (updateItem is not null) updateItem.Visible = true;
+            bubble.Say($"Version {version} is downloaded. It installs the next time the assistant starts, " +
+                       "or right away from the tray menu: Restart to update.");
+        };
+        updater.Start(() => config.AutoUpdate);
+
         // Push-to-talk. The speech model lives with the app's own files, not in the user's data folder.
         if (config.VoiceEnabled)
         {
@@ -190,7 +254,9 @@ public partial class App : Application
                     testSpeaker.Speak(text);
                 },
                 Restart: Restart,
-                TryScreensaver: screensaver.Try));
+                TryScreensaver: screensaver.Try,
+                DeleteAllData: () => DeleteAllData(data.Root),
+                Version: updater?.CurrentVersion ?? "development build"));
             settingsWindow.Show();
         };
         character.SettingsRequested += () => openSettings?.Invoke();
@@ -288,6 +354,8 @@ public partial class App : Application
         menu.Items.Add("Open data folder", null, (_, _) => Shell.OpenFolder(dataRoot));
         menu.Items.Add("Weekly review now", null, (_, _) => reviewNow?.Invoke());
         menu.Items.Add("Run setup again", null, (_, _) => RunSetupAgain());
+        updateItem = menu.Items.Add("Restart to update", null, (_, _) => RestartToUpdate());
+        updateItem.Visible = false;
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("Quit", null, (_, _) => Shutdown());
 
@@ -325,6 +393,43 @@ public partial class App : Application
         {
             DiagnosticLog.Error("The app's Ollama didn't start", ex);
         }
+    }
+
+    /// <summary>Installs a downloaded update now: closes everything cleanly, then Velopack restarts the new version.</summary>
+    void RestartToUpdate()
+    {
+        tracker?.Flush(DateTime.Now);
+        tracker = null;
+        voice?.Dispose();
+        voice = null;
+        ollamaRuntime?.Stop();
+        if (tray is not null) tray.Visible = false;
+        singleInstance?.ReleaseMutex();
+        singleInstance?.Dispose();
+        singleInstance = null;
+        DiagnosticLog.Info("Restarting to install an update");
+        updater?.RestartToUpdate();
+    }
+
+    /// <summary>
+    /// Settings > "Delete all my data": removes Documents\Assistant (memory, logs, settings) and closes the app.
+    /// The next start begins fresh, with the setup wizard.
+    /// </summary>
+    void DeleteAllData(string root)
+    {
+        if (tracker is not null) tracker.Enabled = false;
+        tracker = null; // nothing may be written while the folder goes
+        try
+        {
+            Directory.Delete(root, recursive: true);
+            DiagnosticLog.Info("All user data deleted");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            DiagnosticLog.Error("Some user data couldn't be deleted", ex);
+            MessageBox.Show($"Some files couldn't be deleted (one may be open in another program). You can delete what's left in {root} by hand.", "Assistant");
+        }
+        Shutdown();
     }
 
     // The wizard runs at the next start; restarting also picks up a new model or Ollama.
