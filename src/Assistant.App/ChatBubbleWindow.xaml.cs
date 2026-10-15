@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Assistant.Core;
 using Assistant.Core.Diagnostics;
@@ -72,7 +73,17 @@ public partial class ChatBubbleWindow : Window
     }
 
     /// <summary>Shows the bubble beside the character: to its left if there is room, otherwise to its right.</summary>
-    public void ShowNear(Rect character)
+    public void ShowNear(Rect character) => ShowNear(character, activate: true);
+
+    /// <summary>Shows the bubble without taking focus, so Settings can preview the theme next to it.</summary>
+    public void Preview(Rect character)
+    {
+        ShowActivated = false;
+        ShowNear(character, activate: false);
+        ShowActivated = true;
+    }
+
+    void ShowNear(Rect character, bool activate)
     {
         double screenLeft = SystemParameters.VirtualScreenLeft;
         double screenTop = SystemParameters.VirtualScreenTop;
@@ -87,10 +98,37 @@ public partial class ChatBubbleWindow : Window
         Top = Math.Max(screenTop, Math.Min(top, screenBottom - Height));
 
         Show();
-        Activate();
-        Input.Focus();
+        if (activate)
+        {
+            Activate();
+            Input.Focus();
+        }
         ScrollToBottom();
     }
+
+    /// <summary>Light or dark theme and text size, applied right away (the Settings window's live preview).</summary>
+    public void ApplyAppearance(Appearance settings)
+    {
+        bool dark = settings.BubbleTheme == "dark";
+        SetBrush("Surface", dark ? "#1F1F23" : "#FFFFFF");
+        SetBrush("Edge", dark ? "#3A3A42" : "#D0D0D0");
+        SetBrush("Text", dark ? "#ECECEC" : "#1E1E1E");
+        SetBrush("Muted", dark ? "#A0A0AA" : "#6B6B6B");
+        SetBrush("CardEdge", dark ? "#3A3A42" : "#DDDDDD");
+        SetBrush("ReviewSurface", dark ? "#2E2A1F" : "#FFF9EC");
+        SetBrush("ReviewEdge", dark ? "#8A7333" : "#E8C77A");
+        SetBrush("Note", dark ? "#5CC98A" : "#2E8B57");
+        SetBrush("InputSurface", dark ? "#2A2A31" : "#FFFFFF");
+
+        double size = settings.BubbleTextSize;
+        FontSize = size;
+        Resources["SmallSize"] = size - 2;
+        Resources["LabelSize"] = size - 1;
+        Resources["TitleSize"] = size + 1;
+    }
+
+    void SetBrush(string key, string hex) =>
+        Resources[key] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
 
     public bool HasOpenReview => items.OfType<ReviewItem>().Any(item => item.IsOpen);
 

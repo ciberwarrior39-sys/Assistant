@@ -50,7 +50,8 @@ public static class Desktop
             window);
     }
 
-    static TimeSpan IdleTime()
+    /// <summary>Time since the last mouse or keyboard input anywhere.</summary>
+    public static TimeSpan IdleTime()
     {
         var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
         if (!GetLastInputInfo(ref info)) return TimeSpan.Zero;

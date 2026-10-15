@@ -12,6 +12,7 @@ public sealed partial class Speaker : IDisposable
 {
     readonly SpeechSynthesizer synthesizer = new();
     Prompt? current;
+    readonly string? defaultVoice; // Windows' own choice, to go back to when the setting is cleared
 
     public event Action? Finished;
 
@@ -21,14 +22,8 @@ public sealed partial class Speaker : IDisposable
     public Speaker(string voiceName, int rate)
     {
         synthesizer.SetOutputToDefaultAudioDevice();
-        synthesizer.Rate = Math.Clamp(rate, -10, 10);
-        if (voiceName.Length > 0)
-        {
-            InstalledVoice? match = synthesizer.GetInstalledVoices()
-                .FirstOrDefault(voice => voice.Enabled && voice.VoiceInfo.Name.Contains(voiceName, StringComparison.OrdinalIgnoreCase));
-            if (match is not null) synthesizer.SelectVoice(match.VoiceInfo.Name);
-            else DiagnosticLog.Info("Configured voice not installed; using the default voice");
-        }
+        defaultVoice = synthesizer.Voice?.Name;
+        Configure(voiceName, rate);
         synthesizer.SpeakCompleted += (_, e) =>
         {
             if (e.Prompt != current) return; // an earlier reply that was cut off
@@ -36,6 +31,27 @@ public sealed partial class Speaker : IDisposable
             IsSpeaking = false;
             Finished?.Invoke();
         };
+    }
+
+    /// <summary>Picks the voice (by part of its name; empty for Windows' default) and speed. Used live by Settings.</summary>
+    public void Configure(string voiceName, int rate)
+    {
+        synthesizer.Rate = Math.Clamp(rate, -10, 10);
+        InstalledVoice? match = voiceName.Length == 0 ? null : synthesizer.GetInstalledVoices()
+            .FirstOrDefault(voice => voice.Enabled && voice.VoiceInfo.Name.Contains(voiceName, StringComparison.OrdinalIgnoreCase));
+        if (match is not null) synthesizer.SelectVoice(match.VoiceInfo.Name);
+        else
+        {
+            if (voiceName.Length > 0) DiagnosticLog.Info("Configured voice not installed; using the default voice");
+            if (defaultVoice is not null) synthesizer.SelectVoice(defaultVoice);
+        }
+    }
+
+    /// <summary>The Windows voices that can be chosen in Settings.</summary>
+    public static IReadOnlyList<string> InstalledVoiceNames()
+    {
+        using var synthesizer = new SpeechSynthesizer();
+        return synthesizer.GetInstalledVoices().Where(voice => voice.Enabled).Select(voice => voice.VoiceInfo.Name).ToList();
     }
 
     /// <summary>Speaks the text, interrupting anything still being said.</summary>

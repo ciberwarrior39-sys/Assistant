@@ -157,6 +157,9 @@ public sealed class VoiceController : IDisposable
         }
     }
 
+    /// <summary>Changes the voice and speed right away (Settings).</summary>
+    public void ConfigureVoice(string voiceName, int rate) => speaker.Configure(voiceName, rate);
+
     /// <summary>Says something the user asked for in advance, like a timer, even in game mode.</summary>
     public void Announce(string text) => speaker.Speak(text);
 

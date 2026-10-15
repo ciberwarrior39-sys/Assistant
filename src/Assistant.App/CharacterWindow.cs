@@ -5,18 +5,21 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using Assistant.Core.Storage;
 
 namespace Assistant.App;
 
 /// <summary>
 /// The placeholder character: a transparent, always-on-top window whose look follows the mood.
 /// Click it to open the chat bubble, drag it anywhere, right-click for the menu.
-/// The real art (build step 11) replaces only the visuals built in this class.
+/// This is the default character; its colors, size, labels and calmness come from the appearance settings.
+/// Character packs with their own art (build step 11) replace only the visuals built in this class.
 /// </summary>
 public sealed class CharacterWindow : Window
 {
     const int FramesPerSecond = 30;  // prototype: 0.3% CPU at 30 fps vs 0.9% at 60
     const double SnapDistance = 24;
+    const double BaseWidth = 170, BaseHeight = 160;
     static readonly TimeSpan ClickAfterAutoHide = TimeSpan.FromMilliseconds(400);
 
     readonly CharacterMood mood;
@@ -29,7 +32,13 @@ public sealed class CharacterWindow : Window
     readonly TextBlock badgeText = new() { Foreground = Brushes.White, FontSize = 11, FontWeight = FontWeights.SemiBold };
     readonly Border badge;
     readonly DispatcherTimer unhide = new();
+    readonly ScaleTransform size = new(1, 1);
+    Appearance appearance = new();
+    string? colorOverride; // the screensaver's color of the moment
     bool inGameMode;
+
+    /// <summary>The menu's "Settings…" was chosen.</summary>
+    public event Action? SettingsRequested;
 
     public CharacterWindow(CharacterMood mood, ChatBubbleWindow bubble, string placementFile, string dataRoot, Action quit)
     {
@@ -44,8 +53,8 @@ public sealed class CharacterWindow : Window
         Topmost = true;
         ShowInTaskbar = false;
         ResizeMode = ResizeMode.NoResize;
-        Width = 170;
-        Height = 160;
+        Width = BaseWidth;
+        Height = BaseHeight;
 
         Point? saved = CharacterPlacement.Load(placementFile);
         Left = saved?.X ?? SystemParameters.WorkArea.Right - Width - 16;
@@ -83,7 +92,7 @@ public sealed class CharacterWindow : Window
             Visibility = Visibility.Hidden,
         };
 
-        var layout = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom };
+        var layout = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, LayoutTransform = size };
         layout.Children.Add(figure);
         layout.Children.Add(badge);
         Content = layout;
@@ -99,6 +108,37 @@ public sealed class CharacterWindow : Window
         Loaded += (_, _) => ApplyMood(mood.Current);
     }
 
+    /// <summary>Applies colors, size, labels and calmness right away (the Settings window's live preview).</summary>
+    public void ApplyAppearance(Appearance settings)
+    {
+        appearance = settings;
+
+        // Once on screen, it grows or shrinks around its bottom-right corner, so it stays where it was docked.
+        // (At startup the saved spot already belongs to the saved size.)
+        double width = BaseWidth * settings.Scale, height = BaseHeight * settings.Scale;
+        bool resized = IsLoaded && (Math.Abs(Width - width) > 0.5 || Math.Abs(Height - height) > 0.5);
+        if (resized)
+        {
+            Left += Width - width;
+            Top += Height - height;
+        }
+        Width = width;
+        Height = height;
+        Left = Math.Min(Left, SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - width);
+        Top = Math.Min(Top, SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - height);
+        size.ScaleX = size.ScaleY = settings.Scale;
+        if (resized) CharacterPlacement.Save(placementFile, Left, Top);
+
+        ApplyMood(mood.Current);
+    }
+
+    /// <summary>A color that wins over the mood colors until cleared with null (used by the screensaver).</summary>
+    public void SetColorOverride(string? hex)
+    {
+        colorOverride = hex;
+        ApplyMood(mood.Current);
+    }
+
     public void ToggleChat()
     {
         mood.Touch();
@@ -112,6 +152,8 @@ public sealed class CharacterWindow : Window
         if (DateTime.UtcNow - bubble.LastAutoHide < ClickAfterAutoHide) return;
         OpenChat();
     }
+
+    public Rect Bounds => new(Left, Top, Width, Height);
 
     public void OpenChat()
     {
@@ -188,6 +230,7 @@ public sealed class CharacterWindow : Window
     {
         var menu = new ContextMenu();
         menu.Items.Add(MenuEntry("Chat", ToggleChat));
+        menu.Items.Add(MenuEntry("Settings…", () => SettingsRequested?.Invoke()));
         menu.Items.Add(MenuEntry("Open data folder", () => Shell.OpenFolder(dataRoot)));
         menu.Items.Add(MenuEntry("Hide for 1 hour", () => HideFor(TimeSpan.FromHours(1))));
         menu.Items.Add(new Separator());
@@ -211,7 +254,8 @@ public sealed class CharacterWindow : Window
     }
 
     // Placeholder look per mood: body color, badge text, bounce height and speed, wobble, how open the eyes are.
-    static (Color Color, string Label, double BobHeight, double BobSeconds, double Tilt, double EyesOpen) Look(Mood mood) => mood switch
+    // The colors here are only fallbacks; the appearance settings hold the real ones.
+    static (Color Color, string Label, double BobHeight, double BobSeconds, double Tilt, double EyesOpen) DefaultLook(Mood mood) => mood switch
     {
         Mood.Thinking => (Color.FromRgb(0x8E, 0x6C, 0xEF), "thinking…", 8.0, 0.5, 0.0, 1.0),
         Mood.FoundIt => (Color.FromRgb(0x2E, 0xB8, 0x72), "found it!", 22.0, 0.35, 0.0, 1.0),
@@ -226,6 +270,28 @@ public sealed class CharacterWindow : Window
         Mood.TimeUp => (Color.FromRgb(0xF0, 0x5A, 0x28), "time's up!", 18.0, 0.3, 6.0, 1.0),
         _ => (Color.FromRgb(0x4A, 0x90, 0xE2), "", 6.0, 1.2, 0.0, 1.0),
     };
+
+    // The default look with the user's color for this mood, and calmer movement if they asked for it.
+    (Color Color, string Label, double BobHeight, double BobSeconds, double Tilt, double EyesOpen) Look(Mood current)
+    {
+        var look = DefaultLook(current);
+        string? hex = colorOverride;
+        if ((hex is not null || appearance.MoodColors.TryGetValue(current.ToString(), out hex))
+            && Appearance.IsColor(hex)
+            && ColorConverter.ConvertFromString(hex) is Color custom)
+        {
+            look.Color = custom;
+        }
+        if (appearance.CalmAnimations)
+        {
+            look.BobHeight *= 0.35;
+            look.BobSeconds *= 1.5;
+            look.Tilt = 0;
+        }
+        // Without labels, the ones that ask for attention stay: the hand-raise, the weekly review, a timer.
+        if (!appearance.ShowLabels && current is not (Mood.HandRaised or Mood.Review or Mood.TimeUp)) look.Label = "";
+        return look;
+    }
 
     void ApplyMood(Mood current)
     {

@@ -10,7 +10,10 @@ finds files on your computer, and optional free cloud chat handles conversation.
 
 - **Click** the character: open or close the chat bubble (Esc or clicking elsewhere also closes it).
 - **Drag** it anywhere; it snaps to screen edges and remembers its spot (`placement.json` in the data folder).
-- **Right-click** it, or use the **tray icon**: open data folder, hide for 1 hour, quit.
+- **Right-click** it, or use the **tray icon**: settings, open data folder, hide for 1 hour, quit.
+- **Settings** (right-click or tray): a color for every mood, size, labels, calm animations, light or dark chat bubble,
+  text size, voice and speed with a test button, push-to-talk keys, features on/off and cloud keys. Changes show up
+  live on the character; Cancel puts everything back. Saved in `config.json` (the `appearance` part holds the look).
 - Its color and label show what it's doing: thinking, found it, hmm? (nothing found), tired (cloud unavailable), zzz (idle 10 minutes), ! (hand raised), ! weekly review (waiting for you), listening…, speaking, time's up!.
 - **Activity log:** which app and window title is in front, and for how long, in `activity\<date>.jsonl`. Idle time,
   the assistant itself and anything in `exclusions.json` are not recorded. Ask "what was I working on today?".
@@ -34,6 +37,10 @@ finds files on your computer, and optional free cloud chat handles conversation.
   and the reply is read aloud with a Windows voice. Typed questions stay silent. Audio is never saved. Closing the
   bubble or pressing the keys again stops the voice. Settings: `pushToTalkKey`, `voiceName` (e.g. "Zira"),
   `voiceRate` (-10 to 10), `voiceEnabled`. Off in game mode.
+- **Screensaver:** a few minutes before Windows turns the screen off (its own "turn off my screen after" setting),
+  the character bounces around the main screen over the desktop, changing color at each edge. Any mouse or keyboard
+  input sends it back. Not during games, fullscreen video, or when a video player keeps the screen on.
+  Settings > Features: on/off, how many minutes before, and "Try it now".
 - **Quick answers:** "flip a coin", "heads or tails", "roll 2 dice", "roll a d20", "pick a number between 1 and 50",
   "pick pizza or sushi", "what time is it", "what's the date", "what's 12 times 7", "15% of 80",
   "set a timer for 5 minutes", "remind me in 10 minutes to check the oven", "how much time is left", "cancel the timer".

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
@@ -22,6 +23,9 @@ public partial class App : Application
     ActivityTracker? tracker;
     Action? reviewNow; // set once the review is wired up, used by the tray menu
     VoiceController? voice;
+    Action? openSettings;    // set once everything exists, used by the tray menu
+    SettingsWindow? settingsWindow;
+    Speaker? testSpeaker;    // for "Test voice" while voice is turned off
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -107,6 +111,8 @@ public partial class App : Application
         var bubble = new ChatBubbleWindow(assistant, dependencies, data, mood);
         var character = new CharacterWindow(mood, bubble, Path.Combine(data.Root, "placement.json"), data.Root, Shutdown);
         MainWindow = character;
+        character.ApplyAppearance(config.Appearance);
+        bubble.ApplyAppearance(config.Appearance);
         character.Show();
 
         tray = CreateTrayIcon(character, data.Root);
@@ -125,6 +131,54 @@ public partial class App : Application
             voice = new VoiceController(hotkey, new SpeechToText(models), new Speaker(config.VoiceName, config.VoiceRate),
                                         bubble, character, mood);
         }
+
+        // Screensaver: bounces around a few minutes before Windows turns the screen off.
+        var screensaver = new Screensaver(character, mood, bubble, config);
+
+        // Settings: one window at a time, changes shown live on the real character and bubble.
+        openSettings = () =>
+        {
+            if (settingsWindow is { IsLoaded: true })
+            {
+                settingsWindow.Activate();
+                return;
+            }
+            settingsWindow = new SettingsWindow(new SettingsHost(
+                config,
+                data.ConfigFile,
+                ApplyLive: edited =>
+                {
+                    character.ApplyAppearance(edited.Appearance);
+                    bubble.ApplyAppearance(edited.Appearance);
+                    activity.Enabled = edited.ActivityLogging;
+                    voice?.ConfigureVoice(edited.VoiceName, edited.VoiceRate);
+                    testSpeaker?.Configure(edited.VoiceName, edited.VoiceRate);
+                },
+                PreviewMood: shown =>
+                {
+                    character.ShowAgain();
+                    mood.Set(shown, TimeSpan.FromSeconds(3));
+                },
+                PreviewBubble: show =>
+                {
+                    if (show) bubble.Preview(character.Bounds);
+                    else if (!bubble.IsActive) bubble.Hide();
+                },
+                TestVoice: text =>
+                {
+                    if (voice is not null)
+                    {
+                        voice.Announce(text);
+                        return;
+                    }
+                    testSpeaker ??= new Speaker(config.VoiceName, config.VoiceRate);
+                    testSpeaker.Speak(text);
+                },
+                Restart: Restart,
+                TryScreensaver: screensaver.Try));
+            settingsWindow.Show();
+        };
+        character.SettingsRequested += () => openSettings?.Invoke();
 
         // A timer is due: show it on the character and in the bubble without stealing focus, and say it aloud.
         // In game mode the character stays hidden, so it is only said.
@@ -154,6 +208,7 @@ public partial class App : Application
             character.SetGameMode(on);
             assistant.CloudOnly = on;
             handRaiser.Paused = on;
+            if (on) screensaver.Stop();
             if (voice is not null) voice.Paused = on;
             if (on) handRaiser.LowerNow();
             if (on) await localModel.UnloadAsync(CancellationToken.None);
@@ -168,6 +223,7 @@ public partial class App : Application
             windowCapture.Observe(snapshot);
             if (config.GameModeEnabled) gameMode.Observe(snapshot);
             handRaiser.Observe(snapshot);
+            screensaver.Observe(snapshot, gaming);
         };
         watcher.Start();
 
@@ -212,6 +268,7 @@ public partial class App : Application
     {
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("Show assistant", null, (_, _) => character.ShowAgain());
+        menu.Items.Add("Settings…", null, (_, _) => openSettings?.Invoke());
         menu.Items.Add("Hide for 1 hour", null, (_, _) => character.HideFor(TimeSpan.FromHours(1)));
         menu.Items.Add("Open data folder", null, (_, _) => Shell.OpenFolder(dataRoot));
         menu.Items.Add("Weekly review now", null, (_, _) => reviewNow?.Invoke());
@@ -242,10 +299,23 @@ public partial class App : Application
         e.Handled = true;
     }
 
+    /// <summary>Starts a fresh copy of the app and closes this one (for settings that apply on restart).</summary>
+    void Restart()
+    {
+        // Let go of the single-instance lock first, or the new copy would think one is already running.
+        singleInstance?.ReleaseMutex();
+        singleInstance?.Dispose();
+        singleInstance = null;
+        DiagnosticLog.Info("Restarting for new settings");
+        Process.Start(new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true });
+        Shutdown();
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         tracker?.Flush(DateTime.Now); // write the window in progress
         voice?.Dispose();
+        testSpeaker?.Dispose();
 
         // Without this, a dead icon lingers in the tray until the mouse passes over it.
         if (tray is not null)

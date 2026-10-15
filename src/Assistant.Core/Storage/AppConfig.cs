@@ -3,7 +3,10 @@ using Assistant.Core.Diagnostics;
 
 namespace Assistant.Core.Storage;
 
-/// <summary>Settings from config.json in the data folder. Edit the file and restart the app.</summary>
+/// <summary>
+/// Settings from config.json in the data folder. The Settings window edits most of them;
+/// after editing the file by hand, restart the app.
+/// </summary>
 public sealed class AppConfig
 {
     static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented = true };
@@ -41,6 +44,15 @@ public sealed class AppConfig
     public string VoiceName { get; set; } = "";
     public int VoiceRate { get; set; } = 0;
 
+    // Screensaver: the character bounces around the screen a few minutes before Windows turns the screen off
+    // (Settings > Power > "Turn off my screen after"). If that is set to never, it starts after the fallback minutes.
+    public bool ScreensaverEnabled { get; set; } = true;
+    public int ScreensaverMinutesBeforeScreenOff { get; set; } = 3;
+    public int ScreensaverFallbackMinutes { get; set; } = 10;
+
+    // The character's colors and size, and the chat bubble's theme. Easiest to change in Settings.
+    public Appearance Appearance { get; set; } = new();
+
     public static AppConfig Load(string path)
     {
         try
@@ -48,6 +60,8 @@ public sealed class AppConfig
             if (File.Exists(path))
             {
                 AppConfig config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(path), Options) ?? new AppConfig();
+                config.Appearance ??= new Appearance();
+                config.Appearance.Repair();
                 // Writes back any settings added in newer versions, keeping the user's values.
                 try
                 {
@@ -69,4 +83,15 @@ public sealed class AppConfig
     }
 
     public void Save(string path) => File.WriteAllText(path, JsonSerializer.Serialize(this, Options));
+
+    /// <summary>A separate copy, so the Settings window's Cancel can put everything back.</summary>
+    public AppConfig Copy() => JsonSerializer.Deserialize<AppConfig>(JsonSerializer.Serialize(this, Options), Options)!;
+
+    /// <summary>Copies every setting from another config into this one (the app keeps one shared instance).</summary>
+    public void CopyFrom(AppConfig other)
+    {
+        foreach (var property in typeof(AppConfig).GetProperties().Where(property => property.CanWrite))
+            property.SetValue(this, property.GetValue(other));
+        Appearance = other.Appearance.Copy();
+    }
 }

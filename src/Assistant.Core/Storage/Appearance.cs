@@ -1,0 +1,83 @@
+using System.Text.Json.Serialization;
+
+namespace Assistant.Core.Storage;
+
+/// <summary>
+/// How the character and the chat bubble look, from the "appearance" part of config.json.
+/// The Settings window edits it with a live preview; hand edits work too (restart after those).
+/// This is the default character's look; character packs with their own art come in build step 11.
+/// </summary>
+public sealed class Appearance
+{
+    /// <summary>The built-in colors, by mood. Keys are the mood names the app uses.</summary>
+    public static readonly IReadOnlyDictionary<string, string> DefaultColors = new Dictionary<string, string>
+    {
+        ["Idle"] = "#4A90E2",
+        ["Thinking"] = "#8E6CEF",
+        ["FoundIt"] = "#2EB872",
+        ["Confused"] = "#F09A3E",
+        ["Happy"] = "#7CC542",
+        ["Tired"] = "#8A94A3",
+        ["Sleepy"] = "#3F5A9E",
+        ["Review"] = "#E8B33A",
+        ["HandRaised"] = "#F5A623",
+        ["Listening"] = "#E24A6A",
+        ["Speaking"] = "#3EA8D8",
+        ["TimeUp"] = "#F05A28",
+    };
+
+    public static readonly string[] Sizes = ["small", "medium", "large"];
+
+    /// <summary>One color per mood, as #RRGGBB.</summary>
+    public Dictionary<string, string> MoodColors { get; set; } = new(DefaultColors);
+
+    /// <summary>small, medium or large.</summary>
+    public string Size { get; set; } = "medium";
+
+    /// <summary>The little labels under the character ("thinking…", "found it!").</summary>
+    public bool ShowLabels { get; set; } = true;
+
+    /// <summary>Smaller bounces and no wobble.</summary>
+    public bool CalmAnimations { get; set; }
+
+    /// <summary>light or dark.</summary>
+    public string BubbleTheme { get; set; } = "light";
+
+    /// <summary>Text size in the chat bubble, 11 to 18.</summary>
+    public int BubbleTextSize { get; set; } = 13;
+
+    [JsonIgnore]
+    public double Scale => Size switch
+    {
+        "small" => 0.75,
+        "large" => 1.3,
+        _ => 1.0,
+    };
+
+    /// <summary>Fills in anything missing or broken after loading, so a hand edit can't break the app.</summary>
+    public void Repair()
+    {
+        MoodColors ??= new Dictionary<string, string>();
+        foreach ((string mood, string color) in DefaultColors)
+        {
+            if (!MoodColors.TryGetValue(mood, out string? value) || !IsColor(value)) MoodColors[mood] = color;
+        }
+        if (!Sizes.Contains(Size)) Size = "medium";
+        if (BubbleTheme is not ("light" or "dark")) BubbleTheme = "light";
+        BubbleTextSize = Math.Clamp(BubbleTextSize, 11, 18);
+    }
+
+    public Appearance Copy() => new()
+    {
+        MoodColors = new Dictionary<string, string>(MoodColors),
+        Size = Size,
+        ShowLabels = ShowLabels,
+        CalmAnimations = CalmAnimations,
+        BubbleTheme = BubbleTheme,
+        BubbleTextSize = BubbleTextSize,
+    };
+
+    /// <summary>"#RRGGBB".</summary>
+    public static bool IsColor(string? value) =>
+        value is { Length: 7 } && value[0] == '#' && value.Skip(1).All(Uri.IsHexDigit);
+}

@@ -2,12 +2,30 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Assistant.App"
+        xmlns:sys="clr-namespace:System;assembly=System.Runtime"
         Title="Assistant" Width="400" Height="540"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize" FontSize="13">
+        Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize" FontSize="13"
+        Foreground="{DynamicResource Text}">
+
+    <!-- Theme: the light defaults. ApplyAppearance swaps these for the dark theme and the chosen text size. -->
+    <Window.Resources>
+        <SolidColorBrush x:Key="Surface" Color="White"/>
+        <SolidColorBrush x:Key="Edge" Color="#D0D0D0"/>
+        <SolidColorBrush x:Key="Text" Color="#1E1E1E"/>
+        <SolidColorBrush x:Key="Muted" Color="#6B6B6B"/>
+        <SolidColorBrush x:Key="CardEdge" Color="#DDDDDD"/>
+        <SolidColorBrush x:Key="ReviewSurface" Color="#FFF9EC"/>
+        <SolidColorBrush x:Key="ReviewEdge" Color="#E8C77A"/>
+        <SolidColorBrush x:Key="Note" Color="#2E8B57"/>
+        <SolidColorBrush x:Key="InputSurface" Color="White"/>
+        <sys:Double x:Key="SmallSize">11</sys:Double>
+        <sys:Double x:Key="LabelSize">12</sys:Double>
+        <sys:Double x:Key="TitleSize">14</sys:Double>
+    </Window.Resources>
 
     <!-- The speech bubble: anchored next to the character, hides when you click elsewhere or press Esc -->
-    <Border Margin="10" Background="White" CornerRadius="12" BorderBrush="#D0D0D0" BorderThickness="1">
+    <Border Margin="10" Background="{DynamicResource Surface}" CornerRadius="12" BorderBrush="{DynamicResource Edge}" BorderThickness="1">
         <Border.Effect>
             <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.25"/>
         </Border.Effect>
@@ -22,16 +40,16 @@
 
             <DockPanel Grid.Row="0">
                 <Button DockPanel.Dock="Right" Content="✕" ToolTip="Close (Esc)" Padding="6,0"
-                        Background="Transparent" BorderThickness="0" Click="OnClose"/>
+                        Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Text}" Click="OnClose"/>
                 <Button DockPanel.Dock="Right" Content="Data folder" ToolTip="Everything the assistant stores"
                         Padding="6,1" Margin="0,0,6,0" Click="OnOpenDataFolder"/>
                 <Button DockPanel.Dock="Right" Content="Recheck" Padding="6,1" Margin="0,0,6,0" Click="OnRecheck"/>
-                <TextBlock Text="Assistant" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                <TextBlock Text="Assistant" FontWeight="SemiBold" FontSize="{DynamicResource TitleSize}" VerticalAlignment="Center"/>
             </DockPanel>
 
             <!-- Dependency status; hover for details -->
-            <TextBlock x:Name="StatusText" Grid.Row="1" Text="Checking..." Foreground="#666666"
-                       FontSize="11" TextWrapping="Wrap" Margin="0,6,0,8"/>
+            <TextBlock x:Name="StatusText" Grid.Row="1" Text="Checking..." Foreground="{DynamicResource Muted}"
+                       FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap" Margin="0,6,0,8"/>
 
             <ScrollViewer x:Name="Scroller" Grid.Row="2" VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="Messages">
@@ -39,14 +57,14 @@
                     <ItemsControl.Resources>
                         <DataTemplate DataType="{x:Type local:ChatItem}">
                             <StackPanel Margin="0,0,0,12">
-                                <TextBlock Text="{Binding Who}" FontWeight="SemiBold" Foreground="#666666" FontSize="12"/>
+                                <TextBlock Text="{Binding Who}" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource LabelSize}"/>
                                 <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="0,2,0,0"/>
 
                                 <!-- What a tool did, word for word (saved or forgotten memory lines) -->
                                 <ItemsControl ItemsSource="{Binding Notes}" Margin="0,4,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <TextBlock Text="{Binding}" Foreground="#2E8B57" FontSize="11" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding}" Foreground="{DynamicResource Note}" FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap"/>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -55,13 +73,13 @@
                                 <ItemsControl ItemsSource="{Binding Files}" Margin="0,6,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,4,6">
+                                            <Border BorderBrush="{DynamicResource CardEdge}" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,4,6">
                                                 <StackPanel>
                                                     <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                                                     <TextBlock Text="{Binding FullPath}" ToolTip="{Binding FullPath}"
-                                                               Foreground="#777777" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                                               Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" TextTrimming="CharacterEllipsis"/>
                                                     <TextBlock Text="{Binding Modified, StringFormat='Modified {0:yyyy-MM-dd HH:mm}'}"
-                                                               Foreground="#777777" FontSize="11"/>
+                                                               Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}"/>
                                                     <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                                                         <Button Content="Open" Padding="10,2" Tag="{Binding FullPath}" Click="OnOpenFile"/>
                                                         <Button Content="Show in Explorer" Padding="10,2" Margin="6,0,0,0"
@@ -77,18 +95,19 @@
 
                         <!-- Weekly review: edit the fact if needed, then Keep or Forget -->
                         <DataTemplate DataType="{x:Type local:ReviewItem}">
-                            <Border BorderBrush="#E8C77A" Background="#FFF9EC" BorderThickness="1" CornerRadius="6"
+                            <Border BorderBrush="{DynamicResource ReviewEdge}" Background="{DynamicResource ReviewSurface}" BorderThickness="1" CornerRadius="6"
                                     Padding="8" Margin="0,0,4,8">
                                 <StackPanel>
                                     <TextBox Text="{Binding Fact, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsOpen}"
                                              TextWrapping="Wrap" Background="Transparent" BorderThickness="0,0,0,1"
+                                             Foreground="{DynamicResource Text}" CaretBrush="{DynamicResource Text}"
                                              ToolTip="Edit it first if it's not quite right"/>
-                                    <TextBlock Text="{Binding Evidence}" Foreground="#777777" FontSize="11" Margin="0,3,0,0"/>
+                                    <TextBlock Text="{Binding Evidence}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" Margin="0,3,0,0"/>
                                     <StackPanel Orientation="Horizontal" Margin="0,6,0,0" Visibility="{Binding ButtonsVisibility}">
                                         <Button Content="Keep" Padding="10,2" Tag="{Binding}" Click="OnKeepFact"/>
                                         <Button Content="Forget" Padding="10,2" Margin="6,0,0,0" Tag="{Binding}" Click="OnForgetFact"/>
                                     </StackPanel>
-                                    <TextBlock Text="{Binding Outcome}" Foreground="#666666" FontSize="11" Margin="0,4,0,0"/>
+                                    <TextBlock Text="{Binding Outcome}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" Margin="0,4,0,0"/>
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
@@ -96,13 +115,15 @@
                 </ItemsControl>
             </ScrollViewer>
 
-            <TextBlock x:Name="BusyText" Grid.Row="3" Text="Thinking..." Foreground="#888888"
+            <TextBlock x:Name="BusyText" Grid.Row="3" Text="Thinking..." Foreground="{DynamicResource Muted}"
                        Margin="2,6,0,0" Visibility="Collapsed"/>
 
             <DockPanel Grid.Row="4" Margin="0,8,0,0">
                 <Button x:Name="SendButton" DockPanel.Dock="Right" Content="Send" Padding="12,3"
                         Margin="6,0,0,0" IsDefault="True" Click="OnSend"/>
-                <TextBox x:Name="Input" Padding="6,4" VerticalContentAlignment="Center"/>
+                <TextBox x:Name="Input" Padding="6,4" VerticalContentAlignment="Center"
+                         Background="{DynamicResource InputSurface}" Foreground="{DynamicResource Text}"
+                         BorderBrush="{DynamicResource Edge}" CaretBrush="{DynamicResource Text}"/>
             </DockPanel>
         </Grid>
     </Border>
