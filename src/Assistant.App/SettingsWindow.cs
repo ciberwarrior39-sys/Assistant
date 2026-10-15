@@ -339,7 +339,7 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(hint);
         panel.Children.Add(Labeled("Groq key", KeyBox(edited.GroqApiKey, value => edited.GroqApiKey = value)));
         panel.Children.Add(Labeled("OpenRouter key", KeyBox(edited.OpenRouterApiKey, value => edited.OpenRouterApiKey = value)));
-        panel.Children.Add(Hint("Keys are kept in config.json on this computer only."));
+        panel.Children.Add(Hint("Keys are saved encrypted for your Windows account, in config.json on this computer only."));
         return panel;
     }
 

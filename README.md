@@ -3,7 +3,7 @@
 A modern, smarter Clippy-style desktop assistant for Windows. Free, local-first, and transparent:
 everything it learns lives in plain files in `Documents\Assistant\`.
 
-## Status: build steps 1–9
+## Status: build steps 1–9, plus the setup wizard from step 10
 
 A placeholder character in the corner of the screen. Click it to chat in a speech bubble: the local model
 finds files on your computer, and optional free cloud chat handles conversation.
@@ -50,15 +50,30 @@ finds files on your computer, and optional free cloud chat handles conversation.
   you were using (never the whole screen) and answers. The picture stays in memory, is never saved and never goes
   to the cloud. Windows in `exclusions.json` and minimized windows are refused. A green "Looked at:" line shows which window.
 
-- `src/Assistant.Core`: the logic, no WPF. Ollama client, tool-calling loop, `search_files` tool (Everything), data folder, dependency checks, diagnostic log.
+- `src/Assistant.Core`: the logic, no WPF. Ollama client, tool-calling loop, tools, file search (Everything, Windows Search), memory, activity, voice, setup (hardware check, embedded Ollama), data folder, diagnostic log.
 - `src/Assistant.App`: thin WPF shell. The overlay character, chat bubble, tray icon and the once-a-second foreground watcher.
+
+## First run: the setup wizard
+
+On first start (or tray > **Run setup again**) a wizard sets everything up, so nobody downloads anything by hand:
+
+1. **Welcome:** what stays private, and whether to keep the activity log.
+2. **Brain:** checks the graphics card and picks the model (NVIDIA 4–6 GB: `qwen3.5:2b`; 8 GB+: `qwen3.5:4b`;
+   no usable GPU: `qwen3.5:0.8b` on the CPU, cloud recommended). Uses an Ollama that is already installed if there is
+   one; otherwise downloads the app's own copy to `%LocalAppData%\Assistant\ollama` and runs it on port 11435, with
+   models in `%LocalAppData%\Assistant\ollama-models`. Progress bars throughout.
+3. **File search and voice:** offers to install Everything (otherwise Windows Search is used) and to download the
+   speech model now.
+4. **Cloud chat (optional):** Groq recommended, OpenRouter as the alternative, with a Check button for the key.
+5. **Done:** a few tips, and the assistant appears.
+
+Cloud keys are saved encrypted for the Windows user (DPAPI) as `"dpapi:..."` in `config.json`.
 
 ## Requirements (development)
 
 - .NET 10 SDK
-- Ollama running, with the model pulled: `ollama pull qwen3.5:2b`
-- Everything (voidtools, 1.4) running
 - `lib\Everything64.dll` from the Everything SDK (not committed; see `.gitignore`)
+- Ollama, Everything and the models are set up by the wizard
 
 ## Run
 
@@ -74,7 +89,7 @@ Plain conversation goes to a cloud model when a key is set up; every request is 
 1. **Groq (recommended):** most free volume. Sign up at console.groq.com (needs phone verification), create an API key.
 2. **OpenRouter (alternative):** signs up without a phone or card, but only about 50 free requests a day.
 
-Paste the key into `Documents\Assistant\config.json` (`groqApiKey` or `openRouterApiKey`) and restart.
+Add the key in the setup wizard or in Settings > Features (it is stored encrypted), then restart.
 With both set, Groq is tried first and OpenRouter takes over when Groq's free quota runs out.
 
 ## Where things are

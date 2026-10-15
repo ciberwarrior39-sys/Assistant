@@ -16,7 +16,7 @@ public sealed class EverythingSearch : IFileSearch
     // System and program folders hold thousands of files whose names happen to contain short words
     // like "cv", and they change constantly, so they would crowd out the user's own files.
     // Build output and tool folders change constantly too.
-    static readonly string[] ExcludedPaths =
+    internal static readonly string[] ExcludedPaths =
     [
         @"\Windows\", @"\Program Files", @"\ProgramData\", @"\AppData\", @"\$Recycle.Bin\",
         @"\obj\", @"\bin\Debug\", @"\bin\Release\", @"\.git\", @"\.vs\", @"\node_modules\",
@@ -138,7 +138,7 @@ public sealed class EverythingSearch : IFileSearch
     }
 
     // "CV.docx" for the keyword "cv" beats "My CV 2026.pdf", which beats "cvtres.exe".
-    static int Score(FileHit hit, IReadOnlyList<string> keywords)
+    internal static int Score(FileHit hit, IReadOnlyList<string> keywords)
     {
         string stem = Path.GetFileNameWithoutExtension(hit.FullPath);
         int score = 0;
@@ -154,7 +154,7 @@ public sealed class EverythingSearch : IFileSearch
         return score;
     }
 
-    static bool HasWholeWordMatch(FileHit hit, IReadOnlyList<string> keywords)
+    internal static bool HasWholeWordMatch(FileHit hit, IReadOnlyList<string> keywords)
     {
         string stem = Path.GetFileNameWithoutExtension(hit.FullPath);
         return keywords.Any(keyword => IsWholeWord(stem, keyword));

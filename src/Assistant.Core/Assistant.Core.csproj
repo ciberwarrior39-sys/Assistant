@@ -19,4 +19,11 @@
     <PackageReference Include="System.Speech" Version="10.0.12" />
   </ItemGroup>
 
+  <!-- Setup (build step 10): cloud keys encrypted with Windows DPAPI, and Windows Search as the file-search
+       fallback when Everything isn't installed. Both are Microsoft's own packages. -->
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
+    <PackageReference Include="System.Data.OleDb" Version="10.0.12" />
+  </ItemGroup>
+
 </Project>

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Assistant.Core.Diagnostics;
 
 namespace Assistant.Core.Storage;
@@ -11,16 +12,37 @@ public sealed class AppConfig
 {
     static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
+    // Set by the setup wizard. Until it has run, the wizard opens at startup.
+    public bool SetupDone { get; set; }
+
+    // The local brain. Embedded: the app's own copy of Ollama, started by the app on its own port
+    // (%LocalAppData%\Assistant\ollama). Otherwise an Ollama the user installed, at ollamaUrl.
+    public bool OllamaEmbedded { get; set; }
     public string OllamaUrl { get; set; } = "http://localhost:11434/";
     public string Model { get; set; } = "qwen3.5:2b";
     public int ContextSize { get; set; } = 2048;
 
     // Optional free cloud models for conversation. Groq is recommended; OpenRouter signs up without a phone.
     // Leave a key empty to skip that provider. Without any key, everything runs locally.
-    public string GroqApiKey { get; set; } = "";
+    // Keys are saved encrypted for this Windows user ("dpapi:..."); a key pasted here as plain text is encrypted on the next save.
+    [JsonIgnore] public string GroqApiKey { get; set; } = "";
     public string GroqModel { get; set; } = "llama-3.3-70b-versatile";
-    public string OpenRouterApiKey { get; set; } = "";
+    [JsonIgnore] public string OpenRouterApiKey { get; set; } = "";
     public string OpenRouterModel { get; set; } = "openrouter/free";
+
+    [JsonPropertyName("groqApiKey")]
+    public string GroqApiKeyStored
+    {
+        get => Secrets.Protect(GroqApiKey);
+        set => GroqApiKey = Secrets.Unprotect(value);
+    }
+
+    [JsonPropertyName("openRouterApiKey")]
+    public string OpenRouterApiKeyStored
+    {
+        get => Secrets.Protect(OpenRouterApiKey);
+        set => OpenRouterApiKey = Secrets.Unprotect(value);
+    }
 
     // Activity log: which apps and window titles you use, kept 7 days in the activity folder, never sent anywhere.
     public bool ActivityLogging { get; set; } = true;

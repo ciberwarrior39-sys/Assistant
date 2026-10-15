@@ -10,6 +10,7 @@ using Assistant.Core.Diagnostics;
 using Assistant.Core.Llm;
 using Assistant.Core.Memory;
 using Assistant.Core.Search;
+using Assistant.Core.Setup;
 using Assistant.Core.Storage;
 using Assistant.Core.Tools;
 using Assistant.Core.Voice;
@@ -26,6 +27,9 @@ public partial class App : Application
     Action? openSettings;    // set once everything exists, used by the tray menu
     SettingsWindow? settingsWindow;
     Speaker? testSpeaker;    // for "Test voice" while voice is turned off
+    OllamaRuntime? ollamaRuntime; // the app's own Ollama, when setup chose it
+    AppConfig? appConfig;
+    string configFile = "";
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -50,7 +54,18 @@ public partial class App : Application
         DataFolder data = DataFolder.Default();
         data.EnsureCreated();
         AppConfig config = AppConfig.Load(data.ConfigFile);
+        appConfig = config;
+        configFile = data.ConfigFile;
         Retention.Purge(data, Retention.RawLogs);
+
+        // First run (or "Run setup again"): the wizard sets up the brain, file search, voice and cloud keys.
+        string speechModels = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Assistant", "models");
+        var runtimeHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        ollamaRuntime = new OllamaRuntime(runtimeHttp);
+        if (!config.SetupDone) new SetupWizard(config, data.ConfigFile, ollamaRuntime, speechModels).ShowDialog();
+
+        // The app's own Ollama starts in the background; the bubble's status line shows when it's ready.
+        if (config.OllamaEmbedded) _ = StartEmbeddedOllamaAsync(ollamaRuntime);
 
         var exclusions = new Exclusions(data.ExclusionsFile);
         var activity = new ActivityTracker(new ActivityLog(data.ActivityFolder), exclusions)
@@ -59,13 +74,14 @@ public partial class App : Application
         };
         tracker = activity;
 
-        // Development uses the Ollama already installed; the bundled one arrives with the installer (step 10).
+        // The app's own Ollama or one the user installed, as chosen in setup.
         var ollama = new HttpClient
         {
             BaseAddress = new Uri(config.OllamaUrl.TrimEnd('/') + "/"),
             Timeout = TimeSpan.FromMinutes(2),
         };
-        var fileSearch = new EverythingSearch();
+        // Everything when it's installed and running, otherwise Windows' own search index.
+        var fileSearch = new FallbackFileSearch(new EverythingSearch(), new WindowsSearch());
 
         // Optional cloud chat, tried in this order. A provider without a key is skipped.
         CloudEndpoint[] cloudEndpoints =
@@ -127,8 +143,7 @@ public partial class App : Application
                 bubble.Say($"Push-to-talk is off: {config.PushToTalkKey} is already used by another app or isn't a valid key. " +
                            "Change pushToTalkKey in config.json and restart.");
             }
-            string models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Assistant", "models");
-            voice = new VoiceController(hotkey, new SpeechToText(models), new Speaker(config.VoiceName, config.VoiceRate),
+            voice = new VoiceController(hotkey, new SpeechToText(speechModels), new Speaker(config.VoiceName, config.VoiceRate),
                                         bubble, character, mood);
         }
 
@@ -272,6 +287,7 @@ public partial class App : Application
         menu.Items.Add("Hide for 1 hour", null, (_, _) => character.HideFor(TimeSpan.FromHours(1)));
         menu.Items.Add("Open data folder", null, (_, _) => Shell.OpenFolder(dataRoot));
         menu.Items.Add("Weekly review now", null, (_, _) => reviewNow?.Invoke());
+        menu.Items.Add("Run setup again", null, (_, _) => RunSetupAgain());
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("Quit", null, (_, _) => Shutdown());
 
@@ -299,6 +315,35 @@ public partial class App : Application
         e.Handled = true;
     }
 
+    static async Task StartEmbeddedOllamaAsync(OllamaRuntime runtime)
+    {
+        try
+        {
+            await runtime.StartAsync(CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception)
+        {
+            DiagnosticLog.Error("The app's Ollama didn't start", ex);
+        }
+    }
+
+    // The wizard runs at the next start; restarting also picks up a new model or Ollama.
+    void RunSetupAgain()
+    {
+        if (appConfig is null) return;
+        appConfig.SetupDone = false;
+        try
+        {
+            appConfig.Save(configFile);
+        }
+        catch (IOException ex)
+        {
+            DiagnosticLog.Error("Could not save config.json", ex);
+            return;
+        }
+        Restart();
+    }
+
     /// <summary>Starts a fresh copy of the app and closes this one (for settings that apply on restart).</summary>
     void Restart()
     {
@@ -316,6 +361,7 @@ public partial class App : Application
         tracker?.Flush(DateTime.Now); // write the window in progress
         voice?.Dispose();
         testSpeaker?.Dispose();
+        ollamaRuntime?.Stop();
 
         // Without this, a dead icon lingers in the tray until the mouse passes over it.
         if (tray is not null)
