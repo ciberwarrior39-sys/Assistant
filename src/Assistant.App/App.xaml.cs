@@ -85,6 +85,7 @@ public partial class App : Application
     string configFile = "";
     Updater? updater;
     System.Windows.Forms.ToolStripItem? updateItem; // "Restart to update", shown once an update is downloaded
+    Func<Task>? checkForUpdates;                     // tray > Check for updates
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -190,7 +191,8 @@ public partial class App : Application
         tray = CreateTrayIcon(character, data.Root);
 
         // Automatic updates (installed copies only): downloaded quietly, installed on the next start.
-        updater = new Updater();
+        var updates = new Updater();
+        updater = updates;
         updater.Ready += version =>
         {
             if (updateItem is not null) updateItem.Visible = true;
@@ -198,6 +200,12 @@ public partial class App : Application
                        "or right away from the tray menu: Restart to update.");
         };
         updater.Start(() => config.AutoUpdate);
+        checkForUpdates = async () =>
+        {
+            string result = await updates.CheckNowAsync();
+            character.ShowAgain();
+            bubble.Say(result);
+        };
 
         // Push-to-talk. The speech model lives with the app's own files, not in the user's data folder.
         if (config.VoiceEnabled)
@@ -259,6 +267,9 @@ public partial class App : Application
                 TryScreensaver: screensaver.Try,
                 DeleteAllData: () => DeleteAllData(data.Root),
                 Characters: characters,
+                CheckForUpdates: updates.CheckNowAsync,
+                PendingUpdate: () => updates.PendingVersion,
+                RestartToUpdate: RestartToUpdate,
                 Version: updater?.CurrentVersion ?? "development build"));
             settingsWindow.Show();
         };
@@ -357,6 +368,10 @@ public partial class App : Application
         menu.Items.Add("Open data folder", null, (_, _) => Shell.OpenFolder(dataRoot));
         menu.Items.Add("Weekly review now", null, (_, _) => reviewNow?.Invoke());
         menu.Items.Add("Run setup again", null, (_, _) => RunSetupAgain());
+        menu.Items.Add("Check for updates", null, async (_, _) =>
+        {
+            if (checkForUpdates is not null) await checkForUpdates();
+        });
         updateItem = menu.Items.Add("Restart to update", null, (_, _) => RestartToUpdate());
         updateItem.Visible = false;
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());

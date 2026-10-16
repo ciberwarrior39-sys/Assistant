@@ -23,6 +23,9 @@ public sealed record SettingsHost(
     Action TryScreensaver,             // start the screensaver in 2 seconds
     Action DeleteAllData,              // remove Documents\Assistant and close the app
     CharacterPacks Characters,         // the user's own characters in Documents\Assistant\characters
+    Func<Task<string>> CheckForUpdates, // check GitHub Releases now; returns what happened
+    Func<string?> PendingUpdate,       // the downloaded version waiting for a restart, or null
+    Action RestartToUpdate,            // install the downloaded version now
     string Version);
 
 /// <summary>
@@ -553,6 +556,46 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(Check("Check for a new version once a day and install it on the next start", edited.AutoUpdate,
             value => edited.AutoUpdate = value));
         panel.Children.Add(Hint($"This is version {host.Version}."));
+
+        var updateStatus = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8, 0, 0, 0), MaxWidth = 300 };
+        var checkNow = new Button { Content = "Check now", Padding = new Thickness(10, 2, 10, 2) };
+        var install = new Button { Content = "Restart to update", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(8, 0, 0, 0) };
+        void ShowPending()
+        {
+            string? pending = host.PendingUpdate();
+            install.Visibility = pending is null ? Visibility.Collapsed : Visibility.Visible;
+            if (pending is not null) updateStatus.Text = $"Version {pending} is ready to install.";
+        }
+        checkNow.Click += async (_, _) =>
+        {
+            checkNow.IsEnabled = false;
+            updateStatus.Text = "Checking…";
+            updateStatus.Text = await host.CheckForUpdates();
+            checkNow.IsEnabled = true;
+            ShowPending();
+        };
+        install.Click += (_, _) =>
+        {
+            // Keep the settings changes; the restart that installs the update applies them all.
+            try
+            {
+                edited.Save(host.ConfigPath);
+            }
+            catch (IOException ex)
+            {
+                MessageBox.Show(this, $"Couldn't save config.json: {ex.Message}", "Assistant");
+                return;
+            }
+            saved = true;
+            Close();
+            host.RestartToUpdate();
+        };
+        ShowPending();
+        var updateRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 4) };
+        updateRow.Children.Add(checkNow);
+        updateRow.Children.Add(install);
+        updateRow.Children.Add(updateStatus);
+        panel.Children.Add(updateRow);
 
         panel.Children.Add(Heading("Your data"));
         panel.Children.Add(Hint("Uninstalling the app keeps Documents\\Assistant (memory, settings, logs) in case you come back. " +

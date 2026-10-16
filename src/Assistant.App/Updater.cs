@@ -46,6 +46,9 @@ public sealed class Updater
 
     public bool HasPendingUpdate => manager?.UpdatePendingRestart is not null;
 
+    /// <summary>The downloaded version waiting for a restart, or null.</summary>
+    public string? PendingVersion => manager?.UpdatePendingRestart?.Version?.ToString();
+
     public void Start(Func<bool> enabled)
     {
         if (manager is null) return;
@@ -58,23 +61,40 @@ public sealed class Updater
         timer.Start();
     }
 
-    async Task CheckAsync()
+    /// <summary>
+    /// "Check for updates" in the tray and Settings: checks now (even with automatic updates off),
+    /// downloads a newer version, and says what happened in a sentence for the user.
+    /// </summary>
+    public async Task<string> CheckNowAsync()
     {
-        if (manager is null || checking || HasPendingUpdate) return;
+        if (manager is null)
+            return "Updates work in the installed app only (made with build-release.ps1 and -Repo), not when running from source.";
+        if (PendingVersion is { } ready) return $"Version {ready} is downloaded. Choose Restart to update to install it.";
+        if (checking) return "Already checking for updates…";
+        return await CheckAsync() ?? $"You have the newest version ({CurrentVersion}).";
+    }
+
+    // Returns what happened, or null when there's nothing new.
+    async Task<string?> CheckAsync()
+    {
+        if (manager is null || checking || HasPendingUpdate) return null;
         checking = true;
         try
         {
             var update = await manager.CheckForUpdatesAsync();
-            if (update is null) return;
+            if (update is null) return null;
 
-            DiagnosticLog.Info($"Downloading update {update.TargetFullRelease.Version}");
+            string version = update.TargetFullRelease.Version.ToString();
+            DiagnosticLog.Info($"Downloading update {version}");
             await manager.DownloadUpdatesAsync(update);
-            Ready?.Invoke(update.TargetFullRelease.Version.ToString());
+            Ready?.Invoke(version);
+            return $"Version {version} is downloaded. Choose Restart to update to install it.";
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Offline, GitHub rate limits, no releases yet: try again tomorrow.
+            // Offline, GitHub rate limits, no releases yet: the daily check tries again tomorrow.
             DiagnosticLog.Error("Update check failed", ex);
+            return "Couldn't check for updates (offline, or GitHub didn't answer). Try again later.";
         }
         finally
         {
