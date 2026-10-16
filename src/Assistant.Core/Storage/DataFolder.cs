@@ -24,10 +24,13 @@ public sealed class DataFolder(string root)
     public string ExclusionsFile => Path.Combine(Root, "exclusions.json");
     public string ReviewFile => Path.Combine(Root, "review.json");
 
+    /// <summary>Custom characters, one folder each (Settings > Character > Create my own).</summary>
+    public string CharactersFolder => Path.Combine(Root, "characters");
+
     /// <summary>Creates any missing folders and starter files. Never overwrites what the user has edited.</summary>
     public void EnsureCreated()
     {
-        foreach (string folder in new[] { Root, MemoryFolder, ActivityFolder, FeedbackFolder, SentFolder })
+        foreach (string folder in new[] { Root, MemoryFolder, ActivityFolder, FeedbackFolder, SentFolder, CharactersFolder })
             Directory.CreateDirectory(folder);
 
         if (!File.Exists(ConfigFile)) new AppConfig().Save(ConfigFile);

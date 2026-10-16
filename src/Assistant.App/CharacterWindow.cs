@@ -1,49 +1,59 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Shapes;
 using System.Windows.Threading;
+using Assistant.Core.Characters;
 using Assistant.Core.Storage;
 
 namespace Assistant.App;
 
 /// <summary>
-/// The placeholder character: a transparent, always-on-top window whose look follows the mood.
+/// The character: a transparent, always-on-top window whose look follows the mood.
 /// Click it to open the chat bubble, drag it anywhere, right-click for the menu.
-/// This is the default character; its colors, size, labels and calmness come from the appearance settings.
-/// Character packs with their own art (build step 11) replace only the visuals built in this class.
+/// The figure itself is a CharacterLook (blob, robot, cat, or the user's own animations); this window owns
+/// the label, the size, the bounce and the wobble, from the appearance settings.
 /// </summary>
 public sealed class CharacterWindow : Window
 {
-    const int FramesPerSecond = 30;  // prototype: 0.3% CPU at 30 fps vs 0.9% at 60
     const double SnapDistance = 24;
     const double BaseWidth = 170, BaseHeight = 160;
     static readonly TimeSpan ClickAfterAutoHide = TimeSpan.FromMilliseconds(400);
 
+    // Eyes follow the cursor when it comes within this distance (before the Size setting).
+    const double GazeDistance = 260;
+    static readonly TimeSpan GazeFast = TimeSpan.FromMilliseconds(33);  // cursor near: smooth
+    static readonly TimeSpan GazeSlow = TimeSpan.FromMilliseconds(250); // cursor far: just checking
+
     readonly CharacterMood mood;
     readonly ChatBubbleWindow bubble;
     readonly string placementFile;
-    readonly SolidColorBrush bodyBrush = new(Color.FromRgb(0x4A, 0x90, 0xE2));
+    readonly CharacterPacks packs;
+    readonly Grid stage; // holds the look's figure and carries the bounce and wobble
     readonly TranslateTransform bob = new();
     readonly RotateTransform tilt = new();
-    readonly ScaleTransform eyelids = new();
     readonly TextBlock badgeText = new() { Foreground = Brushes.White, FontSize = 11, FontWeight = FontWeights.SemiBold };
     readonly Border badge;
     readonly DispatcherTimer unhide = new();
     readonly ScaleTransform size = new(1, 1);
+    readonly DispatcherTimer gazeTimer = new() { Interval = GazeSlow };
+    Vector gaze; // where the eyes look now, eased toward the cursor
     Appearance appearance = new();
+    CharacterLook look = new BlobLook();
+    string lookName = "blob";
     string? colorOverride; // the screensaver's color of the moment
     bool inGameMode;
 
     /// <summary>The menu's "Settings…" was chosen.</summary>
     public event Action? SettingsRequested;
 
-    public CharacterWindow(CharacterMood mood, ChatBubbleWindow bubble, string placementFile, string dataRoot, Action quit)
+    public CharacterWindow(CharacterMood mood, ChatBubbleWindow bubble, CharacterPacks packs, string placementFile, string dataRoot, Action quit)
     {
         this.mood = mood;
         this.bubble = bubble;
+        this.packs = packs;
         this.placementFile = placementFile;
 
         Title = "Assistant";
@@ -60,26 +70,11 @@ public sealed class CharacterWindow : Window
         Left = saved?.X ?? SystemParameters.WorkArea.Right - Width - 16;
         Top = saved?.Y ?? SystemParameters.WorkArea.Bottom - Height - 8;
 
-        // Placeholder figure: a round body with two eyes.
-        var body = new Ellipse { Width = 96, Height = 96, Fill = bodyBrush, Stroke = Brushes.White, StrokeThickness = 3 };
-        var eyes = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 0, 14),
-            RenderTransform = eyelids,
-            RenderTransformOrigin = new Point(0.5, 0.5),
-        };
-        eyes.Children.Add(Eye());
-        eyes.Children.Add(Eye());
-
         var motion = new TransformGroup();
         motion.Children.Add(tilt);
         motion.Children.Add(bob);
-        var figure = new Grid { Width = 96, Height = 96, RenderTransform = motion, RenderTransformOrigin = new Point(0.5, 0.5) };
-        figure.Children.Add(body);
-        figure.Children.Add(eyes);
+        stage = new Grid { RenderTransform = motion, RenderTransformOrigin = new Point(0.5, 0.5), HorizontalAlignment = HorizontalAlignment.Center };
+        stage.Children.Add(look.Figure);
 
         badge = new Border
         {
@@ -93,7 +88,7 @@ public sealed class CharacterWindow : Window
         };
 
         var layout = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, LayoutTransform = size };
-        layout.Children.Add(figure);
+        layout.Children.Add(stage);
         layout.Children.Add(badge);
         Content = layout;
 
@@ -105,13 +100,19 @@ public sealed class CharacterWindow : Window
             unhide.Stop();
             if (!inGameMode) ShowAgain(); // during a game, it comes back when the game ends
         };
-        Loaded += (_, _) => ApplyMood(mood.Current);
+        gazeTimer.Tick += (_, _) => FollowCursor();
+        Loaded += (_, _) =>
+        {
+            ApplyMood(mood.Current);
+            gazeTimer.Start();
+        };
     }
 
-    /// <summary>Applies colors, size, labels and calmness right away (the Settings window's live preview).</summary>
+    /// <summary>Applies the character, colors, size, labels and calmness right away (the Settings window's live preview).</summary>
     public void ApplyAppearance(Appearance settings)
     {
         appearance = settings;
+        SetLook(settings);
 
         // Once on screen, it grows or shrinks around its bottom-right corner, so it stays where it was docked.
         // (At startup the saved spot already belongs to the saved size.)
@@ -245,95 +246,136 @@ public sealed class CharacterWindow : Window
         return item;
     }
 
-    static Grid Eye()
+    // The eyes turn toward the cursor when it comes close, and drift back when it leaves.
+    // Only the cursor position is read (a cheap call), a few times a second; no mouse hook.
+    void FollowCursor()
     {
-        var eye = new Grid { Width = 18, Height = 18, Margin = new Thickness(5, 0, 5, 0) };
-        eye.Children.Add(new Ellipse { Fill = Brushes.White });
-        eye.Children.Add(new Ellipse { Width = 8, Height = 8, Fill = new SolidColorBrush(Color.FromRgb(0x22, 0x22, 0x22)) });
-        return eye;
+        if (!IsVisible || !look.HasEyes)
+        {
+            gazeTimer.Interval = GazeSlow;
+            return;
+        }
+
+        Vector target = default;
+        if (mood.Current != Mood.Sleepy && GetCursorPos(out CursorPoint cursor))
+        {
+            try
+            {
+                Point pointer = PointFromScreen(new Point(cursor.X, cursor.Y));
+                Point eyes = look.Figure.TranslatePoint(look.EyeCenter, this);
+                Vector toCursor = pointer - eyes;
+                double distance = toCursor.Length;
+                // Close to the face the eyes turn part of the way; further out they look straight at it.
+                if (distance < GazeDistance * appearance.Scale) target = toCursor / Math.Max(distance, 40 * appearance.Scale);
+            }
+            catch (InvalidOperationException)
+            {
+                // Not on screen yet.
+            }
+        }
+
+        Vector next = gaze + (target - gaze) * 0.3;
+        if ((target - next).Length < 0.02) next = target;
+        if (next != gaze)
+        {
+            gaze = next;
+            look.LookAt(gaze);
+        }
+        // Fast only while the eyes are on the cursor or still moving.
+        gazeTimer.Interval = target != default || gaze != default ? GazeFast : GazeSlow;
     }
 
-    // Placeholder look per mood: body color, badge text, bounce height and speed, wobble, how open the eyes are.
-    // The colors here are only fallbacks; the appearance settings hold the real ones.
-    static (Color Color, string Label, double BobHeight, double BobSeconds, double Tilt, double EyesOpen) DefaultLook(Mood mood) => mood switch
+    [StructLayout(LayoutKind.Sequential)]
+    struct CursorPoint
     {
-        Mood.Thinking => (Color.FromRgb(0x8E, 0x6C, 0xEF), "thinking…", 8.0, 0.5, 0.0, 1.0),
-        Mood.FoundIt => (Color.FromRgb(0x2E, 0xB8, 0x72), "found it!", 22.0, 0.35, 0.0, 1.0),
-        Mood.Confused => (Color.FromRgb(0xF0, 0x9A, 0x3E), "hmm?", 4.0, 1.0, 10.0, 1.0),
-        Mood.Happy => (Color.FromRgb(0x7C, 0xC5, 0x42), "yay!", 16.0, 0.35, 0.0, 1.0),
-        Mood.Tired => (Color.FromRgb(0x8A, 0x94, 0xA3), "tired: cloud unavailable", 3.0, 2.0, 0.0, 0.5),
-        Mood.Sleepy => (Color.FromRgb(0x3F, 0x5A, 0x9E), "zzz", 3.0, 3.0, 0.0, 0.15),
-        Mood.Review => (Color.FromRgb(0xE8, 0xB3, 0x3A), "! weekly review", 5.0, 1.6, 0.0, 1.0),
-        Mood.HandRaised => (Color.FromRgb(0xF5, 0xA6, 0x23), "!", 12.0, 0.6, 0.0, 1.0),
-        Mood.Listening => (Color.FromRgb(0xE2, 0x4A, 0x6A), "listening…", 2.0, 0.4, 0.0, 1.0),
-        Mood.Speaking => (Color.FromRgb(0x3E, 0xA8, 0xD8), "speaking", 10.0, 0.3, 0.0, 1.0),
-        Mood.TimeUp => (Color.FromRgb(0xF0, 0x5A, 0x28), "time's up!", 18.0, 0.3, 6.0, 1.0),
-        _ => (Color.FromRgb(0x4A, 0x90, 0xE2), "", 6.0, 1.2, 0.0, 1.0),
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetCursorPos(out CursorPoint point);
+
+    // Swaps the figure when another character is chosen. A custom character whose folder is gone shows the blob.
+    void SetLook(Appearance settings)
+    {
+        string wanted = settings.CustomCharacter is { } name && !packs.Exists(name) ? "blob" : settings.Character;
+        if (wanted == lookName) return;
+
+        look.Stop();
+        look = wanted switch
+        {
+            "robot" => new RobotLook(),
+            "cat" => new CatLook(),
+            _ when wanted.StartsWith(Appearance.CustomPrefix, StringComparison.Ordinal) => new CustomLook(packs, wanted[Appearance.CustomPrefix.Length..]),
+            _ => new BlobLook(),
+        };
+        lookName = wanted;
+        gaze = default;
+        stage.Children.Clear();
+        stage.Children.Add(look.Figure);
+    }
+
+    // Each mood: body color, label, bounce height and speed, wobble, how open the eyes are.
+    // The colors here are only fallbacks; the appearance settings hold the real ones.
+    static MoodLook DefaultLook(Mood mood) => mood switch
+    {
+        Mood.Thinking => new(Color.FromRgb(0x8E, 0x6C, 0xEF), "thinking…", 8.0, 0.5, 0.0, 1.0),
+        Mood.FoundIt => new(Color.FromRgb(0x2E, 0xB8, 0x72), "found it!", 22.0, 0.35, 0.0, 1.0),
+        Mood.Confused => new(Color.FromRgb(0xF0, 0x9A, 0x3E), "hmm?", 4.0, 1.0, 10.0, 1.0),
+        Mood.Happy => new(Color.FromRgb(0x7C, 0xC5, 0x42), "yay!", 16.0, 0.35, 0.0, 1.0),
+        Mood.Tired => new(Color.FromRgb(0x8A, 0x94, 0xA3), "tired: cloud unavailable", 3.0, 2.0, 0.0, 0.5),
+        Mood.Sleepy => new(Color.FromRgb(0x3F, 0x5A, 0x9E), "zzz", 3.0, 3.0, 0.0, 0.15),
+        Mood.Review => new(Color.FromRgb(0xE8, 0xB3, 0x3A), "! weekly review", 5.0, 1.6, 0.0, 1.0),
+        Mood.HandRaised => new(Color.FromRgb(0xF5, 0xA6, 0x23), "!", 12.0, 0.6, 0.0, 1.0),
+        Mood.Listening => new(Color.FromRgb(0xE2, 0x4A, 0x6A), "listening…", 2.0, 0.4, 0.0, 1.0),
+        Mood.Speaking => new(Color.FromRgb(0x3E, 0xA8, 0xD8), "speaking", 10.0, 0.3, 0.0, 1.0),
+        Mood.TimeUp => new(Color.FromRgb(0xF0, 0x5A, 0x28), "time's up!", 18.0, 0.3, 6.0, 1.0),
+        _ => new(Color.FromRgb(0x4A, 0x90, 0xE2), "", 6.0, 1.2, 0.0, 1.0),
     };
 
-    // The default look with the user's color for this mood, and calmer movement if they asked for it.
-    (Color Color, string Label, double BobHeight, double BobSeconds, double Tilt, double EyesOpen) Look(Mood current)
+    // The mood's look with the user's color for it, and calmer movement if they asked for it.
+    MoodLook Look(Mood current)
     {
-        var look = DefaultLook(current);
+        MoodLook result = DefaultLook(current);
         string? hex = colorOverride;
         if ((hex is not null || appearance.MoodColors.TryGetValue(current.ToString(), out hex))
             && Appearance.IsColor(hex)
             && ColorConverter.ConvertFromString(hex) is Color custom)
         {
-            look.Color = custom;
+            result = result with { Color = custom };
         }
         if (appearance.CalmAnimations)
-        {
-            look.BobHeight *= 0.35;
-            look.BobSeconds *= 1.5;
-            look.Tilt = 0;
-        }
+            result = result with { BobHeight = result.BobHeight * 0.35, BobSeconds = result.BobSeconds * 1.5, Tilt = 0 };
+
         // Without labels, the ones that ask for attention stay: the hand-raise, the weekly review, a timer.
-        if (!appearance.ShowLabels && current is not (Mood.HandRaised or Mood.Review or Mood.TimeUp)) look.Label = "";
-        return look;
+        if (!appearance.ShowLabels && current is not (Mood.HandRaised or Mood.Review or Mood.TimeUp))
+            result = result with { Label = "" };
+        return result;
     }
 
     void ApplyMood(Mood current)
     {
         if (!IsVisible) return; // hidden: no animations, nothing to draw
 
-        var look = Look(current);
+        MoodLook shown = Look(current);
+        look.Apply(current, shown, appearance.CalmAnimations, colorOverride is not null);
 
-        var colorChange = new ColorAnimation(look.Color, TimeSpan.FromMilliseconds(300));
-        Timeline.SetDesiredFrameRate(colorChange, FramesPerSecond);
-        bodyBrush.BeginAnimation(SolidColorBrush.ColorProperty, colorChange);
+        badgeText.Text = shown.Label;
+        badge.Visibility = shown.Label.Length > 0 ? Visibility.Visible : Visibility.Hidden;
 
-        badgeText.Text = look.Label;
-        badge.Visibility = look.Label.Length > 0 ? Visibility.Visible : Visibility.Hidden;
-        eyelids.ScaleY = look.EyesOpen;
+        // Custom animations move by themselves; bouncing them too would look wrong.
+        if (look.UsesMotion) Motion.Loop(bob, TranslateTransform.YProperty, 0, -shown.BobHeight, shown.BobSeconds);
+        else Motion.Still(bob, TranslateTransform.YProperty, 0);
 
-        Loop(bob, TranslateTransform.YProperty, 0, -look.BobHeight, look.BobSeconds);
-        if (look.Tilt > 0)
-        {
-            Loop(tilt, RotateTransform.AngleProperty, -look.Tilt, look.Tilt, 0.8);
-        }
-        else
-        {
-            tilt.BeginAnimation(RotateTransform.AngleProperty, null);
-            tilt.Angle = 0;
-        }
+        if (look.UsesMotion && shown.Tilt > 0) Motion.Loop(tilt, RotateTransform.AngleProperty, -shown.Tilt, shown.Tilt, 0.8);
+        else Motion.Still(tilt, RotateTransform.AngleProperty, 0);
     }
 
     void StopAnimations()
     {
         bob.BeginAnimation(TranslateTransform.YProperty, null);
         tilt.BeginAnimation(RotateTransform.AngleProperty, null);
-    }
-
-    static void Loop(Animatable target, DependencyProperty property, double from, double to, double seconds)
-    {
-        var animation = new DoubleAnimation(from, to, TimeSpan.FromSeconds(seconds / 2))
-        {
-            AutoReverse = true,
-            RepeatBehavior = RepeatBehavior.Forever,
-            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
-        };
-        Timeline.SetDesiredFrameRate(animation, FramesPerSecond);
-        target.BeginAnimation(property, animation);
+        look.Stop();
     }
 }

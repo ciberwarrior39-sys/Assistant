@@ -5,10 +5,23 @@ namespace Assistant.Core.Storage;
 /// <summary>
 /// How the character and the chat bubble look, from the "appearance" part of config.json.
 /// The Settings window edits it with a live preview; hand edits work too (restart after those).
-/// This is the default character's look; character packs with their own art come in build step 11.
+/// The colors are the built-in characters' body colors, and the glow a custom character gets for moods it has no animation for.
 /// </summary>
 public sealed class Appearance
 {
+    /// <summary>The characters drawn by the app. Custom ones are "custom:" plus their folder name in characters\.</summary>
+    public static readonly string[] BuiltInCharacters = ["blob", "robot", "cat"];
+
+    public const string CustomPrefix = "custom:";
+
+    /// <summary>blob, robot, cat, or custom:&lt;folder name&gt;.</summary>
+    public string Character { get; set; } = "blob";
+
+    /// <summary>The folder name of a custom character, or null for a built-in one.</summary>
+    [JsonIgnore]
+    public string? CustomCharacter =>
+        Character.StartsWith(CustomPrefix, StringComparison.Ordinal) ? Character[CustomPrefix.Length..] : null;
+
     /// <summary>The built-in colors, by mood. Keys are the mood names the app uses.</summary>
     public static readonly IReadOnlyDictionary<string, string> DefaultColors = new Dictionary<string, string>
     {
@@ -62,6 +75,10 @@ public sealed class Appearance
         {
             if (!MoodColors.TryGetValue(mood, out string? value) || !IsColor(value)) MoodColors[mood] = color;
         }
+        // A custom name is checked when the character is shown (the folder may be gone): then it falls back to the blob.
+        Character = (Character ?? "").Trim();
+        if (!BuiltInCharacters.Contains(Character) && (CustomCharacter is not { Length: > 0 } name || !Assistant.Core.Characters.CharacterPacks.IsValidName(name)))
+            Character = "blob";
         if (!Sizes.Contains(Size)) Size = "medium";
         if (BubbleTheme is not ("light" or "dark")) BubbleTheme = "light";
         BubbleTextSize = Math.Clamp(BubbleTextSize, 11, 18);
@@ -69,6 +86,7 @@ public sealed class Appearance
 
     public Appearance Copy() => new()
     {
+        Character = Character,
         MoodColors = new Dictionary<string, string>(MoodColors),
         Size = Size,
         ShowLabels = ShowLabels,

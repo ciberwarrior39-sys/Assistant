@@ -5,7 +5,9 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using Assistant.Core.Characters;
 using Assistant.Core.Storage;
+using Microsoft.Win32;
 
 namespace Assistant.App;
 
@@ -20,6 +22,7 @@ public sealed record SettingsHost(
     Action Restart,
     Action TryScreensaver,             // start the screensaver in 2 seconds
     Action DeleteAllData,              // remove Documents\Assistant and close the app
+    CharacterPacks Characters,         // the user's own characters in Documents\Assistant\characters
     string Version);
 
 /// <summary>
@@ -55,7 +58,17 @@ public sealed class SettingsWindow : Window
         Visibility = Visibility.Collapsed,
     };
     readonly Dictionary<string, (Button Swatch, TextBox Hex)> colorRows = [];
+    readonly ComboBox lookBox = new() { Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
+    readonly StackPanel slots = new();
+    readonly Button openFolder = new() { Content = "Open its folder", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(8, 0, 0, 0) };
+    readonly TextBlock colorsHint = new() { Foreground = Brushes.DimGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) };
     bool saved;
+
+    /// <summary>An entry in the character list: the config value and what the user sees.</summary>
+    sealed record LookChoice(string Key, string Label)
+    {
+        public override string ToString() => Label;
+    }
 
     public SettingsWindow(SettingsHost host)
     {
@@ -113,8 +126,54 @@ public sealed class SettingsWindow : Window
     UIElement CharacterTab()
     {
         var panel = new StackPanel { Margin = new Thickness(12) };
+        panel.Children.Add(Heading("Character"));
+        FillLooks(edited.Appearance.Character);
+        lookBox.SelectionChanged += (_, _) =>
+        {
+            if (lookBox.SelectedItem is not LookChoice choice || choice.Key == edited.Appearance.Character) return;
+            edited.Appearance.Character = choice.Key;
+            ShowSlots();
+            Changed();
+        };
+        openFolder.Click += (_, _) =>
+        {
+            if (edited.Appearance.CustomCharacter is { } name) Shell.OpenFolder(host.Characters.PackFolder(name));
+        };
+        var pickRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
+        pickRow.Children.Add(lookBox);
+        pickRow.Children.Add(openFolder);
+        panel.Children.Add(pickRow);
+
+        // A new, empty character: a folder per mood, filled below or by dropping files in.
+        var newName = new TextBox { Width = 160, Text = "My character", VerticalContentAlignment = VerticalAlignment.Center };
+        var create = new Button { Content = "Create my own", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(8, 0, 0, 0) };
+        create.Click += (_, _) =>
+        {
+            string name;
+            try
+            {
+                name = host.Characters.Create(newName.Text);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                MessageBox.Show(this, $"Couldn't create the character's folder: {ex.Message}", "Assistant");
+                return;
+            }
+            edited.Appearance.Character = Appearance.CustomPrefix + name;
+            FillLooks(edited.Appearance.Character);
+            ShowSlots();
+            Changed();
+        };
+        var createRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
+        createRow.Children.Add(newName);
+        createRow.Children.Add(create);
+        panel.Children.Add(Labeled("New character", createRow));
+
+        panel.Children.Add(slots);
+        ShowSlots();
+
         panel.Children.Add(Heading("Colors"));
-        panel.Children.Add(Hint("One color per mood. Click a square to pick a color, or type #RRGGBB. Click a name to see it."));
+        panel.Children.Add(colorsHint);
 
         foreach (string mood in Appearance.DefaultColors.Keys) panel.Children.Add(ColorRow(mood));
 
@@ -140,6 +199,153 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(Check("Calm animations (smaller bounces, no wobble)", edited.Appearance.CalmAnimations,
             value => edited.Appearance.CalmAnimations = value));
         return panel;
+    }
+
+    // The built-in characters, then the user's own, with the current one selected.
+    void FillLooks(string selected)
+    {
+        var choices = new List<LookChoice>
+        {
+            new("blob", "Blob (default)"),
+            new("robot", "Robot"),
+            new("cat", "Cat"),
+        };
+        choices.AddRange(host.Characters.Names().Select(name => new LookChoice(Appearance.CustomPrefix + name, $"{name} (yours)")));
+        lookBox.ItemsSource = choices;
+        lookBox.SelectedItem = choices.FirstOrDefault(choice => choice.Key == selected) ?? choices[0];
+    }
+
+    // For a custom character: one row per mood with a preview, Choose… and Clear.
+    void ShowSlots()
+    {
+        slots.Children.Clear();
+        string? name = edited.Appearance.CustomCharacter;
+        openFolder.Visibility = name is null ? Visibility.Collapsed : Visibility.Visible;
+        colorsHint.Text = name is null
+            ? "One color per mood. Click a square to pick a color, or type #RRGGBB. Click a name to see it."
+            : "Your character keeps its own colors. These are the glow it gets for moods without their own animation.";
+        if (name is null) return;
+
+        slots.Children.Add(Heading("Animations"));
+        slots.Children.Add(Hint("For each mood, choose an animated GIF, or PNG frames (select them all; they play in name order). " +
+                                "Only Normal is needed; the other moods use it with a colored glow until they have their own. " +
+                                "Files are copied into the character's folder right away (Cancel doesn't undo that); " +
+                                "replaced or cleared ones go to the Recycle Bin. Click a mood's name to see it."));
+        foreach (string slot in CharacterPacks.Slots) slots.Children.Add(SlotRow(name, slot));
+    }
+
+    UIElement SlotRow(string name, string slot)
+    {
+        SlotContent content = host.Characters.Slot(name, slot);
+        var preview = new Border
+        {
+            Width = 40,
+            Height = 40,
+            Margin = new Thickness(0, 0, 8, 0),
+            BorderBrush = Brushes.LightGray,
+            BorderThickness = new Thickness(1),
+            Background = Brushes.WhiteSmoke,
+            Child = new Image { Source = AnimationFiles.Thumbnail(content, 40), Stretch = Stretch.Uniform },
+        };
+
+        var title = new TextBlock { Width = 150, VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Hand, ToolTip = "Show this mood on the character" };
+        title.Inlines.Add(new Run(MoodNames.GetValueOrDefault(slot, slot)) { TextDecorations = TextDecorations.Underline });
+        title.MouseLeftButtonUp += (_, _) => host.PreviewMood(Enum.Parse<Mood>(slot));
+
+        bool required = slot == nameof(Mood.Idle);
+        var status = new TextBlock
+        {
+            Width = 110,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = content.Kind == SlotKind.Empty && required ? Brushes.Firebrick : Brushes.DimGray,
+            Text = content.Kind switch
+            {
+                SlotKind.Gif => "GIF",
+                SlotKind.Frames when content.Files.Count == 1 => "picture",
+                SlotKind.Frames => $"{content.Files.Count} PNG frames",
+                _ => required ? "empty (needed)" : "uses Normal",
+            },
+        };
+
+        var choose = new Button { Content = "Choose…", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(0, 0, 6, 0) };
+        var clear = new Button { Content = "Clear", Padding = new Thickness(8, 1, 8, 1), IsEnabled = content.Kind != SlotKind.Empty };
+        choose.Click += (_, _) => ChooseFiles(name, slot);
+        clear.Click += (_, _) =>
+        {
+            if (!Recycle(host.Characters.SlotFiles(name, slot))) return;
+            SlotChanged(slot);
+        };
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 3) };
+        row.Children.Add(preview);
+        row.Children.Add(title);
+        row.Children.Add(status);
+        row.Children.Add(choose);
+        row.Children.Add(clear);
+        return row;
+    }
+
+    void ChooseFiles(string name, string slot)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = $"{MoodNames.GetValueOrDefault(slot, slot)}: an animated GIF, or PNG frames",
+            Filter = "Animated GIF or PNG frames (*.gif;*.png)|*.gif;*.png",
+            Multiselect = true,
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        IReadOnlyList<string> files = dialog.FileNames;
+        if (CharacterPacks.Check(files) is { } problem)
+        {
+            MessageBox.Show(this, problem, "Assistant");
+            return;
+        }
+
+        // Files picked from the slot's own folder are already in place.
+        string folder = Path.GetFullPath(host.Characters.SlotFolder(name, slot)) + Path.DirectorySeparatorChar;
+        if (files.Any(file => Path.GetFullPath(file).StartsWith(folder, StringComparison.OrdinalIgnoreCase)))
+        {
+            MessageBox.Show(this, "Those files are already in this mood's folder.", "Assistant");
+            return;
+        }
+
+        if (!Recycle(host.Characters.SlotFiles(name, slot))) return;
+        try
+        {
+            host.Characters.Fill(name, slot, files);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(this, $"Couldn't copy the files: {ex.Message}", "Assistant");
+        }
+        SlotChanged(slot);
+    }
+
+    // The row is rebuilt and the character shows the mood with its new animation.
+    void SlotChanged(string slot)
+    {
+        ShowSlots();
+        Changed(slot);
+    }
+
+    // Replaced and cleared animation files go to the Recycle Bin, in case they were the only copy.
+    bool Recycle(IReadOnlyList<string> files)
+    {
+        try
+        {
+            foreach (string file in files)
+            {
+                Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(file,
+                    Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
+        {
+            MessageBox.Show(this, $"Couldn't remove the old files: {ex.Message}", "Assistant");
+            return false;
+        }
     }
 
     UIElement ColorRow(string mood)

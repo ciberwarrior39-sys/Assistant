@@ -3,7 +3,7 @@
 A modern, smarter Clippy-style desktop assistant for Windows. Free, local-first, and transparent:
 everything it learns lives in plain files in `Documents\Assistant\`.
 
-## Status: build steps 1–10
+## Status: build steps 1–11
 
 A placeholder character in the corner of the screen. Click it to chat in a speech bubble: the local model
 finds files on your computer, and optional free cloud chat handles conversation.
@@ -11,6 +11,11 @@ finds files on your computer, and optional free cloud chat handles conversation.
 - **Click** the character: open or close the chat bubble (Esc or clicking elsewhere also closes it).
 - **Drag** it anywhere; it snaps to screen edges and remembers its spot (`placement.json` in the data folder).
 - **Right-click** it, or use the **tray icon**: settings, open data folder, hide for 1 hour, quit.
+- **Characters:** Settings > Character picks the Blob (default), the Robot or the Cat, all drawn by the app in your mood
+  colors. **Create my own** makes an empty character in `characters\<name>\` with one folder per mood; fill them in
+  Settings (Choose… per mood: an animated GIF, or PNG frames) or drop files in by hand. Only Normal (Idle) is needed;
+  other moods use it with a glow in the mood's color plus the usual label. Pictures are shrunk to 256 px; up to 240 frames
+  per mood; PNG frame speed is in the character's `character.json`. Replaced or cleared files go to the Recycle Bin.
 - **Settings** (right-click or tray): a color for every mood, size, labels, calm animations, light or dark chat bubble,
   text size, voice and speed with a test button, push-to-talk keys, features on/off and cloud keys. Changes show up
   live on the character; Cancel puts everything back. Saved in `config.json` (the `appearance` part holds the look).

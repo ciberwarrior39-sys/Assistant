@@ -7,6 +7,7 @@ using System.Windows.Threading;
 using Velopack;
 using Assistant.Core;
 using Assistant.Core.Activity;
+using Assistant.Core.Characters;
 using Assistant.Core.Diagnostics;
 using Assistant.Core.Llm;
 using Assistant.Core.Memory;
@@ -179,7 +180,8 @@ public partial class App : Application
 
         var mood = new CharacterMood();
         var bubble = new ChatBubbleWindow(assistant, dependencies, data, mood);
-        var character = new CharacterWindow(mood, bubble, Path.Combine(data.Root, "placement.json"), data.Root, Shutdown);
+        var characters = new CharacterPacks(data.CharactersFolder);
+        var character = new CharacterWindow(mood, bubble, characters, Path.Combine(data.Root, "placement.json"), data.Root, Shutdown);
         MainWindow = character;
         character.ApplyAppearance(config.Appearance);
         bubble.ApplyAppearance(config.Appearance);
@@ -256,6 +258,7 @@ public partial class App : Application
                 Restart: Restart,
                 TryScreensaver: screensaver.Try,
                 DeleteAllData: () => DeleteAllData(data.Root),
+                Characters: characters,
                 Version: updater?.CurrentVersion ?? "development build"));
             settingsWindow.Show();
         };
