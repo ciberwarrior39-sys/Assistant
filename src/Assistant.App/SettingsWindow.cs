@@ -27,6 +27,7 @@ public sealed record SettingsHost(
     Func<string?> PendingUpdate,       // the downloaded version waiting for a restart, or null
     Action RestartToUpdate,            // install the downloaded version now
     bool Installed,                    // installed with the setup file (not run from source)
+    Assistant.Core.Voice.PiperInstall Piper, // the natural voices, downloaded on request
     string Version);
 
 /// <summary>
@@ -49,6 +50,7 @@ public sealed class SettingsWindow : Window
         ["Listening"] = "Listening",
         ["Speaking"] = "Speaking",
         ["TimeUp"] = "Time's up",
+        [CharacterPacks.NoticedSlot] = "Cursor nearby",
     };
 
     readonly SettingsHost host;
@@ -65,6 +67,7 @@ public sealed class SettingsWindow : Window
     readonly ComboBox lookBox = new() { Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
     readonly StackPanel slots = new();
     readonly Button openFolder = new() { Content = "Open its folder", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(8, 0, 0, 0) };
+    readonly Button exportCharacter = new() { Content = "Export…", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(8, 0, 0, 0), ToolTip = "Save it as one file to share" };
     readonly TextBlock colorsHint = new() { Foreground = Brushes.DimGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) };
     bool saved;
 
@@ -144,9 +147,15 @@ public sealed class SettingsWindow : Window
         {
             if (edited.Appearance.CustomCharacter is { } name) Shell.OpenFolder(host.Characters.PackFolder(name));
         };
+        exportCharacter.Click += (_, _) =>
+        {
+            if (edited.Appearance.CustomCharacter is { } name)
+                new ExportCharacterWindow(host.Characters, name, edited.Appearance.MoodColors) { Owner = this }.ShowDialog();
+        };
         var pickRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
         pickRow.Children.Add(lookBox);
         pickRow.Children.Add(openFolder);
+        pickRow.Children.Add(exportCharacter);
         panel.Children.Add(pickRow);
 
         // A new, empty character: a folder per mood, filled below or by dropping files in.
@@ -173,6 +182,19 @@ public sealed class SettingsWindow : Window
         createRow.Children.Add(newName);
         createRow.Children.Add(create);
         panel.Children.Add(Labeled("New character", createRow));
+
+        // A character someone shared: one .assistant-character file (a zip of its folder works too).
+        var import = new Button { Content = "Import a character file…", Padding = new Thickness(10, 2, 10, 2), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(110, 2, 0, 4) };
+        import.Click += (_, _) =>
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "Import a character",
+                Filter = $"Assistant character (*{CharacterSharing.Extension})|*{CharacterSharing.Extension}|Zip file (*.zip)|*.zip",
+            };
+            if (dialog.ShowDialog(this) == true) ImportFile(dialog.FileName);
+        };
+        panel.Children.Add(import);
 
         panel.Children.Add(slots);
         ShowSlots();
@@ -220,12 +242,31 @@ public sealed class SettingsWindow : Window
         lookBox.SelectedItem = choices.FirstOrDefault(choice => choice.Key == selected) ?? choices[0];
     }
 
+    /// <summary>
+    /// Shows a character file's preview and imports it: it becomes the chosen character (saved with Save, like
+    /// any change here). Also used when a character file is double-clicked while Settings is open.
+    /// </summary>
+    public void ImportFile(string file)
+    {
+        if (ImportCharacterWindow.Run(this, host.Characters, file) is not { } result) return;
+        edited.Appearance.Character = Appearance.CustomPrefix + result.Name;
+        if (result.Colors is { } colors)
+        {
+            foreach ((string mood, string color) in colors) SetColor(mood, color);
+        }
+        FillLooks(edited.Appearance.Character);
+        ShowSlots();
+        Changed();
+        Activate();
+    }
+
     // For a custom character: one row per mood with a preview, Choose… and Clear.
     void ShowSlots()
     {
         slots.Children.Clear();
         string? name = edited.Appearance.CustomCharacter;
         openFolder.Visibility = name is null ? Visibility.Collapsed : Visibility.Visible;
+        exportCharacter.Visibility = openFolder.Visibility;
         colorsHint.Text = name is null
             ? "One color per mood. Click a square to pick a color, or type #RRGGBB. Click a name to see it."
             : "Your character keeps its own colors. These are the glow it gets for moods without their own animation.";
@@ -255,7 +296,8 @@ public sealed class SettingsWindow : Window
 
         var title = new TextBlock { Width = 150, VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Hand, ToolTip = "Show this mood on the character" };
         title.Inlines.Add(new Run(MoodNames.GetValueOrDefault(slot, slot)) { TextDecorations = TextDecorations.Underline });
-        title.MouseLeftButtonUp += (_, _) => host.PreviewMood(Enum.Parse<Mood>(slot));
+        if (Enum.TryParse(slot, out Mood shown)) title.MouseLeftButtonUp += (_, _) => host.PreviewMood(shown);
+        else title.ToolTip = "Plays instead of Normal while the mouse pointer is near the character. Move the mouse close to see it.";
 
         bool required = slot == nameof(Mood.Idle);
         var status = new TextBlock
@@ -443,23 +485,13 @@ public sealed class SettingsWindow : Window
             value => edited.VoiceEnabled = value, needsRestart: true));
 
         panel.Children.Add(Heading("Voice"));
-        var voices = new List<string> { "Windows default" };
-        try
+        panel.Children.Add(Hint("The natural voices sound much more human. Each is a one-time download and runs on this computer."));
+        var voice = new VoicePicker(host.Piper, edited.VoiceName, setting =>
         {
-            voices.AddRange(Assistant.Core.Voice.Speaker.InstalledVoiceNames());
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            // No speech engine: the list stays at the default entry.
-        }
-        var voice = new ComboBox { Width = 300, HorizontalAlignment = HorizontalAlignment.Left, ItemsSource = voices };
-        int current = edited.VoiceName.Length == 0 ? 0 : voices.FindIndex(name => name.Contains(edited.VoiceName, StringComparison.OrdinalIgnoreCase));
-        voice.SelectedIndex = Math.Max(0, current);
-        voice.SelectionChanged += (_, _) =>
-        {
-            edited.VoiceName = voice.SelectedIndex <= 0 ? "" : voices[voice.SelectedIndex];
+            edited.VoiceName = setting;
             Changed();
-        };
+        });
+        voice.Downloaded += () => host.TestVoice("Hi! This is my new voice.");
         panel.Children.Add(voice);
 
         panel.Children.Add(Heading("Speed"));
@@ -639,7 +671,7 @@ public sealed class SettingsWindow : Window
     void Changed(string? mood = null, bool needsRestart = false)
     {
         host.ApplyLive(edited);
-        if (mood is not null) host.PreviewMood(Enum.Parse<Mood>(mood));
+        if (mood is not null && Enum.TryParse(mood, out Mood shown)) host.PreviewMood(shown);
         if (needsRestart) restartNote.Visibility = Visibility.Visible;
     }
 

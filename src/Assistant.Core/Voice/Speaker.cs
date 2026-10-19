@@ -5,22 +5,29 @@ using Assistant.Core.Diagnostics;
 namespace Assistant.Core.Voice;
 
 /// <summary>
-/// Reads replies aloud with a voice built into Windows: nothing to download. Piper's more natural voices
-/// can replace this class later (build step 10). Create it on the UI thread so Finished arrives there.
+/// Reads replies aloud: with a natural Piper voice when one is chosen and downloaded, otherwise with a voice
+/// built into Windows (nothing to download). If Piper fails, the Windows voice says it instead.
+/// Create it on the UI thread so Finished arrives there.
 /// </summary>
 public sealed partial class Speaker : IDisposable
 {
     readonly SpeechSynthesizer synthesizer = new();
+    readonly PiperInstall? piper;
+    readonly PiperSpeech natural = new();
     Prompt? current;
     readonly string? defaultVoice; // Windows' own choice, to go back to when the setting is cleared
+    PiperVoice? piperVoice;
+    int rate;
 
     public event Action? Finished;
 
     public bool IsSpeaking { get; private set; }
 
-    /// <param name="voiceName">Part of an installed voice's name, e.g. "Zira"; empty for Windows' default voice.</param>
-    public Speaker(string voiceName, int rate)
+    /// <param name="voiceName">"piper:..." for a natural voice, part of an installed Windows voice's name (e.g. "Zira"),
+    /// or empty for Windows' default voice.</param>
+    public Speaker(string voiceName, int rate, PiperInstall? piper = null)
     {
+        this.piper = piper;
         synthesizer.SetOutputToDefaultAudioDevice();
         defaultVoice = synthesizer.Voice?.Name;
         Configure(voiceName, rate);
@@ -31,12 +38,25 @@ public sealed partial class Speaker : IDisposable
             IsSpeaking = false;
             Finished?.Invoke();
         };
+        natural.Finished += () =>
+        {
+            if (!IsSpeaking) return;
+            IsSpeaking = false;
+            Finished?.Invoke();
+        };
+        natural.Failed += text =>
+        {
+            if (IsSpeaking) SpeakWithWindows(text); // still heard, just less natural
+        };
     }
 
-    /// <summary>Picks the voice (by part of its name; empty for Windows' default) and speed. Used live by Settings.</summary>
+    /// <summary>Picks the voice and speed. Used live by Settings.</summary>
     public void Configure(string voiceName, int rate)
     {
-        synthesizer.Rate = Math.Clamp(rate, -10, 10);
+        this.rate = Math.Clamp(rate, -10, 10);
+        synthesizer.Rate = this.rate;
+        piperVoice = PiperVoices.FromSetting(voiceName);
+        if (piperVoice is not null) voiceName = ""; // the Windows default stands in if Piper can't speak
         InstalledVoice? match = voiceName.Length == 0 ? null : synthesizer.GetInstalledVoices()
             .FirstOrDefault(voice => voice.Enabled && voice.VoiceInfo.Name.Contains(voiceName, StringComparison.OrdinalIgnoreCase));
         if (match is not null) synthesizer.SelectVoice(match.VoiceInfo.Name);
@@ -60,9 +80,24 @@ public sealed partial class Speaker : IDisposable
         string spoken = ForSpeech(text);
         if (spoken.Length == 0) return;
         Stop();
-        IsSpeaking = true;
-        current = synthesizer.SpeakAsync(spoken);
+
+        if (piperVoice is { } voice && piper is not null && piper.IsReady(voice) && piper.ExePath is { } exe)
+        {
+            IsSpeaking = true;
+            natural.Speak(exe, piper.ModelPath(voice), piper.SampleRate(voice), LengthScale, spoken);
+            return;
+        }
+        SpeakWithWindows(spoken);
     }
+
+    void SpeakWithWindows(string text)
+    {
+        IsSpeaking = true;
+        current = synthesizer.SpeakAsync(text);
+    }
+
+    // Piper's speed: above 1 is slower. The -10..10 speed setting maps to 1.5..0.5.
+    double LengthScale => Math.Clamp(1.0 - rate * 0.05, 0.5, 1.5);
 
     public void Stop()
     {
@@ -70,6 +105,7 @@ public sealed partial class Speaker : IDisposable
         current = null;
         IsSpeaking = false;
         synthesizer.SpeakAsyncCancelAll();
+        natural.Stop();
         Finished?.Invoke();
     }
 
@@ -79,5 +115,9 @@ public sealed partial class Speaker : IDisposable
     [GeneratedRegex(@"[A-Za-z]:\\[^\s""',;()<>|?*]*")]
     private static partial Regex WindowsPath();
 
-    public void Dispose() => synthesizer.Dispose();
+    public void Dispose()
+    {
+        natural.Dispose();
+        synthesizer.Dispose();
+    }
 }

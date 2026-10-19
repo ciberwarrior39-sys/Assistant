@@ -27,10 +27,14 @@ public sealed class CustomLook : CharacterLook
     readonly Dictionary<string, (string Stamp, FrameAnimation? Animation)> cache = [];
     string showing = "";
     int request; // a newer mood wins over a slow load
+    Mood mood = Mood.Idle;
+    MoodLook look;
+    bool calm, overridden, near;
 
     public string Name { get; }
     public override FrameworkElement Figure { get; }
     public override bool UsesMotion => false;
+    public override Point EyeCenter => new(Box / 2, Box / 2); // the middle of the picture, for "cursor nearby"
 
     public CustomLook(CharacterPacks packs, string name)
     {
@@ -69,16 +73,28 @@ public sealed class CustomLook : CharacterLook
 
     public override void Apply(Mood mood, MoodLook look, bool calm, bool overridden)
     {
+        (this.mood, this.look, this.calm, this.overridden) = (mood, look, calm, overridden);
         int mine = ++request;
         string slot = mood.ToString();
         bool own = packs.Slot(Name, slot).Kind != SlotKind.Empty;
         string used = own ? slot : nameof(Mood.Idle);
+
+        // Noticed only stands in for Idle: every real mood still shows.
+        if (mood == Mood.Idle && near && packs.Slot(Name, CharacterPacks.NoticedSlot).Kind != SlotKind.Empty)
+            used = CharacterPacks.NoticedSlot;
 
         // The glow stands in for moods without their own animation, and shows the screensaver's colors.
         bool glow = overridden || (!own && mood != Mood.Idle);
         image.Effect = glow ? new DropShadowEffect { Color = look.Color, ShadowDepth = 0, BlurRadius = 22, Opacity = 0.95 } : null;
 
         _ = ShowAsync(used, mine);
+    }
+
+    public override void CursorNear(bool near)
+    {
+        if (this.near == near) return;
+        this.near = near;
+        if (mood == Mood.Idle) Apply(mood, look, calm, overridden);
     }
 
     async Task ShowAsync(string slot, int mine)

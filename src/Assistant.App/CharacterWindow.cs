@@ -40,6 +40,9 @@ public sealed class CharacterWindow : Window
     readonly ScaleTransform size = new(1, 1);
     readonly DispatcherTimer gazeTimer = new() { Interval = GazeSlow };
     Vector gaze; // where the eyes look now, eased toward the cursor
+    bool cursorNear;
+    DateTime cursorLastNear;
+    static readonly TimeSpan CursorLeaveDelay = TimeSpan.FromSeconds(0.6); // no flicker at the edge of the range
     Appearance appearance = new();
     CharacterLook look = new BlobLook();
     string lookName = "blob";
@@ -250,14 +253,15 @@ public sealed class CharacterWindow : Window
     // Only the cursor position is read (a cheap call), a few times a second; no mouse hook.
     void FollowCursor()
     {
-        if (!IsVisible || !look.HasEyes)
+        if (!IsVisible)
         {
             gazeTimer.Interval = GazeSlow;
             return;
         }
 
         Vector target = default;
-        if (mood.Current != Mood.Sleepy && GetCursorPos(out CursorPoint cursor))
+        bool near = false;
+        if (GetCursorPos(out CursorPoint cursor))
         {
             try
             {
@@ -265,13 +269,21 @@ public sealed class CharacterWindow : Window
                 Point eyes = look.Figure.TranslatePoint(look.EyeCenter, this);
                 Vector toCursor = pointer - eyes;
                 double distance = toCursor.Length;
+                near = distance < GazeDistance * appearance.Scale;
                 // Close to the face the eyes turn part of the way; further out they look straight at it.
-                if (distance < GazeDistance * appearance.Scale) target = toCursor / Math.Max(distance, 40 * appearance.Scale);
+                if (near && mood.Current != Mood.Sleepy) target = toCursor / Math.Max(distance, 40 * appearance.Scale);
             }
             catch (InvalidOperationException)
             {
                 // Not on screen yet.
             }
+        }
+        NoticeCursor(near);
+
+        if (!look.HasEyes)
+        {
+            gazeTimer.Interval = GazeSlow; // only "cursor nearby" to watch for
+            return;
         }
 
         Vector next = gaze + (target - gaze) * 0.3;
@@ -283,6 +295,23 @@ public sealed class CharacterWindow : Window
         }
         // Fast only while the eyes are on the cursor or still moving.
         gazeTimer.Interval = target != default || gaze != default ? GazeFast : GazeSlow;
+    }
+
+    // Tells the look when the cursor arrives (right away) and leaves (after a moment).
+    void NoticeCursor(bool near)
+    {
+        if (near)
+        {
+            cursorLastNear = DateTime.UtcNow;
+            if (cursorNear) return;
+            cursorNear = true;
+            look.CursorNear(true);
+        }
+        else if (cursorNear && DateTime.UtcNow - cursorLastNear > CursorLeaveDelay)
+        {
+            cursorNear = false;
+            look.CursorNear(false);
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -312,6 +341,7 @@ public sealed class CharacterWindow : Window
         };
         lookName = wanted;
         gaze = default;
+        cursorNear = false;
         stage.Children.Clear();
         stage.Children.Add(look.Figure);
     }

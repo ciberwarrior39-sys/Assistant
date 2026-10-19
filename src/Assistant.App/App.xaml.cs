@@ -32,6 +32,7 @@ public partial class App : Application
             .OnBeforeUninstallFastCallback(_ =>
             {
                 StartWithWindows.Remove();
+                CharacterFileType.Remove();
                 RemoveAppFiles();
             })
             .Run();
@@ -95,12 +96,19 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        // Launching the app twice must not create a second assistant.
+        // Launching the app twice must not create a second assistant. A second start that came from
+        // double-clicking a character file hands the file to the running one instead.
+        string? importFile = ImportHandoff.FileFromArguments(e.Args);
         singleInstance = new Mutex(true, @"Local\Assistant.SingleInstance", out bool isFirstInstance);
         if (!isFirstInstance)
         {
             singleInstance.Dispose();
             singleInstance = null;
+            if (importFile is not null && ImportHandoff.SendToRunning(importFile))
+            {
+                Shutdown();
+                return;
+            }
             MessageBox.Show("The assistant is already running.", "Assistant");
             Shutdown();
             return;
@@ -120,9 +128,10 @@ public partial class App : Application
 
         // First run (or "Run setup again"): the wizard sets up the brain, file search, voice and cloud keys.
         string speechModels = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Assistant", "models");
+        var piper = new PiperInstall(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Assistant", "piper"));
         var runtimeHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         ollamaRuntime = new OllamaRuntime(runtimeHttp);
-        if (!config.SetupDone) new SetupWizard(config, data.ConfigFile, ollamaRuntime, speechModels).ShowDialog();
+        if (!config.SetupDone) new SetupWizard(config, data.ConfigFile, ollamaRuntime, speechModels, piper).ShowDialog();
 
         // The app's own Ollama starts in the background; the bubble's status line shows when it's ready.
         if (config.OllamaEmbedded) _ = StartEmbeddedOllamaAsync(ollamaRuntime);
@@ -205,6 +214,7 @@ public partial class App : Application
         };
         updater.Start(() => config.AutoUpdate);
         StartWithWindows.Sync(config.StartWithWindows);
+        CharacterFileType.Register();
         checkForUpdates = async () =>
         {
             string result = await updates.CheckNowAsync();
@@ -222,7 +232,7 @@ public partial class App : Application
                 bubble.Say($"Push-to-talk is off: {config.PushToTalkKey} is already used by another app or isn't a valid key. " +
                            "Change pushToTalkKey in config.json and restart.");
             }
-            voice = new VoiceController(hotkey, new SpeechToText(speechModels), new Speaker(config.VoiceName, config.VoiceRate),
+            voice = new VoiceController(hotkey, new SpeechToText(speechModels), new Speaker(config.VoiceName, config.VoiceRate, piper),
                                         bubble, character, mood);
         }
 
@@ -266,7 +276,7 @@ public partial class App : Application
                         voice.Announce(text);
                         return;
                     }
-                    testSpeaker ??= new Speaker(config.VoiceName, config.VoiceRate);
+                    testSpeaker ??= new Speaker(config.VoiceName, config.VoiceRate, piper);
                     testSpeaker.Speak(text);
                 },
                 Restart: Restart,
@@ -277,10 +287,41 @@ public partial class App : Application
                 PendingUpdate: () => updates.PendingVersion,
                 RestartToUpdate: RestartToUpdate,
                 Installed: StartWithWindows.IsInstalled,
+                Piper: piper,
                 Version: updater?.CurrentVersion ?? "development build"));
             settingsWindow.Show();
         };
         character.SettingsRequested += () => openSettings?.Invoke();
+
+        // A character file was double-clicked: preview it, then import it and switch to it.
+        void ImportCharacter(string file)
+        {
+            character.ShowAgain();
+            if (settingsWindow is { IsLoaded: true })
+            {
+                settingsWindow.Activate();
+                settingsWindow.ImportFile(file); // Settings owns the config while it's open
+                return;
+            }
+            if (ImportCharacterWindow.Run(null, characters, file) is not { } result) return;
+            config.Appearance.Character = Appearance.CustomPrefix + result.Name;
+            if (result.Colors is { } colors)
+            {
+                foreach ((string slot, string color) in colors) config.Appearance.MoodColors[slot] = color;
+            }
+            try
+            {
+                config.Save(data.ConfigFile);
+            }
+            catch (IOException ex)
+            {
+                DiagnosticLog.Error("Could not save config.json", ex);
+            }
+            character.ApplyAppearance(config.Appearance);
+            mood.Set(Mood.Happy, TimeSpan.FromSeconds(2));
+        }
+        ImportHandoff.Listen(ImportCharacter);
+        if (importFile is not null) _ = Dispatcher.InvokeAsync(() => ImportCharacter(importFile), DispatcherPriority.ApplicationIdle);
 
         // A timer is due: show it on the character and in the bubble without stealing focus, and say it aloud.
         // In game mode the character stays hidden, so it is only said.

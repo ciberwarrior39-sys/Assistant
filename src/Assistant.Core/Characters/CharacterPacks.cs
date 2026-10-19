@@ -14,6 +14,62 @@ public sealed record SlotContent(SlotKind Kind, IReadOnlyList<string> Files)
 /// <summary>Empty; one animated GIF; or PNG files, played in name order (one PNG is a still picture).</summary>
 public enum SlotKind { Empty, Gif, Frames }
 
+/// <summary>A character's character.json: PNG frame speed, and the optional author and description.</summary>
+public sealed record CharacterInfo(int FramesPerSecond, string Author, string Description)
+{
+    public static readonly CharacterInfo Default = new(CharacterPacks.DefaultFramesPerSecond, "", "");
+
+    /// <summary>Glow colors by mood, only in exported files (the receiver chooses whether to use them).</summary>
+    public IReadOnlyDictionary<string, string> Colors { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>Reads character.json leniently: anything missing or odd gets the default.</summary>
+    public static CharacterInfo Parse(string json)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return Default;
+
+            int fps = root.TryGetProperty("framesPerSecond", out JsonElement f) && f.TryGetInt32(out int value)
+                ? Math.Clamp(value, 1, 60)
+                : CharacterPacks.DefaultFramesPerSecond;
+            var colors = new Dictionary<string, string>();
+            if (root.TryGetProperty("colors", out JsonElement c) && c.ValueKind == JsonValueKind.Object)
+            {
+                foreach (JsonProperty color in c.EnumerateObject())
+                {
+                    if (CharacterPacks.Slots.Contains(color.Name) && color.Value.ValueKind == JsonValueKind.String
+                        && Storage.Appearance.IsColor(color.Value.GetString()))
+                        colors[color.Name] = color.Value.GetString()!;
+                }
+            }
+            return new CharacterInfo(fps, Text(root, "author", 60), Text(root, "description", 300)) { Colors = colors };
+        }
+        catch (JsonException)
+        {
+            return Default;
+        }
+    }
+
+    public string ToJson(IReadOnlyDictionary<string, string>? colors)
+    {
+        var json = new Dictionary<string, object> { ["framesPerSecond"] = FramesPerSecond };
+        if (Author.Length > 0) json["author"] = Author;
+        if (Description.Length > 0) json["description"] = Description;
+        if (colors is { Count: > 0 }) json["colors"] = colors;
+        return JsonSerializer.Serialize(json, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    // One line of plain text, bounded: it's shown to someone else when they import the character.
+    static string Text(JsonElement root, string name, int max)
+    {
+        if (!root.TryGetProperty(name, out JsonElement value) || value.ValueKind != JsonValueKind.String) return "";
+        string text = string.Join(' ', (value.GetString() ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return text.Length > max ? text[..max] : text;
+    }
+}
+
 /// <summary>
 /// Custom characters in Documents\Assistant\characters: one folder per character, with one folder per mood
 /// ("Idle", "Thinking", ...) holding an animated GIF or numbered PNG frames. Only Idle is needed; a mood without
@@ -27,8 +83,14 @@ public sealed partial class CharacterPacks(string folder)
     public const int DefaultFramesPerSecond = 12;
     const string PackFile = "character.json";
 
-    /// <summary>The mood slots, in the order Settings shows them. Folder names match the mood names.</summary>
-    public static IReadOnlyList<string> Slots { get; } = Appearance.DefaultColors.Keys.ToList();
+    /// <summary>
+    /// Optional, not a mood: plays instead of Idle while the cursor is near the character
+    /// (custom characters can't follow it with their eyes, so this is their way to react).
+    /// </summary>
+    public const string NoticedSlot = "Noticed";
+
+    /// <summary>The slots, in the order Settings shows them: the moods (folder names match the mood names), then Noticed.</summary>
+    public static IReadOnlyList<string> Slots { get; } = [.. Appearance.DefaultColors.Keys, NoticedSlot];
 
     public string Folder { get; } = folder;
 
@@ -59,37 +121,49 @@ public sealed partial class CharacterPacks(string folder)
     /// </summary>
     public string Create(string wanted)
     {
+        string name = FreeName(wanted);
+        foreach (string slot in Slots) Directory.CreateDirectory(SlotFolder(name, slot));
+        WriteInfo(name, new CharacterInfo(DefaultFramesPerSecond, "", ""));
+        File.WriteAllText(Path.Combine(PackFolder(name), "README.txt"), HowTo);
+        return name;
+    }
+
+    /// <summary>A valid folder name not used yet: "Wizard Cat", or "Wizard Cat 2" when that one exists.</summary>
+    public string FreeName(string wanted)
+    {
         string baseName = Regex.Replace(wanted.Trim(), @"[^\p{L}\p{N} _-]", "").Trim();
         if (baseName.Length == 0) baseName = "My character";
         if (baseName.Length > 36) baseName = baseName[..36].Trim();
 
         string name = baseName;
         for (int number = 2; Directory.Exists(PackFolder(name)); number++) name = $"{baseName} {number}";
-
-        foreach (string slot in Slots) Directory.CreateDirectory(SlotFolder(name, slot));
-        File.WriteAllText(Path.Combine(PackFolder(name), PackFile),
-            JsonSerializer.Serialize(new { framesPerSecond = DefaultFramesPerSecond }, new JsonSerializerOptions { WriteIndented = true }));
-        File.WriteAllText(Path.Combine(PackFolder(name), "README.txt"), HowTo);
         return name;
     }
 
-    /// <summary>How fast PNG frames play, from character.json (GIFs keep their own timing).</summary>
-    public int FramesPerSecond(string name)
+    /// <summary>character.json: frame speed, and who made it (shown when someone imports it).</summary>
+    public CharacterInfo ReadInfo(string name)
     {
         try
         {
             string file = Path.Combine(PackFolder(name), PackFile);
-            if (!File.Exists(file)) return DefaultFramesPerSecond;
-            using JsonDocument json = JsonDocument.Parse(File.ReadAllText(file));
-            return json.RootElement.TryGetProperty("framesPerSecond", out JsonElement fps) && fps.TryGetInt32(out int value)
-                ? Math.Clamp(value, 1, 60)
-                : DefaultFramesPerSecond;
+            return File.Exists(file) ? CharacterInfo.Parse(File.ReadAllText(file)) : CharacterInfo.Default;
         }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return DefaultFramesPerSecond;
+            return CharacterInfo.Default;
         }
     }
+
+    public void WriteInfo(string name, CharacterInfo info) =>
+        File.WriteAllText(Path.Combine(PackFolder(name), PackFile), info.ToJson(colors: null));
+
+    public const string InfoFile = PackFile;
+
+    /// <summary>The README every character folder gets.</summary>
+    public static string ReadMe => HowTo;
+
+    /// <summary>How fast PNG frames play, from character.json (GIFs keep their own timing).</summary>
+    public int FramesPerSecond(string name) => ReadInfo(name).FramesPerSecond;
 
     /// <summary>What a slot holds now. A GIF wins over PNGs if both were dropped in.</summary>
     public SlotContent Slot(string name, string slot)
@@ -201,6 +275,8 @@ public sealed partial class CharacterPacks(string folder)
           Listening   push-to-talk is held
           Speaking    reading a reply aloud
           TimeUp      a timer you set is due
+          Noticed     the mouse pointer is close to the character (optional; plays instead of Idle,
+                      for example looking at the pointer or waving)
 
         PNG frames play at the speed in character.json ("framesPerSecond", 1 to 60). GIFs keep their own speed.
         You can also fill the moods in Settings > Character, which copies the files here for you.

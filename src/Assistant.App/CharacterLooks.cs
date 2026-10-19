@@ -35,6 +35,9 @@ public abstract class CharacterLook
 
     /// <summary>Where the eyes look: (0, 0) straight ahead, up to length 1 toward the cursor.</summary>
     public virtual void LookAt(Vector direction) { }
+
+    /// <summary>The cursor came close, or left. Custom characters can play their Noticed animation.</summary>
+    public virtual void CursorNear(bool near) { }
 }
 
 /// <summary>Shared animation helpers, all at the window's frame rate to keep CPU use low.</summary>

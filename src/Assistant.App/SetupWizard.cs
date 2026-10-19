@@ -27,6 +27,7 @@ public sealed class SetupWizard : Window
     readonly string configPath;
     readonly OllamaRuntime runtime;
     readonly string speechModels;
+    readonly PiperInstall piper;
     readonly HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan }; // multi-GB downloads
     readonly CancellationTokenSource cancel = new();
     readonly HardwarePlan plan = HardwareCheck.Detect();
@@ -40,8 +41,9 @@ public sealed class SetupWizard : Window
     bool busy;
     bool brainReady;
 
-    public SetupWizard(AppConfig config, string configPath, OllamaRuntime runtime, string speechModels)
+    public SetupWizard(AppConfig config, string configPath, OllamaRuntime runtime, string speechModels, PiperInstall piper)
     {
+        this.piper = piper;
         this.config = config;
         this.configPath = configPath;
         this.runtime = runtime;
@@ -314,6 +316,9 @@ public sealed class SetupWizard : Window
             panel.Children.Add(download);
             panel.Children.Add(bar);
         }
+
+        panel.Children.Add(Text("The voice that reads replies aloud. The natural ones sound much more human (a one-time download):"));
+        panel.Children.Add(new VoicePicker(piper, config.VoiceName, setting => config.VoiceName = setting, SetBusy));
         return panel;
     }
 

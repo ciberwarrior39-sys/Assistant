@@ -16,6 +16,10 @@ finds files on your computer, and optional free cloud chat handles conversation.
   Settings (Choose… per mood: an animated GIF, or PNG frames) or drop files in by hand. Only Normal (Idle) is needed;
   other moods use it with a glow in the mood's color plus the usual label. Pictures are shrunk to 256 px; up to 240 frames
   per mood; PNG frame speed is in the character's `character.json`. Replaced or cleared files go to the Recycle Bin.
+- **Sharing characters:** Settings > Character > **Export…** saves one `.assistant-character` file (a zip of the folder,
+  with an optional author, description and glow colors). **Import a character file…**, or double-clicking one in the
+  installed app, shows a preview first. Only GIF/PNG pictures, `character.json` and `README.txt` are taken from it, into
+  a new folder (never over an existing one), with size limits (30 MB a file, 200 MB a character); nothing in it is run.
 - **Settings** (right-click or tray): a color for every mood, size, labels, calm animations, light or dark chat bubble,
   text size, voice and speed with a test button, push-to-talk keys, features on/off and cloud keys. Changes show up
   live on the character; Cancel puts everything back. Saved in `config.json` (the `appearance` part holds the look).
@@ -39,7 +43,8 @@ finds files on your computer, and optional free cloud chat handles conversation.
   `searchLoopTrips` or `stuckSwitches` in `config.json` goes up by one. Turn it off with `"handRaiseEnabled": false`.
 - **Voice:** hold **Ctrl+Alt+Space** while talking and let go when done. Speech is turned into text on this computer
   (Whisper base.en on the CPU; the ~140 MB model downloads to `%LocalAppData%\Assistant\models` on the first press),
-  and the reply is read aloud with a Windows voice. Typed questions stay silent. Audio is never saved. Closing the
+  and the reply is read aloud: with a natural Piper voice (US female, US male or UK female; Settings > Voice
+  downloads Piper and the voice once, about 86 MB, into `%LocalAppData%\Assistant\piper`), or with a Windows voice. Typed questions stay silent. Audio is never saved. Closing the
   bubble or pressing the keys again stops the voice. Settings: `pushToTalkKey`, `voiceName` (e.g. "Zira"),
   `voiceRate` (-10 to 10), `voiceEnabled`. Off in game mode.
 - **Screensaver:** a few minutes before Windows turns the screen off (its own "turn off my screen after" setting),
