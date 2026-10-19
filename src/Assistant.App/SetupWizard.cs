@@ -142,6 +142,7 @@ public sealed class SetupWizard : Window
             var option = new RadioButton
             {
                 GroupName = "performance",
+                Tag = profile,
                 IsChecked = config.Performance == profile.Id,
                 Margin = new Thickness(0, 3, 0, 3),
                 Content = new TextBlock
@@ -153,11 +154,6 @@ public sealed class SetupWizard : Window
                         new Run(": " + profile.Summary),
                     },
                 },
-            };
-            option.Checked += (_, _) =>
-            {
-                config.Performance = profile.Id;
-                ShowModelPart();
             };
             profiles.Children.Add(option);
         }
@@ -203,6 +199,17 @@ public sealed class SetupWizard : Window
             }
         }
         ShowModelPart();
+
+        // Wired up only now: ShowModelPart uses the controls created above.
+        foreach (RadioButton option in profiles.Children.OfType<RadioButton>())
+        {
+            option.Checked += (_, _) =>
+            {
+                config.Performance = ((PerformanceProfile)option.Tag).Id;
+                ShowModelPart();
+            };
+        }
+
         async Task CheckExistingAsync()
         {
             bool installed = await OllamaRuntime.IsAnsweringAsync(http, OllamaRuntime.UsualUrl, cancel.Token);
