@@ -19,7 +19,7 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
     static readonly string[] Periods = ["any", "today", "past_week", "past_month", "past_year"];
 
     // Small models often write a kind of file instead of an extension, in either field.
-    static readonly Dictionary<string, string[]> KindsOfFile = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly Dictionary<string, string[]> KindsOfFile = new(StringComparer.OrdinalIgnoreCase)
     {
         ["spreadsheet"] = ["xlsx", "xls", "csv"],
         ["spreadsheets"] = ["xlsx", "xls", "csv"],
@@ -51,7 +51,7 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
     };
 
     // Words from the request itself, not from a file name ("documents I edited today").
-    static readonly HashSet<string> RequestWords = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> RequestWords = new(StringComparer.OrdinalIgnoreCase)
     {
         "file", "files", "my", "the", "a", "an", "i", "find", "search", "open", "show", "where",
         "edit", "edited", "modified", "changed", "created", "made", "saved", "worked",
@@ -118,15 +118,27 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
 
         // A time period alone is a valid search ("files I edited today"); nothing at all is not.
         if (keywords.Length == 0 && extensions.Length == 0 && period == "any")
-            return new ToolOutcome("No search words were given. Ask the user what the file is called.");
+            return new ToolOutcome("No search words were given. Ask the user what the file is called.")
+            {
+                Reply = "What's the file called? A word or two from its name is enough.",
+            };
 
         var query = new FileSearchQuery(keywords, extensions, ModifiedAfter(period, DateTime.Now), MaxResults);
         FileSearchResult result = await search.SearchAsync(query, ct);
 
         if (!result.Available)
-            return new ToolOutcome($"File search is unavailable: {result.Problem}. Tell the user.");
+            return new ToolOutcome($"File search is unavailable: {result.Problem}. Tell the user.")
+            {
+                Reply = $"File search isn't working right now: {result.Problem}",
+            };
         if (result.Files.Count == 0)
-            return new ToolOutcome("No matching files were found.");
+            return new ToolOutcome("No matching files were found.")
+            {
+                NothingFound = true,
+                Reply = keywords.Length > 0
+                    ? $"I couldn't find a file with \"{string.Join(" ", keywords)}\" in its name. Try another word from the name."
+                    : "I couldn't find any files like that.",
+            };
 
         // The model gets names and dates only; the app shows the full paths itself.
         var text = new StringBuilder($"Found {result.Files.Count} file(s), newest first:\n");

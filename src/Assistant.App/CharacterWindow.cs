@@ -24,7 +24,7 @@ public sealed class CharacterWindow : Window
 
     // Eyes follow the cursor when it comes within this distance (before the Size setting).
     const double GazeDistance = 260;
-    static readonly TimeSpan GazeFast = TimeSpan.FromMilliseconds(33);  // cursor near: smooth
+    TimeSpan gazeFast = TimeSpan.FromMilliseconds(33);                  // cursor near: smooth (one step per frame)
     static readonly TimeSpan GazeSlow = TimeSpan.FromMilliseconds(250); // cursor far: just checking
 
     readonly CharacterMood mood;
@@ -41,6 +41,7 @@ public sealed class CharacterWindow : Window
     readonly DispatcherTimer gazeTimer = new() { Interval = GazeSlow };
     Vector gaze; // where the eyes look now, eased toward the cursor
     bool cursorNear;
+    bool stillWhenIdle; // Lite: no movement while nothing is happening
     DateTime cursorLastNear;
     static readonly TimeSpan CursorLeaveDelay = TimeSpan.FromSeconds(0.6); // no flicker at the edge of the range
     Appearance appearance = new();
@@ -133,6 +134,14 @@ public sealed class CharacterWindow : Window
         size.ScaleX = size.ScaleY = settings.Scale;
         if (resized) CharacterPlacement.Save(placementFile, Left, Top);
 
+        ApplyMood(mood.Current);
+    }
+
+    /// <summary>The performance profile's share: frame rate for the eyes, and stillness when idle (Lite).</summary>
+    public void ApplyPerformance(Assistant.Core.Storage.PerformanceProfile profile)
+    {
+        stillWhenIdle = profile.StillWhenIdle;
+        gazeFast = TimeSpan.FromMilliseconds(1000.0 / Math.Max(1, profile.AnimationFps));
         ApplyMood(mood.Current);
     }
 
@@ -294,7 +303,7 @@ public sealed class CharacterWindow : Window
             look.LookAt(gaze);
         }
         // Fast only while the eyes are on the cursor or still moving.
-        gazeTimer.Interval = target != default || gaze != default ? GazeFast : GazeSlow;
+        gazeTimer.Interval = target != default || gaze != default ? gazeFast : GazeSlow;
     }
 
     // Tells the look when the cursor arrives (right away) and leaves (after a moment).
@@ -395,7 +404,10 @@ public sealed class CharacterWindow : Window
         badge.Visibility = shown.Label.Length > 0 ? Visibility.Visible : Visibility.Hidden;
 
         // Custom animations move by themselves; bouncing them too would look wrong.
-        if (look.UsesMotion) Motion.Loop(bob, TranslateTransform.YProperty, 0, -shown.BobHeight, shown.BobSeconds);
+        // Lite keeps the drawn characters still while idle or asleep, so they cost nothing then.
+        bool still = stillWhenIdle && look.UsesMotion && (current is Mood.Idle or Mood.Sleepy);
+        if (still) look.Stop();
+        if (look.UsesMotion && !still) Motion.Loop(bob, TranslateTransform.YProperty, 0, -shown.BobHeight, shown.BobSeconds);
         else Motion.Still(bob, TranslateTransform.YProperty, 0);
 
         if (look.UsesMotion && shown.Tilt > 0) Motion.Loop(tilt, RotateTransform.AngleProperty, -shown.Tilt, shown.Tilt, 0.8);

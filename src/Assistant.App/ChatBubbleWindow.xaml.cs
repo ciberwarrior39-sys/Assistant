@@ -272,7 +272,7 @@ public partial class ChatBubbleWindow : Window
             mood.Set(Mood.FoundIt, TimeSpan.FromSeconds(4));
         else if (reply.Notes.Count > 0)
             mood.Set(Mood.Happy, TimeSpan.FromSeconds(3)); // saved or forgot something
-        else if (reply.ToolCalls > 0)
+        else if (reply.NothingFound)
             mood.Set(Mood.Confused, TimeSpan.FromSeconds(4)); // searched, found nothing
         else if (reply.Source.Contains("cloud unavailable", StringComparison.Ordinal))
             mood.Set(Mood.Tired, TimeSpan.FromSeconds(6));

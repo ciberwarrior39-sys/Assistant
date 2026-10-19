@@ -27,6 +27,7 @@ public sealed record SettingsHost(
     Func<string?> PendingUpdate,       // the downloaded version waiting for a restart, or null
     Action RestartToUpdate,            // install the downloaded version now
     bool Installed,                    // installed with the setup file (not run from source)
+    Func<Task<IReadOnlyList<Assistant.Core.Diagnostics.ResourceUsage>>> Resources, // what each part uses now
     Assistant.Core.Voice.PiperInstall Piper, // the natural voices, downloaded on request
     string Version);
 
@@ -540,6 +541,38 @@ public sealed class SettingsWindow : Window
     UIElement FeaturesTab()
     {
         var panel = new StackPanel { Margin = new Thickness(12) };
+        panel.Children.Add(Heading("Performance"));
+        PerformanceProfile recommended = PerformanceProfile.Recommend(Assistant.Core.Setup.HardwareCheck.Detect());
+        panel.Children.Add(Hint($"How heavy the assistant may be on this PC. Recommended here: {recommended.Label}. " +
+                                "Privacy is the same in all three: what's private stays on this computer."));
+        foreach (PerformanceProfile profile in PerformanceProfile.All)
+        {
+            var option = new RadioButton
+            {
+                GroupName = "performance",
+                IsChecked = edited.Performance == profile.Id,
+                Margin = new Thickness(0, 4, 0, 2),
+                Content = new TextBlock
+                {
+                    TextWrapping = TextWrapping.Wrap,
+                    Inlines =
+                    {
+                        new Run(profile.Label + (profile == recommended ? " (recommended)" : "")) { FontWeight = FontWeights.SemiBold },
+                        new Run(": " + profile.Summary),
+                    },
+                },
+            };
+            option.Checked += (_, _) =>
+            {
+                if (edited.Performance == profile.Id) return;
+                edited.Performance = profile.Id;
+                Changed(needsRestart: true);
+            };
+            panel.Children.Add(option);
+        }
+        panel.Children.Add(Hint("Balanced and Full need the local model; if it isn't set up yet, tray > Run setup again downloads it."));
+        panel.Children.Add(ResourceTable());
+
         panel.Children.Add(Heading("Starting"));
         var startup = Check("Start with Windows (also in Task Manager > Startup apps)", edited.StartWithWindows,
             value => edited.StartWithWindows = value);
@@ -653,6 +686,64 @@ public sealed class SettingsWindow : Window
         };
         panel.Children.Add(delete);
         return panel;
+    }
+
+    // What each part uses right now, refreshed every 2 seconds while Settings is open.
+    UIElement ResourceTable()
+    {
+        var table = new Grid { Margin = new Thickness(0, 8, 0, 4) };
+        foreach (double width in new[] { 170.0, 70, 60 }) table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(width) });
+        table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        async Task RefreshAsync()
+        {
+            IReadOnlyList<Assistant.Core.Diagnostics.ResourceUsage> usage;
+            try
+            {
+                usage = await host.Resources();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return;
+            }
+            table.Children.Clear();
+            table.RowDefinitions.Clear();
+            AddRow(0, "Using now", "Memory", "CPU", "", header: true);
+            for (int i = 0; i < usage.Count; i++)
+            {
+                var part = usage[i];
+                AddRow(i + 1, part.Part, part.Running ? $"{part.MemoryMb:0} MB" : "–", part.Running ? $"{part.CpuPercent:0.0}%" : "–", part.Note);
+            }
+        }
+        void AddRow(int row, string part, string memory, string cpu, string note, bool header = false)
+        {
+            table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            string[] cells = [part, memory, cpu, note];
+            for (int column = 0; column < cells.Length; column++)
+            {
+                var cell = new TextBlock
+                {
+                    Text = cells[column],
+                    FontWeight = header ? FontWeights.SemiBold : FontWeights.Normal,
+                    Foreground = column == 3 ? Brushes.DimGray : SystemColors.ControlTextBrush,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 1, 6, 1),
+                };
+                Grid.SetRow(cell, row);
+                Grid.SetColumn(cell, column);
+                table.Children.Add(cell);
+            }
+        }
+
+        timer.Tick += async (_, _) => await RefreshAsync();
+        Loaded += async (_, _) =>
+        {
+            await RefreshAsync();
+            timer.Start();
+        };
+        Closed += (_, _) => timer.Stop();
+        return table;
     }
 
     PasswordBox KeyBox(string value, Action<string> set)

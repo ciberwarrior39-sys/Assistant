@@ -133,8 +133,14 @@ public partial class App : Application
         ollamaRuntime = new OllamaRuntime(runtimeHttp);
         if (!config.SetupDone) new SetupWizard(config, data.ConfigFile, ollamaRuntime, speechModels, piper).ShowDialog();
 
+        // Full, Balanced or Lite: how heavy the assistant may be on this PC (chosen in setup, changed in Settings).
+        PerformanceProfile profile = PerformanceProfile.For(config.Performance);
+        Motion.FramesPerSecond = profile.AnimationFps;
+        DiagnosticLog.Info($"Performance profile: {profile.Label}");
+
         // The app's own Ollama starts in the background; the bubble's status line shows when it's ready.
-        if (config.OllamaEmbedded) _ = StartEmbeddedOllamaAsync(ollamaRuntime);
+        // Lite runs no local model, so there's nothing to start.
+        if (config.OllamaEmbedded && profile.LocalModel) _ = StartEmbeddedOllamaAsync(ollamaRuntime);
 
         var exclusions = new Exclusions(data.ExclusionsFile);
         var activity = new ActivityTracker(new ActivityLog(data.ActivityFolder), exclusions)
@@ -173,24 +179,25 @@ public partial class App : Application
         var memory = new MemoryStore(data.MemoryFolder);
         var reminders = new Reminders(); // "set a timer for 5 minutes"
         var windowCapture = new WindowCapture(exclusions); // "look at this": the window the user was using
-        var localModel = new OllamaProvider(ollama, config.Model, config.ContextSize);
+        var localModel = new OllamaProvider(ollama, config.Model, config.ContextSize) { KeepAlive = profile.ModelKeepAlive };
         AssistantService? service = null; // the memory tools check the message being answered
         Func<string> currentUserText = () => service?.CurrentUserText ?? "";
-        var assistant = new AssistantService(
-            localModel,
-            [
-                new SearchFilesTool(fileSearch),
-                new RecentActivityTool(activity),
-                new RememberTool(memory, currentUserText),
-                new RecallTool(memory),
-                new ForgetTool(memory, currentUserText),
-                new LookAtScreenTool(localModel, windowCapture.Capture),
-            ],
-            cloud,
-            memory,
-            reminders);
+        var tools = new List<ITool>
+        {
+            new SearchFilesTool(fileSearch),
+            new RecentActivityTool(activity, currentUserText),
+            new RememberTool(memory, currentUserText),
+            new RecallTool(memory),
+            new ForgetTool(memory, currentUserText),
+        };
+        if (profile.ScreenReading) tools.Add(new LookAtScreenTool(localModel, windowCapture.Capture));
+        var assistant = new AssistantService(localModel, tools, cloud, memory, reminders)
+        {
+            LocalModelEnabled = profile.LocalModel,
+        };
         service = assistant;
-        var dependencies = new DependencyService(ollama, config.Model, fileSearch, cloudEndpoints, cloudHttp);
+        var resources = new ResourceMonitor(ollama);
+        var dependencies = new DependencyService(ollama, config.Model, fileSearch, cloudEndpoints, cloudHttp, profile.LocalModel);
 
         var mood = new CharacterMood();
         var bubble = new ChatBubbleWindow(assistant, dependencies, data, mood);
@@ -198,6 +205,7 @@ public partial class App : Application
         var character = new CharacterWindow(mood, bubble, characters, Path.Combine(data.Root, "placement.json"), data.Root, Shutdown);
         MainWindow = character;
         character.ApplyAppearance(config.Appearance);
+        character.ApplyPerformance(profile);
         bubble.ApplyAppearance(config.Appearance);
         character.Show();
 
@@ -232,7 +240,7 @@ public partial class App : Application
                 bubble.Say($"Push-to-talk is off: {config.PushToTalkKey} is already used by another app or isn't a valid key. " +
                            "Change pushToTalkKey in config.json and restart.");
             }
-            voice = new VoiceController(hotkey, new SpeechToText(speechModels), new Speaker(config.VoiceName, config.VoiceRate, piper),
+            voice = new VoiceController(hotkey, new SpeechToText(speechModels, profile.SpeechModel), new Speaker(config.VoiceName, config.VoiceRate, piper),
                                         bubble, character, mood);
         }
 
@@ -287,6 +295,7 @@ public partial class App : Application
                 PendingUpdate: () => updates.PendingVersion,
                 RestartToUpdate: RestartToUpdate,
                 Installed: StartWithWindows.IsInstalled,
+                Resources: () => resources.SampleAsync(voice?.SpeechModelLoaded == true, CancellationToken.None),
                 Piper: piper,
                 Version: updater?.CurrentVersion ?? "development build"));
             settingsWindow.Show();
@@ -369,6 +378,19 @@ public partial class App : Application
             screensaver.Observe(snapshot, gaming);
         };
         watcher.Start();
+
+        // The model starts loading when the chat bubble opens, so it's ready by the time the question is typed;
+        // between uses it leaves memory after the profile's keep-alive time.
+        bubble.IsVisibleChanged += (_, _) =>
+        {
+            if (bubble.IsVisible && profile.LocalModel && !gaming) _ = localModel.WarmUpAsync();
+        };
+
+        // What each part uses, in the developer log every 10 minutes (and live in Settings > Features).
+        var logResources = new DispatcherTimer { Interval = TimeSpan.FromMinutes(10) };
+        logResources.Tick += async (_, _) =>
+            DiagnosticLog.Info(ResourceMonitor.Describe(await resources.SampleAsync(voice?.SpeechModelLoaded == true, CancellationToken.None)));
+        logResources.Start();
 
         // Weekly review: once a week, facts noticed in the activity log wait for Keep or Forget.
         var review = new ReviewSchedule(data.ReviewFile);

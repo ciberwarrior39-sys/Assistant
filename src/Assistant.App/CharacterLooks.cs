@@ -43,7 +43,8 @@ public abstract class CharacterLook
 /// <summary>Shared animation helpers, all at the window's frame rate to keep CPU use low.</summary>
 static class Motion
 {
-    public const int FramesPerSecond = 30; // prototype: 0.3% CPU at 30 fps vs 0.9% at 60
+    /// <summary>30, or 15 in the Lite profile. Prototype: 0.3% CPU at 30 fps vs 0.9% at 60.</summary>
+    public static int FramesPerSecond { get; set; } = 30;
 
     public static void ToColor(SolidColorBrush brush, Color color)
     {

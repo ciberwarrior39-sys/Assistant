@@ -12,8 +12,33 @@ public sealed class OllamaProvider(HttpClient http, string model, int contextSiz
     // Thinking makes answers slower and adds nothing for short tool-routing replies.
     // Models without a thinking switch reject the flag, so it is dropped after the first such error.
     bool sendThinkFlag = true;
+    DateTime lastWarmUp;
 
     public string Name => $"Ollama ({model})";
+
+    /// <summary>How long Ollama keeps the model in memory after a request (the performance profile decides).</summary>
+    public TimeSpan KeepAlive { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Starts loading the model without asking anything, so it's ready by the time the question is typed
+    /// (the chat bubble opening calls this). At most once a minute; errors are ignored.
+    /// </summary>
+    public async Task WarmUpAsync()
+    {
+        if (DateTime.UtcNow - lastWarmUp < TimeSpan.FromMinutes(1)) return;
+        lastWarmUp = DateTime.UtcNow;
+        var body = new JsonObject { ["model"] = model, ["keep_alive"] = KeepAliveText };
+        try
+        {
+            using HttpResponseMessage response = await http.PostAsync("api/generate", AsContent(body));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Not running yet: the question will report it.
+        }
+    }
+
+    string KeepAliveText => $"{Math.Max(0, (int)KeepAlive.TotalSeconds)}s";
 
     public async Task<LlmResponse> ChatAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition> tools, CancellationToken ct)
     {
@@ -93,6 +118,7 @@ public sealed class OllamaProvider(HttpClient http, string model, int contextSiz
             ["messages"] = messageArray,
             ["tools"] = toolArray,
             ["stream"] = false,
+            ["keep_alive"] = KeepAliveText,
             ["options"] = new JsonObject { ["num_ctx"] = contextSize },
         };
     }

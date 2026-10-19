@@ -14,7 +14,8 @@ finds files on your computer, and optional free cloud chat handles conversation.
 - **Characters:** Settings > Character picks the Blob (default), the Robot or the Cat, all drawn by the app in your mood
   colors. **Create my own** makes an empty character in `characters\<name>\` with one folder per mood; fill them in
   Settings (Choose… per mood: an animated GIF, or PNG frames) or drop files in by hand. Only Normal (Idle) is needed;
-  other moods use it with a glow in the mood's color plus the usual label. Pictures are shrunk to 256 px; up to 240 frames
+  other moods use it with a glow in the mood's color plus the usual label. The optional **Cursor nearby** slot (`Noticed`)
+  plays instead of Normal while the mouse pointer is close, since custom characters have no drawn eyes to follow it. Pictures are shrunk to 256 px; up to 240 frames
   per mood; PNG frame speed is in the character's `character.json`. Replaced or cleared files go to the Recycle Bin.
 - **Sharing characters:** Settings > Character > **Export…** saves one `.assistant-character` file (a zip of the folder,
   with an optional author, description and glow colors). **Import a character file…**, or double-clicking one in the
@@ -56,6 +57,18 @@ finds files on your computer, and optional free cloud chat handles conversation.
   "set a timer for 5 minutes", "remind me in 10 minutes to check the oven", "how much time is left", "cancel the timer".
   Answered instantly by code, not the model (a model can't be random, doesn't know the time and gets sums wrong),
   and they work in game mode too. Timers are said aloud when due and are lost if the app quits.
+- **Performance profiles** (setup wizard recommends one from the hardware; Settings > Features changes it after a restart):
+  **Full** (local model on the graphics card, stays ready 5 minutes), **Balanced** (small model on the processor that
+  leaves memory after 2 minutes, tiny.en speech recognition) and **Lite** (no local model: the router and tools answer
+  direct requests, plain chat uses the cloud, screen reading off, 15 fps and still when idle). In every profile the model
+  starts loading when the chat bubble opens, and the speech model leaves memory 90 seconds after the last question.
+  Privacy is the same in all three. Settings > Features shows what each part uses right now (the assistant, the local
+  model and what Ollama has loaded, Piper while speaking, Everything), and the developer log records it every 10 minutes.
+- **Instant answers for clear requests:** "find my CV", "where are my tax files", "documents I edited today",
+  "what did I do today?", "how long did I spend in Unity?", "what's my name?", "remember that…", "forget…" and
+  "look at this" go straight to the right tool, decided by code: no model call, and the reply is built from the result,
+  so nothing can be made up. Anything less clear still goes to the model. These also work in game mode
+  (except looking at the screen).
 - **Looking at the screen:** ask "look at this" or "what does this error mean?" and the local model looks at the window
   you were using (never the whole screen) and answers. The picture stays in memory, is never saved and never goes
   to the cloud. Windows in `exclusions.json` and minimized windows are refused. A green "Looked at:" line shows which window.

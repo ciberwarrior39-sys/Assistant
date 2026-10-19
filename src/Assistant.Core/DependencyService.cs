@@ -22,11 +22,15 @@ public sealed class DependencyService(
     string model,
     IFileSearch fileSearch,
     IReadOnlyList<CloudEndpoint> cloudEndpoints,
-    HttpClient cloudHttp)
+    HttpClient cloudHttp,
+    bool localModel = true)
 {
     public async Task<IReadOnlyList<DependencyStatus>> CheckAllAsync(CancellationToken ct)
     {
-        var statuses = new List<DependencyStatus> { await CheckOllamaAsync(ct), CheckFileSearch() };
+        DependencyStatus brain = localModel
+            ? await CheckOllamaAsync(ct)
+            : new DependencyStatus("Local model", true, "off (Lite)") { Optional = true };
+        var statuses = new List<DependencyStatus> { brain, CheckFileSearch() };
         foreach (CloudEndpoint endpoint in cloudEndpoints) statuses.Add(await CheckCloudAsync(endpoint, ct));
         return statuses;
     }

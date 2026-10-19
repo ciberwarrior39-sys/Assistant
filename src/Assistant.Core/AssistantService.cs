@@ -12,6 +12,9 @@ public sealed record AssistantReply(string Text, IReadOnlyList<FileHit> Files, i
 {
     /// <summary>What tools did that the user should see word for word (saved or forgotten memory lines).</summary>
     public IReadOnlyList<string> Notes { get; init; } = [];
+
+    /// <summary>A tool looked and found nothing (no file, no saved fact).</summary>
+    public bool NothingFound { get; init; }
 }
 
 /// <summary>
@@ -82,8 +85,8 @@ public sealed partial class AssistantService
         """;
 
     const string GameModeNote = """
-        Game mode is on: the user is playing a game. Files, memory and screen reading can't be used right now;
-        if asked, say it works again once the game is closed.
+        Game mode is on: the user is playing a game. Screen reading can't be used right now. Files, activity and memory
+        still work when asked directly, for example "find my CV", "what did I do today?" or "remember that ...".
         """;
 
     readonly ILlmProvider llm;
@@ -102,6 +105,20 @@ public sealed partial class AssistantService
 
     /// <summary>The message being answered. Memory tools check it, so only the user's own words can trigger a save.</summary>
     public string CurrentUserText { get; private set; } = "";
+
+    bool nothingFound; // the last tool in this turn found nothing
+
+    /// <summary>
+    /// False in the Lite profile: there's no local model, so private requests are answered only by the router and
+    /// the tools, and plain chat goes to the cloud (if connected). Nothing private goes to the cloud either way.
+    /// </summary>
+    public bool LocalModelEnabled { get; set; } = true;
+
+    const string LiteHelp = """
+        In Lite mode I answer direct requests: "find my CV", "documents I edited today", "what did I do today?",
+        "what's my name?", "remember that ...", "flip a coin" or "set a timer for 5 minutes".
+        For conversation, connect the free cloud chat in Settings > Features.
+        """;
 
     public AssistantService(ILlmProvider llm, IEnumerable<ITool> tools, CloudChat? cloud = null, MemoryStore? memory = null,
                             IReminders? reminders = null)
@@ -132,6 +149,7 @@ public sealed partial class AssistantService
     async Task<AssistantReply> RunAsync(string userText, CancellationToken ct)
     {
         CurrentUserText = userText;
+        nothingFound = false;
         history.Add(ChatMessage.ForUser(userText));
         var files = new List<FileHit>();
         var notes = new List<string>();
@@ -148,14 +166,59 @@ public sealed partial class AssistantService
         bool saveRequest = memory is not null && RememberTool.IsRequest(userText);
         bool memoryRequest = saveRequest || (memory is not null && ForgetTool.IsRequest(userText));
 
+        // Clear requests ("find my CV", "what did I do today?", "remember that...") go straight to their tool:
+        // no model call, and the tool's own reply is the answer. Everything else goes to the model as before.
+        // No model also means these work in game mode; only screen reading needs the GPU.
+        RoutedCall? routed = IntentRouter.Route(userText, memory);
+        if (routed is { Tool: "look_at_screen" } && !tools.ContainsKey("look_at_screen"))
+            return Finish("Screen reading is off in Lite mode. Settings > Features > Performance can turn it on.", files, notes, 0, "local");
+
+        if (routed is not null && tools.ContainsKey(routed.Tool) && !(CloudOnly && routed.Tool == "look_at_screen"))
+        {
+            var call = new ToolCall(routed.Tool, routed.Arguments);
+            history.Add(ChatMessage.ForAssistantToolCalls("", [call]));
+            ToolOutcome outcome = await RunToolAsync(call, ct);
+            history.Add(ChatMessage.ForTool(call.Name, outcome.TextForModel));
+            files.AddRange(outcome.Files);
+            notes.AddRange(outcome.Notes);
+            nothingFound = outcome.NothingFound;
+            toolCalls = 1;
+            rememberCalled = call.Name == "remember";
+            DiagnosticLog.Info($"Routed to {call.Name} without the model");
+            if (outcome.Reply is { } reply)
+            {
+                AddPathCards(reply, files); // a remembered path in the answer gets Open / Show in Explorer
+                return Finish(reply, files, notes, toolCalls, "local");
+            }
+            // No ready answer: the model words one from the result (the loop below sees it in the history).
+        }
+
         if (CloudOnly && cloud is { IsConfigured: true })
         {
-            // Saving needs the local model, which game mode keeps out of the GPU; the fact isn't sent to the cloud either.
+            // A memory request the router couldn't read needs the local model, which game mode keeps out of the GPU;
+            // it isn't sent to the cloud either.
             if (memoryRequest)
-                return Finish("Game mode is on, so I can't change my memory right now. Ask me again after the game.", files, notes, toolCalls, "local");
+                return Finish("Game mode is on, so I can't work that out right now. Try \"remember that ...\" or ask again after the game.", files, notes, toolCalls, "local");
 
             CloudReply? gameModeReply = await cloud.AskAsync(BuildCloudMessages(), ct);
             if (gameModeReply is not null) return Finish(gameModeReply.Text, files, notes, toolCalls, gameModeReply.Provider);
+        }
+
+        // Lite: no local model to ask. Plain chat goes to the cloud; anything else gets a pointer to what works.
+        if (!LocalModelEnabled)
+        {
+            if (!memoryRequest && cloud is { IsConfigured: true })
+            {
+                CloudReply? cloudReply = await cloud.AskAsync(BuildCloudMessages(), ct);
+                if (cloudReply is not null) return Finish(cloudReply.Text, files, notes, toolCalls, cloudReply.Provider);
+            }
+            string help = memoryRequest
+                ? "I couldn't tell what to remember or forget. Try \"remember that ...\" or \"forget ...\" with the words after it."
+                : cloud is { IsConfigured: true }
+                    ? "The cloud chat isn't answering right now, and Lite mode has no local model to fall back on. " +
+                      "Direct requests still work, like \"find my CV\" or \"what did I do today?\"."
+                    : string.Join(" ", LiteHelp.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+            return Finish(help, files, notes, toolCalls, cloud is { IsConfigured: true } && !memoryRequest ? "local, cloud unavailable" : "local");
         }
 
         for (int round = 0; round < MaxToolRounds; round++)
@@ -200,6 +263,7 @@ public sealed partial class AssistantService
                 ToolOutcome outcome = await RunToolAsync(call, ct);
                 files.AddRange(outcome.Files);
                 notes.AddRange(outcome.Notes);
+                nothingFound = outcome.NothingFound;
                 if (outcome.Reply is not null) replies.Add(outcome.Reply);
                 history.Add(ChatMessage.ForTool(call.Name, outcome.TextForModel));
             }
@@ -299,6 +363,7 @@ public sealed partial class AssistantService
         return new AssistantReply(text, files.DistinctBy(file => file.FullPath).ToList(), toolCalls, source)
         {
             Notes = notes,
+            NothingFound = nothingFound,
         };
     }
 

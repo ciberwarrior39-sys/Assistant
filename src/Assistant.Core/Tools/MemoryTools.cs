@@ -112,13 +112,13 @@ public sealed class RememberTool(MemoryStore memory, Func<string> currentUserTex
         string file = Path.GetFileName(memory.FileFor(kind));
 
         return Task.FromResult(added
-            ? new ToolOutcome($"Saved to {file}. Confirm in a few words.") { Notes = [$"Saved to {file}: {fact}"] }
-            : new ToolOutcome("This was already saved. Say so in a few words."));
+            ? new ToolOutcome($"Saved to {file}.") { Notes = [$"Saved to {file}: {fact}"], Reply = "Got it, I'll remember that." }
+            : new ToolOutcome("This was already saved.") { Reply = "I already had that saved." });
     }
 }
 
 /// <summary>recall: the saved facts most related to the topic. Memory is small, so the rest follow, up to a cap.</summary>
-public sealed class RecallTool(MemoryStore memory) : ITool
+public sealed partial class RecallTool(MemoryStore memory) : ITool
 {
     const int MaxFacts = 15;
 
@@ -164,7 +164,10 @@ public sealed class RecallTool(MemoryStore memory) : ITool
     {
         IReadOnlyList<MemoryFact> all = memory.AllFacts();
         if (all.Count == 0)
-            return Task.FromResult(new ToolOutcome("Nothing is saved yet. Tell the user they can say \"remember that...\"."));
+            return Task.FromResult(new ToolOutcome("Nothing is saved yet.")
+            {
+                Reply = "I don't have anything saved about you yet. Say \"remember that ...\" and I'll keep it.",
+            });
 
         string topic = MemoryArguments.Text(arguments, "topic");
         IReadOnlyList<MemoryFact> facts = memory.Search(topic, all).Take(MaxFacts).ToList();
@@ -180,8 +183,42 @@ public sealed class RecallTool(MemoryStore memory) : ITool
             .Select(path => new FileHit(path, File.GetLastWriteTime(path)))
             .ToList();
 
-        return Task.FromResult(new ToolOutcome(text.ToString()) { Files = files });
+        string reply = Answer(topic, all);
+        return Task.FromResult(new ToolOutcome(text.ToString()) { Files = files, Reply = reply, NothingFound = reply == NotSaved });
     }
+
+    const string NotSaved = "You haven't told me that yet. Say \"remember that ...\" and I'll keep it.";
+
+    // The answer, from the saved lines themselves (no model call, so nothing can be made up):
+    // the facts that share words with the question, or everything for "what do you know about me?".
+    string Answer(string topic, IReadOnlyList<MemoryFact> all)
+    {
+        string[] words = MemoryStore.Words(topic);
+        var related = all.Where(fact => MemoryStore.Overlap(words, MemoryStore.Words(fact.Text)) > 0).ToList();
+        bool everything = words.Length == 0 || MemoryArguments.Mentions(topic, MemoryQuestions);
+        List<MemoryFact> shown = (related.Count > 0 && !everything ? memory.Search(topic, related) : everything ? all : [])
+            .Take(everything ? 8 : 3).ToList();
+
+        if (shown.Count == 0) return NotSaved;
+        if (shown.Count == 1) return $"I have this saved: {ToYou(shown[0].Text)}.";
+        return "Here's what I have saved:\n" + string.Join("\n", shown.Select(fact => "- " + ToYou(fact.Text)));
+    }
+
+    // Facts saved in the user's own words ("my name is Poni") are said back to them ("your name is Poni").
+    static string ToYou(string fact) =>
+        FirstPerson().Replace(fact, match => match.Value.ToLowerInvariant() switch
+        {
+            "i am" or "i'm" => "you're",
+            "i've" => "you've",
+            "i" or "me" => "you",
+            "my" => "your",
+            "mine" => "yours",
+            "myself" => "yourself",
+            _ => match.Value,
+        }).TrimEnd('.');
+
+    [GeneratedRegex(@"\b(i am|i'm|i've|i|me|my|mine|myself)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex FirstPerson();
 }
 
 /// <summary>
@@ -196,6 +233,18 @@ public sealed class ForgetTool(MemoryStore memory, Func<string> currentUserText)
 
     /// <summary>The user mentioned forgetting, so the message is about memory and stays local.</summary>
     public static bool IsRequest(string userText) => MemoryArguments.Mentions(userText, ["forget"]);
+
+    /// <summary>What to forget, from "forget my CV folder" or "please forget that I like jazz": the words after the cue.</summary>
+    public static string WhatToForget(string userText)
+    {
+        string lower = userText.ToLowerInvariant().Replace('’', '\'');
+        foreach (string cue in new[] { "stop remembering", "don't remember", "forget about", "forget that", "forget", "delete", "remove", "erase" })
+        {
+            int at = lower.IndexOf(cue, StringComparison.Ordinal);
+            if (at >= 0) return userText[(at + cue.Length)..].Trim().Trim('.', '!', '?', ',', ' ');
+        }
+        return "";
+    }
 
     public ToolDefinition Definition { get; } = new(
         "forget",
@@ -220,7 +269,8 @@ public sealed class ForgetTool(MemoryStore memory, Func<string> currentUserText)
             return Task.FromResult(new ToolOutcome("Nothing deleted: only delete when the user asks you to forget something."));
 
         string[] words = MemoryStore.Words(MemoryArguments.Text(arguments, "fact"));
-        if (words.Length == 0) return Task.FromResult(new ToolOutcome("Nothing deleted. Ask which saved fact to forget."));
+        if (words.Length == 0)
+            return Task.FromResult(new ToolOutcome("Nothing deleted. Ask which saved fact to forget.") { Reply = "What should I forget?" });
 
         // A clear match: most of the user's words appear in the line.
         var matches = memory.AllFacts()
@@ -231,15 +281,22 @@ public sealed class ForgetTool(MemoryStore memory, Func<string> currentUserText)
             .ToList();
 
         if (matches.Count == 0)
-            return Task.FromResult(new ToolOutcome("No saved fact matches. Nothing was deleted. Say so."));
+            return Task.FromResult(new ToolOutcome("No saved fact matches. Nothing was deleted.")
+            {
+                NothingFound = true,
+                Reply = "I don't have anything saved like that, so there was nothing to forget.",
+            });
         if (matches.Count > MaxRemoved)
-            return Task.FromResult(new ToolOutcome(
-                $"{matches.Count} saved facts match, so nothing was deleted. Ask the user which one, or to edit the memory files."));
+            return Task.FromResult(new ToolOutcome($"{matches.Count} saved facts match, so nothing was deleted.")
+            {
+                Reply = $"{matches.Count} saved things match that, so I didn't delete any. Say a bit more about which one, or edit the memory files.",
+            });
 
         IReadOnlyList<MemoryFact> removed = memory.Remove(matches);
-        return Task.FromResult(new ToolOutcome("Deleted. Confirm in a few words.")
+        return Task.FromResult(new ToolOutcome("Deleted.")
         {
             Notes = removed.Select(fact => $"Forgot ({Path.GetFileName(memory.FileFor(fact.Kind))}): {fact.Text}").ToList(),
+            Reply = removed.Count > 0 ? "Done, I've forgotten that." : "That was already gone.",
         });
     }
 }

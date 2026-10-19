@@ -132,8 +132,42 @@ public sealed class SetupWizard : Window
         panel.Children.Add(PageTitle("The assistant's brain"));
         panel.Children.Add(Text(plan.Summary));
 
+        // How heavy it may be: Lite needs no model at all, so this page has nothing to download then.
+        PerformanceProfile recommended = PerformanceProfile.Recommend(plan);
+        if (!config.SetupDone) config.Performance = recommended.Id;
+        var modelPart = new StackPanel();
+        var profiles = new StackPanel { Margin = new Thickness(0, 4, 0, 4) };
+        foreach (PerformanceProfile profile in PerformanceProfile.All)
+        {
+            var option = new RadioButton
+            {
+                GroupName = "performance",
+                IsChecked = config.Performance == profile.Id,
+                Margin = new Thickness(0, 3, 0, 3),
+                Content = new TextBlock
+                {
+                    TextWrapping = TextWrapping.Wrap,
+                    Inlines =
+                    {
+                        new Run(profile.Label + (profile == recommended ? " (recommended for this PC)" : "")) { FontWeight = FontWeights.SemiBold },
+                        new Run(": " + profile.Summary),
+                    },
+                },
+            };
+            option.Checked += (_, _) =>
+            {
+                config.Performance = profile.Id;
+                ShowModelPart();
+            };
+            profiles.Children.Add(option);
+        }
+        panel.Children.Add(Heading("How heavy may it be?"));
+        panel.Children.Add(profiles);
+        panel.Children.Add(modelPart);
+
         var model = new ComboBox { Width = 160, ItemsSource = Models, SelectedItem = Models.Contains(config.Model) && config.SetupDone ? config.Model : plan.Model };
-        panel.Children.Add(Labeled("Model", model));
+        modelPart.Children.Add(Heading("The local model"));
+        modelPart.Children.Add(Labeled("Model", model));
 
         var useExisting = new CheckBox
         {
@@ -142,17 +176,33 @@ public sealed class SetupWizard : Window
             Visibility = Visibility.Collapsed,
             Margin = new Thickness(0, 6, 0, 0),
         };
-        panel.Children.Add(useExisting);
+        modelPart.Children.Add(useExisting);
 
         var status = Text("");
         var bar = new ProgressBar { Height = 14, Margin = new Thickness(0, 8, 0, 4), Visibility = Visibility.Collapsed };
         var setUp = new Button { Content = "Download and set up", Padding = new Thickness(14, 4, 14, 4), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0) };
-        panel.Children.Add(setUp);
-        panel.Children.Add(bar);
-        panel.Children.Add(status);
+        modelPart.Children.Add(setUp);
+        modelPart.Children.Add(bar);
+        modelPart.Children.Add(status);
 
-        // Is there already an Ollama with this model? Then the step is done before it starts.
-        _ = CheckExistingAsync();
+        // Lite: nothing to set up here. Otherwise: is there already an Ollama with this model? Then the step is done.
+        void ShowModelPart()
+        {
+            bool lite = !PerformanceProfile.For(config.Performance).LocalModel;
+            modelPart.Visibility = lite ? Visibility.Collapsed : Visibility.Visible;
+            if (lite)
+            {
+                brainReady = true;
+                next.IsEnabled = !busy;
+            }
+            else if (!brainReady || status.Text.Length == 0)
+            {
+                brainReady = false;
+                next.IsEnabled = false;
+                _ = CheckExistingAsync();
+            }
+        }
+        ShowModelPart();
         async Task CheckExistingAsync()
         {
             bool installed = await OllamaRuntime.IsAnsweringAsync(http, OllamaRuntime.UsualUrl, cancel.Token);
@@ -219,8 +269,8 @@ public sealed class SetupWizard : Window
         model.SelectionChanged += (_, _) => Changed();
         useExisting.Click += (_, _) => Changed();
 
-        panel.Children.Add(Hint("The model is about 1–3.5 GB, and the app's own Ollama (when needed) about 1–2 GB more. " +
-                                "The app's copies live in its own folder, so uninstalling removes them."));
+        modelPart.Children.Add(Hint("The model is about 1–3.5 GB, and the app's own Ollama (when needed) about 1–2 GB more. " +
+                                    "The app's copies live in its own folder, so uninstalling removes them."));
         return panel;
     }
 
@@ -282,14 +332,15 @@ public sealed class SetupWizard : Window
         panel.Children.Add(Heading("Voice"));
         panel.Children.Add(Check($"Push-to-talk: hold {config.PushToTalkKey} and talk; replies to spoken questions are read aloud.",
             config.VoiceEnabled, value => config.VoiceEnabled = value));
-        var speech = new SpeechToText(speechModels);
+        var speech = new SpeechToText(speechModels, PerformanceProfile.For(config.Performance).SpeechModel);
         if (speech.IsModelDownloaded)
         {
             panel.Children.Add(Text("✓ The speech model is downloaded."));
+            speech.Dispose();
         }
         else
         {
-            var voiceStatus = Text("The speech model (about 140 MB) downloads the first time you talk, or now:");
+            var voiceStatus = Text($"The speech model (about {speech.DownloadMegabytes} MB) downloads the first time you talk, or now:");
             var download = new Button { Content = "Download it now", Padding = new Thickness(14, 4, 14, 4), HorizontalAlignment = HorizontalAlignment.Left };
             var bar = new ProgressBar { Height = 14, IsIndeterminate = true, Margin = new Thickness(0, 6, 0, 4), Visibility = Visibility.Collapsed };
             download.Click += async (_, _) =>
@@ -393,9 +444,13 @@ public sealed class SetupWizard : Window
     {
         var panel = NewPage();
         panel.Children.Add(PageTitle("All set!"));
-        panel.Children.Add(Text(brainReady
-            ? $"The assistant runs on {config.Model}" + (config.GroqApiKey.Length > 0 || config.OpenRouterApiKey.Length > 0 ? ", with free cloud chat connected." : ", fully on this computer.")
-            : "The brain isn't set up yet, so chat won't work until it is. You can run setup again from the tray menu."));
+        bool cloudConnected = config.GroqApiKey.Length > 0 || config.OpenRouterApiKey.Length > 0;
+        panel.Children.Add(Text(!PerformanceProfile.For(config.Performance).LocalModel
+            ? "The assistant runs in Lite mode: no local model. It answers direct requests itself" +
+              (cloudConnected ? ", and the free cloud chat handles conversation." : ". Connect the free cloud chat (Settings > Features) for conversation.")
+            : brainReady
+                ? $"The assistant runs on {config.Model}" + (cloudConnected ? ", with free cloud chat connected." : ", fully on this computer.")
+                : "The brain isn't set up yet, so chat won't work until it is. You can run setup again from the tray menu."));
         panel.Children.Add(Heading("Getting started"));
         panel.Children.Add(Bullet("Click the character to chat, for example \"where's my CV?\" or \"what was I working on today?\"."));
         if (config.VoiceEnabled) panel.Children.Add(Bullet($"Hold {config.PushToTalkKey} to talk to it."));

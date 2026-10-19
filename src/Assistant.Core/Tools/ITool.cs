@@ -24,4 +24,7 @@ public sealed record ToolOutcome(string TextForModel)
     /// invents paths after a search, while the file cards already show the real ones.
     /// </summary>
     public string? Reply { get; init; }
+
+    /// <summary>The tool looked and found nothing (no file, no saved fact): the character shows "hmm?".</summary>
+    public bool NothingFound { get; init; }
 }

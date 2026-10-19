@@ -22,6 +22,10 @@ public sealed class AppConfig
     public string Model { get; set; } = "qwen3.5:2b";
     public int ContextSize { get; set; } = 2048;
 
+    // full, balanced or lite (PerformanceProfile): how heavy the assistant may be. The setup wizard picks it from the
+    // hardware; Settings > Features changes it (after a restart).
+    public string Performance { get; set; } = "full";
+
     // Optional free cloud models for conversation. Groq is recommended; OpenRouter signs up without a phone.
     // Leave a key empty to skip that provider. Without any key, everything runs locally.
     // Keys are saved encrypted for this Windows user ("dpapi:..."); a key pasted here as plain text is encrypted on the next save.

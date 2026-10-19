@@ -138,7 +138,7 @@ public sealed class VoiceController : IDisposable
     {
         working = true;
         mood.Set(Mood.Thinking);
-        Tell("Getting the speech model ready (about 140 MB, one time only). This takes a minute or two...");
+        Tell($"Getting the speech model ready (about {speechToText.DownloadMegabytes} MB, one time only). This takes a minute or two...");
         try
         {
             await speechToText.EnsureModelAsync(CancellationToken.None);
@@ -156,6 +156,9 @@ public sealed class VoiceController : IDisposable
             working = false;
         }
     }
+
+    /// <summary>Whisper is in memory (it leaves 90 seconds after the last question).</summary>
+    public bool SpeechModelLoaded => speechToText.IsLoaded;
 
     /// <summary>Changes the voice and speed right away (Settings).</summary>
     public void ConfigureVoice(string voiceName, int rate) => speaker.Configure(voiceName, rate);
