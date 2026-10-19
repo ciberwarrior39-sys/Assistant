@@ -39,6 +39,42 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
         ["presentation"] = ["pptx", "ppt"],
         ["presentations"] = ["pptx", "ppt"],
         ["powerpoint"] = ["pptx", "ppt"],
+        ["slides"] = ["pptx", "ppt"],
+        ["slideshow"] = ["pptx", "ppt"],
+        ["deck"] = ["pptx", "ppt"],
+        ["sheet"] = ["xlsx", "xls", "csv"],
+        ["sheets"] = ["xlsx", "xls", "csv"],
+        ["doc"] = ["docx", "doc"],
+        ["docs"] = ["docx", "doc", "pdf"],
+        ["pic"] = ["jpg", "jpeg", "png"],
+        ["pics"] = ["jpg", "jpeg", "png"],
+        // Bulgarian
+        ["презентация"] = ["pptx", "ppt"],
+        ["презентацията"] = ["pptx", "ppt"],
+        ["презентации"] = ["pptx", "ppt"],
+        ["презентациите"] = ["pptx", "ppt"],
+        ["документ"] = ["docx", "doc", "pdf", "txt"],
+        ["документа"] = ["docx", "doc", "pdf", "txt"],
+        ["документът"] = ["docx", "doc", "pdf", "txt"],
+        ["документи"] = ["docx", "doc", "pdf", "txt"],
+        ["документите"] = ["docx", "doc", "pdf", "txt"],
+        ["снимка"] = ["jpg", "jpeg", "png", "heic"],
+        ["снимката"] = ["jpg", "jpeg", "png", "heic"],
+        ["снимки"] = ["jpg", "jpeg", "png", "heic"],
+        ["снимките"] = ["jpg", "jpeg", "png", "heic"],
+        ["картинка"] = ["jpg", "jpeg", "png", "gif", "webp"],
+        ["картинки"] = ["jpg", "jpeg", "png", "gif", "webp"],
+        ["таблица"] = ["xlsx", "xls", "csv"],
+        ["таблицата"] = ["xlsx", "xls", "csv"],
+        ["таблици"] = ["xlsx", "xls", "csv"],
+        ["видео"] = ["mp4", "mov", "mkv", "avi"],
+        ["видеото"] = ["mp4", "mov", "mkv", "avi"],
+        ["видеа"] = ["mp4", "mov", "mkv", "avi"],
+        ["музика"] = ["mp3", "wav", "flac", "m4a"],
+        ["песен"] = ["mp3", "wav", "flac", "m4a"],
+        ["песента"] = ["mp3", "wav", "flac", "m4a"],
+        ["песни"] = ["mp3", "wav", "flac", "m4a"],
+        ["пдф"] = ["pdf"],
         ["pdf"] = ["pdf"],
         ["docx"] = ["docx"],
         ["xlsx"] = ["xlsx"],
@@ -56,6 +92,8 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
         "file", "files", "my", "the", "a", "an", "i", "find", "search", "open", "show", "where",
         "edit", "edited", "modified", "changed", "created", "made", "saved", "worked",
         "recent", "recently", "latest", "last", "today", "yesterday", "week", "month", "year",
+        "къде", "е", "са", "ми", "моя", "моят", "моите", "моето", "мой", "моя", "намери", "покажи", "отвори", "файл", "файла",
+        "файлът", "файлове", "файловете", "за", "от", "на", "в", "във", "с", "със", "и", "днес", "вчера", "последния", "последната",
     };
 
     public ToolDefinition Definition { get; } = new(
@@ -101,15 +139,14 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
 
         // Sort the model's keywords: kinds of file become extensions, request words are dropped,
         // and only real name words are searched for.
+        // Each word is searched on its own, so "tax return" finds "Tax_Return_2025.pdf" and word order doesn't matter.
         foreach (string raw in ReadStrings(arguments, "keywords"))
         {
-            var kept = new List<string>();
             foreach (string word in CleanKeyword(raw).Split(' ', StringSplitOptions.RemoveEmptyEntries))
             {
-                if (KindsOfFile.TryGetValue(word, out string[]? kind)) types.AddRange(kind);
-                else if (!RequestWords.Contains(word)) kept.Add(word);
+                if (KindOf(word) is { } kind) types.AddRange(kind);
+                else if (!RequestWords.Contains(word)) nameWords.Add(word);
             }
-            if (kept.Count > 0) nameWords.Add(string.Join(' ', kept));
         }
 
         string[] keywords = nameWords.Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxKeywords).ToArray();
@@ -123,14 +160,29 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
                 Reply = "What's the file called? A word or two from its name is enough.",
             };
 
-        var query = new FileSearchQuery(keywords, extensions, ModifiedAfter(period, DateTime.Now), MaxResults);
-        FileSearchResult result = await search.SearchAsync(query, ct);
+        DateTime? after = ModifiedAfter(period, DateTime.Now);
+        FileSearchResult result = await search.SearchAsync(new FileSearchQuery(keywords, extensions, after, MaxResults), ct);
 
         if (!result.Available)
             return new ToolOutcome($"File search is unavailable: {result.Problem}. Tell the user.")
             {
                 Reply = $"File search isn't working right now: {result.Problem}",
             };
+
+        // Nothing with every word: try looser searches, most specific first, and say which one found something.
+        string? looser = null;
+        if (result.Files.Count == 0)
+        {
+            foreach ((string[] words, string[] types2, string note) in Relaxed(keywords, extensions))
+            {
+                FileSearchResult retry = await search.SearchAsync(new FileSearchQuery(words, types2, after, MaxResults), ct);
+                if (retry.Files.Count == 0) continue;
+                result = retry;
+                looser = note;
+                break;
+            }
+        }
+
         if (result.Files.Count == 0)
             return new ToolOutcome("No matching files were found.")
             {
@@ -143,11 +195,74 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
         // The model gets names and dates only; the app shows the full paths itself.
         var text = new StringBuilder($"Found {result.Files.Count} file(s), newest first:\n");
         foreach (FileHit file in result.Files) text.AppendLine($"- {file.FileName} (modified {file.Modified:yyyy-MM-dd})");
+        string found = result.Files.Count == 1 ? "here's the file I found." : $"I found {result.Files.Count} files, newest first.";
         return new ToolOutcome(text.ToString())
         {
             Files = result.Files,
-            Reply = result.Files.Count == 1 ? "Here's the file I found." : $"I found {result.Files.Count} files that match, newest first.",
+            Reply = looser is null ? char.ToUpperInvariant(found[0]) + found[1..] : $"{looser}, {found}",
         };
+    }
+
+    /// <summary>
+    /// Looser searches for when nothing matched every word, in order: the same words in any file type; the words
+    /// with Latin and Cyrillic letters swapped ("splavi" and "сплави"); then each word alone, longest first.
+    /// </summary>
+    static IEnumerable<(string[] Words, string[] Types, string Note)> Relaxed(string[] keywords, string[] extensions)
+    {
+        string all = string.Join(" ", keywords);
+        string[] anyType = Array.Empty<string>();
+        if (keywords.Length > 0 && extensions.Length > 0)
+            yield return (keywords, anyType, $"Nothing of that type has \"{all}\" in its name. In other types");
+
+        string[] swapped = keywords.Select(word => Transliteration.Swap(word) ?? word).ToArray();
+        if (!swapped.SequenceEqual(keywords))
+        {
+            string spelled = $"Nothing has \"{all}\" in its name. Spelled \"{string.Join(" ", swapped)}\"";
+            yield return (swapped, extensions, spelled);
+            if (extensions.Length > 0) yield return (swapped, anyType, spelled);
+        }
+
+        if (keywords.Length > 1)
+        {
+            foreach (string word in keywords.Where(word => word.Length >= 3).OrderByDescending(word => word.Length))
+            {
+                string partly = $"Nothing has all of \"{all}\" in its name. With just \"{word}\"";
+                yield return (new[] { word }, extensions, partly);
+                if (extensions.Length > 0) yield return (new[] { word }, anyType, partly);
+            }
+        }
+    }
+
+    /// <summary>A kind of file ("spreadsheet", "презентация"), also when slightly misspelled ("prezentation").</summary>
+    internal static string[]? KindOf(string word)
+    {
+        if (KindsOfFile.TryGetValue(word, out string[]? kind)) return kind;
+        if (word.Length < 6) return null; // short words are too easy to confuse with names
+        int allowed = word.Length >= 9 ? 2 : 1;
+        return KindsOfFile
+            .Where(entry => entry.Key.Length >= 6 && Math.Abs(entry.Key.Length - word.Length) <= allowed)
+            .Select(entry => (entry.Value, Distance: EditDistance(entry.Key, word.ToLowerInvariant())))
+            .Where(match => match.Distance <= allowed)
+            .OrderBy(match => match.Distance)
+            .Select(match => match.Value)
+            .FirstOrDefault();
+    }
+
+    static int EditDistance(string a, string b)
+    {
+        var row = Enumerable.Range(0, b.Length + 1).ToArray();
+        for (int i = 1; i <= a.Length; i++)
+        {
+            int diagonal = row[0];
+            row[0] = i;
+            for (int j = 1; j <= b.Length; j++)
+            {
+                int above = row[j];
+                row[j] = Math.Min(Math.Min(row[j] + 1, row[j - 1] + 1), diagonal + (a[i - 1] == b[j - 1] ? 0 : 1));
+                diagonal = above;
+            }
+        }
+        return row[b.Length];
     }
 
     static DateTime? ModifiedAfter(string period, DateTime now) => period switch

@@ -59,28 +59,33 @@ public static partial class IntentRouter
         var keywords = new List<string>();
         foreach (string word in words)
         {
-            if (SearchFilesTool.KindsOfFile.TryGetValue(word, out string[]? kind)) extensions.AddRange(kind);
+            if (SearchFilesTool.KindOf(word) is { } kind) extensions.AddRange(kind); // "prezentation" counts too
             else if (!SearchFilesTool.RequestWords.Contains(word) && !Filler.Contains(word)) keywords.Add(word);
         }
         string period = Modified(rest);
 
-        bool fileSignal = rest.Contains("my ", StringComparison.Ordinal) || rest.StartsWith("my", StringComparison.Ordinal)
-                          || extensions.Count > 0 || period != "any" || words.Any(word => word is "file" or "files" or "folder");
+        bool fileSignal = words.Any(word => Mine.Contains(word))
+                          || extensions.Count > 0 || period != "any" || words.Any(word => word is "file" or "files" or "folder" or "файл" or "файла" or "папка");
         if (!fileSignal || (keywords.Count == 0 && extensions.Count == 0 && period == "any")) return null;
         if (keywords.Count > 4) return null; // a sentence, not a file name
 
-        return Call("search_files", new { keywords = keywords.Count > 0 ? new[] { string.Join(' ', keywords) } : Array.Empty<string>(), extensions, modified = period });
+        // Each word separately: the file's name may have them in any order, with _ or - between them.
+        return Call("search_files", new { keywords, extensions, modified = period });
     }
+
+    // "my" in English and Bulgarian: the clearest sign the request is about the user's own file.
+    static readonly HashSet<string> Mine = new(StringComparer.OrdinalIgnoreCase) { "my", "mine", "ми", "моя", "моят", "моите", "моето", "мой" };
 
     static readonly HashSet<string> Filler = new(StringComparer.OrdinalIgnoreCase)
     {
+        "е", "са", "ми", "на", "за", "от", "в", "във", "с", "със", "и", "моя", "моят", "моите", "моето", "мой", "тази", "този", "това",
         "is", "are", "was", "where", "please", "can", "you", "for", "me", "that", "this", "those", "these", "of", "in", "on",
         "from", "with", "about", "some", "all", "any", "it", "its", "called", "named", "name", "s", "did", "do", "have", "had",
         "week", "month", "year", "past", "this", "last", "ago", "earlier", "folder", "folders",
     };
 
     static string Modified(string text) =>
-        text.Contains("today") ? "today"
+        text.Contains("today") || text.Contains("днес") ? "today"
         : Regex.IsMatch(text, @"\b(this|last|past) week\b|\bfew days\b|\byesterday\b") ? "past_week"
         : Regex.IsMatch(text, @"\b(this|last|past) month\b") ? "past_month"
         : Regex.IsMatch(text, @"\b(this|last|past) year\b") ? "past_year"
@@ -119,7 +124,7 @@ public static partial class IntentRouter
     [GeneratedRegex(@"\b(where('s| is| are| did i (put|save|leave))) (my|the)\b")]
     private static partial Regex WhereIsMine();
 
-    [GeneratedRegex(@"^(can you |could you |please |hey |ok )?(find|locate|search for|look for|where('s| is| are)|open|show me|get me)\b")]
+    [GeneratedRegex(@"^(can you |could you |please |hey |ok )?(find|locate|search for|look for|where('s| is| are)|open|show me|get me|къде|намери|покажи|отвори)(?![\p{L}])")]
     private static partial Regex FindVerb();
 
     [GeneratedRegex(@"\b(look at (this|my screen|the screen|that)|what'?s on my screen|what am i looking at|what does this (error|message|say|mean)|read (this|my screen)|can you see (this|my screen)|explain this (error|message))\b")]

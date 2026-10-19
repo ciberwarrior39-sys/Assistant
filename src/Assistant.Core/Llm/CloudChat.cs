@@ -15,7 +15,10 @@ public sealed class CloudChat(IReadOnlyList<OpenAiCompatibleProvider> providers,
     public bool IsConfigured => providers.Count > 0;
 
     /// <summary>Returns null when no provider answered; the caller then uses the local model's reply.</summary>
-    public async Task<CloudReply?> AskAsync(IReadOnlyList<ChatMessage> messages, CancellationToken ct)
+    public Task<CloudReply?> AskAsync(IReadOnlyList<ChatMessage> messages, CancellationToken ct) => AskAsync(messages, null, ct);
+
+    /// <param name="longAnswer">Room and temperature for a worked answer (solving an exercise); null for plain chat.</param>
+    public async Task<CloudReply?> AskAsync(IReadOnlyList<ChatMessage> messages, (int MaxTokens, double Temperature)? longAnswer, CancellationToken ct)
     {
         foreach (OpenAiCompatibleProvider provider in providers)
         {
@@ -23,7 +26,9 @@ public sealed class CloudChat(IReadOnlyList<OpenAiCompatibleProvider> providers,
             {
                 try
                 {
-                    LlmResponse response = await provider.ChatAsync(messages, [], ct);
+                    LlmResponse response = longAnswer is { } room
+                        ? await provider.ChatAsync(messages, room.MaxTokens, room.Temperature, ct)
+                        : await provider.ChatAsync(messages, [], ct);
                     sentLog.Record(provider.Name, response.Model ?? provider.CurrentModel, messages, response.Usage, "ok");
                     if (response.Content.Length > 0) return new CloudReply(response.Content, provider.Name);
                     break;

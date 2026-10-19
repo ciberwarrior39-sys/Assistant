@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -31,7 +32,7 @@ public partial class ChatBubbleWindow : Window
     readonly DependencyService dependencies;
     readonly DataFolder data;
     readonly CharacterMood mood;
-    readonly ObservableCollection<object> items = []; // ChatItem and ReviewItem
+    readonly ObservableCollection<object> items = []; // ChatItem, ReviewItem and CloudConfirmItem
     Action<ReviewCandidate, string?>? answerReview;     // kept text, or null for forget
     bool busy;
     int dialogsOpen; // while a dialog is up, losing focus must not hide the bubble
@@ -235,7 +236,7 @@ public partial class ChatBubbleWindow : Window
 
             // Always show which brain answered, so it's clear when a message went to the cloud.
             string from = reply.Source == "local" ? "Assistant" : $"Assistant · {reply.Source}";
-            items.Add(new ChatItem { Who = from, Text = reply.Text, Files = reply.Files, Notes = reply.Notes });
+            items.Add(new ChatItem { Who = from, Text = reply.Text, Files = reply.Files, Notes = reply.Notes, CloudQuestion = reply.CloudFollowUp });
             ShowReplyMood(reply);
 
             // Timings only: never log what the user asked.
@@ -264,6 +265,81 @@ public partial class ChatBubbleWindow : Window
             if (IsVisible) Input.Focus();
         }
         return null;
+    }
+
+    /// <summary>
+    /// "Solve with cloud chat" under a screen answer: the local model reads the text off the kept screenshot,
+    /// and the user sees (and can fix) exactly what would be sent. Nothing leaves the computer yet.
+    /// </summary>
+    async void OnCloudFollowUp(object sender, RoutedEventArgs e)
+    {
+        if (busy || sender is not Button { Tag: ChatItem { CloudQuestion: { } question } } button) return;
+        button.Visibility = Visibility.Collapsed;
+        mood.Touch();
+        SetBusy(true, "Reading the text on your screen...");
+        mood.Set(Mood.Thinking);
+        try
+        {
+            string? text = await assistant.ReadScreenTextAsync(CancellationToken.None);
+            if (text is null)
+                AddNote("That screenshot is gone: I only keep it for 10 minutes. Ask me to look at the screen again.");
+            else if (text.Length == 0)
+                AddNote("I couldn't read any text in that window.");
+            else
+            {
+                items.Add(new CloudConfirmItem(question, text));
+                mood.Set(Mood.Idle);
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or LlmException or TaskCanceledException)
+        {
+            DiagnosticLog.Error("Reading the screen text failed", ex);
+            AddNote("I couldn't read the text off the screenshot. Make sure Ollama is running, then try again.");
+            button.Visibility = Visibility.Visible;
+        }
+        finally
+        {
+            SetBusy(false);
+            ScrollToBottom();
+        }
+    }
+
+    async void OnSendToCloud(object sender, RoutedEventArgs e)
+    {
+        if (busy || sender is not FrameworkElement { Tag: CloudConfirmItem item } || !item.IsOpen) return;
+        string question = item.Question.Trim(), text = item.ScreenText.Trim();
+        if (text.Length == 0) return; // an emptied text: Cancel is the way out
+        if (question.Length == 0) question = "Solve this.";
+
+        item.Close("Sent to the cloud chat.");
+        SetBusy(true, "Asking the cloud chat...");
+        mood.Set(Mood.Thinking);
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            AssistantReply reply = await assistant.AskCloudAboutScreenAsync(question, text, CancellationToken.None);
+            string from = reply.Source == "local" ? "Assistant" : $"Assistant · {reply.Source}";
+            items.Add(new ChatItem { Who = from, Text = reply.Text });
+            ShowReplyMood(reply);
+            DiagnosticLog.Info($"Screen follow-up in {timer.ElapsedMilliseconds} ms from {reply.Source}");
+        }
+        catch (TaskCanceledException ex)
+        {
+            DiagnosticLog.Error("Cloud follow-up timed out", ex);
+            AddNote("The cloud chat took too long to answer. Try again in a moment.");
+        }
+        finally
+        {
+            SetBusy(false);
+            ScrollToBottom();
+            if (IsVisible) Input.Focus();
+        }
+    }
+
+    void OnCancelCloud(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: CloudConfirmItem item } && item.IsOpen)
+            item.Close("Not sent. Nothing left this computer.");
     }
 
     void ShowReplyMood(AssistantReply reply)
@@ -338,9 +414,10 @@ public partial class ChatBubbleWindow : Window
         }
     }
 
-    void SetBusy(bool value)
+    void SetBusy(bool value, string text = "Thinking...")
     {
         busy = value;
+        BusyText.Text = text;
         SendButton.IsEnabled = !value;
         BusyText.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
     }

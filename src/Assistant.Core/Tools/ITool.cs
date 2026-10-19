@@ -27,4 +27,10 @@ public sealed record ToolOutcome(string TextForModel)
 
     /// <summary>The tool looked and found nothing (no file, no saved fact): the character shows "hmm?".</summary>
     public bool NothingFound { get; init; }
+
+    /// <summary>
+    /// look_at_screen answered this question from a screenshot: the chat offers "Solve with cloud chat",
+    /// which sends only the text read from the screen (shown to the user first), never the image.
+    /// </summary>
+    public string? ScreenQuestion { get; init; }
 }

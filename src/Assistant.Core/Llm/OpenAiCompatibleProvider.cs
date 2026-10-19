@@ -24,7 +24,14 @@ public sealed class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient 
     /// <summary>The model in use; changes when the configured one turns out to be unavailable.</summary>
     public string CurrentModel { get; private set; } = endpoint.Model;
 
-    public async Task<LlmResponse> ChatAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition> tools, CancellationToken ct)
+    public Task<LlmResponse> ChatAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition> tools, CancellationToken ct) =>
+        ChatAsync(messages, MaxReplyTokens, 0.7, ct);
+
+    /// <summary>
+    /// A longer, more careful answer than plain chat allows, for example solving an exercise step by step.
+    /// Reasoning models get extra room on top for their thinking.
+    /// </summary>
+    public async Task<LlmResponse> ChatAsync(IReadOnlyList<ChatMessage> messages, int maxTokens, double temperature, CancellationToken ct)
     {
         var messageArray = new JsonArray();
         foreach (ChatMessage message in messages)
@@ -44,8 +51,8 @@ public sealed class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient 
         {
             ["model"] = CurrentModel,
             ["messages"] = messageArray,
-            ["max_tokens"] = reasoningModel ? MaxReasoningModelTokens : MaxReplyTokens,
-            ["temperature"] = 0.7,
+            ["max_tokens"] = reasoningModel ? Math.Max(MaxReasoningModelTokens, maxTokens + MaxReasoningModelTokens - MaxReplyTokens) : maxTokens,
+            ["temperature"] = temperature,
         };
         if (reasoningModel)
         {
