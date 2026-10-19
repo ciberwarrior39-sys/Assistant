@@ -20,6 +20,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# A token typed as %name% in cmd arrives with the percent signs when no such variable exists.
+if ($Token -match '^%.*%$') {
+    throw "The token still has % signs around it. Save it with setx ASSISTANT_GH_TOKEN ""github_pat_..."", open a new cmd window, then pass -Token %ASSISTANT_GH_TOKEN% exactly like that."
+}
 $vpkVersion = "1.2.161"   # keep equal to the Velopack package version in Assistant.App.csproj
 $publish = Join-Path $PSScriptRoot "publish"
 $releases = Join-Path $PSScriptRoot "Releases"
@@ -49,7 +54,8 @@ if ($Repo) {
 
 Write-Host "== Packing"
 vpk pack --packId DesktopAssistant --packVersion $Version --packDir $publish --mainExe Assistant.exe `
-    --packTitle "Assistant" --outputDir $releases
+    --packTitle "Assistant" --runtime win-x64 --icon (Join-Path $PSScriptRoot "src\Assistant.App\assistant.ico") `
+    --outputDir $releases
 if ($LASTEXITCODE -ne 0) { throw "Packing failed." }
 
 if ($Repo -and $Token) {

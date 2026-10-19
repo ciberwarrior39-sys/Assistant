@@ -48,6 +48,7 @@ public sealed class SetupWizard : Window
         this.speechModels = speechModels;
 
         Title = "Set up your assistant";
+        Icon = Shell.WindowIcon;
         Width = 600;
         Height = 560;
         ResizeMode = ResizeMode.CanMinimize;

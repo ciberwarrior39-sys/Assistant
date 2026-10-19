@@ -26,6 +26,7 @@ public sealed record SettingsHost(
     Func<Task<string>> CheckForUpdates, // check GitHub Releases now; returns what happened
     Func<string?> PendingUpdate,       // the downloaded version waiting for a restart, or null
     Action RestartToUpdate,            // install the downloaded version now
+    bool Installed,                    // installed with the setup file (not run from source)
     string Version);
 
 /// <summary>
@@ -80,6 +81,7 @@ public sealed class SettingsWindow : Window
         original = edited.Copy();
 
         Title = "Assistant settings";
+        Icon = Shell.WindowIcon;
         Width = 540;
         Height = 620;
         MinWidth = 460;
@@ -506,6 +508,13 @@ public sealed class SettingsWindow : Window
     UIElement FeaturesTab()
     {
         var panel = new StackPanel { Margin = new Thickness(12) };
+        panel.Children.Add(Heading("Starting"));
+        var startup = Check("Start with Windows (also in Task Manager > Startup apps)", edited.StartWithWindows,
+            value => edited.StartWithWindows = value);
+        startup.IsEnabled = host.Installed;
+        panel.Children.Add(startup);
+        if (!host.Installed) panel.Children.Add(Hint("Only the installed app can start with Windows, not a copy run from source."));
+
         panel.Children.Add(Heading("Watching and helping"));
         panel.Children.Add(Check("Activity log (which apps and windows you use, kept 7 days, never sent anywhere)", edited.ActivityLogging,
             value => edited.ActivityLogging = value));

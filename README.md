@@ -87,6 +87,8 @@ Start menu shortcuts; the first start opens the setup wizard.
 - **Updates:** add `-Repo https://github.com/<you>/<repo>` and the app checks that repository's GitHub Releases once a
   day, downloads new versions quietly and installs them on the next start (or tray > Restart to update). Add
   `-Token <GitHub token>` to upload the release too. Bump `-Version` every time.
+- **Start with Windows:** on by default in the installed app (Settings > Features, or Task Manager > Startup apps).
+  The icon is the blob (`src\Assistant.App\assistant.ico`), used by the exe, its shortcuts, the tray and the installer.
 - **Uninstall** (Windows Settings > Apps) removes the app, its own Ollama, models and logs (`%LocalAppData%\Assistant`),
   but keeps `Documents\Assistant`. Settings > Features > "Delete all my data" removes that too.
 - **SmartScreen:** the installer isn't code-signed, so Windows shows "Windows protected your PC" the first time.

@@ -29,7 +29,11 @@ public partial class App : Application
     static void Main()
     {
         VelopackApp.Build()
-            .OnBeforeUninstallFastCallback(_ => RemoveAppFiles())
+            .OnBeforeUninstallFastCallback(_ =>
+            {
+                StartWithWindows.Remove();
+                RemoveAppFiles();
+            })
             .Run();
 
         var app = new App();
@@ -200,6 +204,7 @@ public partial class App : Application
                        "or right away from the tray menu: Restart to update.");
         };
         updater.Start(() => config.AutoUpdate);
+        StartWithWindows.Sync(config.StartWithWindows);
         checkForUpdates = async () =>
         {
             string result = await updates.CheckNowAsync();
@@ -240,6 +245,7 @@ public partial class App : Application
                     character.ApplyAppearance(edited.Appearance);
                     bubble.ApplyAppearance(edited.Appearance);
                     activity.Enabled = edited.ActivityLogging;
+                    StartWithWindows.Sync(edited.StartWithWindows);
                     voice?.ConfigureVoice(edited.VoiceName, edited.VoiceRate);
                     testSpeaker?.Configure(edited.VoiceName, edited.VoiceRate);
                 },
@@ -270,6 +276,7 @@ public partial class App : Application
                 CheckForUpdates: updates.CheckNowAsync,
                 PendingUpdate: () => updates.PendingVersion,
                 RestartToUpdate: RestartToUpdate,
+                Installed: StartWithWindows.IsInstalled,
                 Version: updater?.CurrentVersion ?? "development build"));
             settingsWindow.Show();
         };
@@ -379,7 +386,7 @@ public partial class App : Application
 
         var icon = new System.Windows.Forms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = Shell.TrayIcon(),
             Text = "Assistant",
             ContextMenuStrip = menu,
             Visible = true,

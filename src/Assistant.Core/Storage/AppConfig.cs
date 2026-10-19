@@ -76,6 +76,9 @@ public sealed class AppConfig
     // downloads it quietly and installs it on the next start.
     public bool AutoUpdate { get; set; } = true;
 
+    // Start with Windows (installed app only): a Run entry for the current user, also switchable in Task Manager.
+    public bool StartWithWindows { get; set; } = true;
+
     // The character's colors and size, and the chat bubble's theme. Easiest to change in Settings.
     public Appearance Appearance { get; set; } = new();
 

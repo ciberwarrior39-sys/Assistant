@@ -14,7 +14,14 @@
     <Version>0.1.0</Version>
     <!-- The GitHub repository releases are uploaded to; empty means no update checks. Set by build-release.ps1. -->
     <UpdateRepo></UpdateRepo>
+    <!-- The blob: the exe, its shortcuts and the installer use it. -->
+    <ApplicationIcon>assistant.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <!-- Also inside the app, for the tray icon and the windows' icons. -->
+  <ItemGroup>
+    <Resource Include="assistant.ico" />
+  </ItemGroup>
 
   <!-- Keep Windows Forms names out of the global usings, or Application, MessageBox, Button
        and others become ambiguous with their WPF namesakes. -->
