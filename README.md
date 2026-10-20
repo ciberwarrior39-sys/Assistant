@@ -3,7 +3,51 @@
 A modern, smarter Clippy-style desktop assistant for Windows. Free, local-first, and transparent:
 everything it learns lives in plain files in `Documents\Assistant\`.
 
-## Status: build steps 1–11
+**English** · [Български](#изтегляне)
+
+## Download
+
+### [⬇ Download for Windows](https://github.com/ciberwarrior39-sys/Assistant/releases/latest/download/DesktopAssistant-win-Setup.exe)
+
+Always the newest version (Windows 10/11, 64-bit, about 90 MB). Or see the
+[download page](https://ciberwarrior39-sys.github.io/Assistant/) or [all versions](https://github.com/ciberwarrior39-sys/Assistant/releases).
+You don't need "Code > Download ZIP": that's the source code, not the app.
+
+1. **Open** `DesktopAssistant-win-Setup.exe`. No administrator rights needed.
+2. **If Windows says "Windows protected your PC":** click **More info**, then **Run anyway**. Windows shows this for new
+   apps without a paid code-signing certificate; the full source code is here for anyone to check.
+3. **Follow the setup wizard.** It checks your PC, downloads the right AI model and asks a few questions. Then the
+   character appears in the corner of the screen, with shortcuts on the desktop and in the Start menu.
+
+Updates install themselves. To uninstall: Windows Settings > Apps > Installed apps > Assistant.
+
+**Needs:** Windows 10 or 11 (64-bit), 8 GB of RAM or more (Lite mode for less), a few GB of free space for the AI model.
+A graphics card (NVIDIA or AMD, 4 GB+) is optional and makes the local AI fast. Internet only for setup, updates and
+the optional cloud chat.
+
+## Изтегляне
+
+### [⬇ Изтегляне за Windows](https://github.com/ciberwarrior39-sys/Assistant/releases/latest/download/DesktopAssistant-win-Setup.exe)
+
+Винаги най-новата версия (Windows 10/11, 64-битов, около 90 MB). Или вижте
+[страницата за изтегляне](https://ciberwarrior39-sys.github.io/Assistant/) или [всички версии](https://github.com/ciberwarrior39-sys/Assistant/releases).
+Не ви трябва „Code > Download ZIP“: това е изходният код, не програмата.
+
+1. **Отворете** `DesktopAssistant-win-Setup.exe`. Не са нужни администраторски права.
+2. **Ако Windows покаже „Windows protected your PC“** („Windows защити вашия компютър“): натиснете **More info**
+   (Повече информация), после **Run anyway** (Изпълни въпреки това). Windows показва това за нови програми без платен
+   сертификат за подписване; целият изходен код е тук и всеки може да го провери.
+3. **Следвайте съветника за настройка.** Той проверява компютъра, изтегля подходящия модел и задава няколко въпроса.
+   После човечето се появява в ъгъла на екрана, с преки пътища на работния плот и в менюто „Старт“.
+
+Обновленията се инсталират сами. Деинсталиране: Настройки на Windows > Приложения > Инсталирани приложения > Assistant.
+
+**Изисквания:** Windows 10 или 11 (64-битов), 8 GB RAM или повече (режим Lite при по-малко), няколко GB свободно място
+за модела. Видеокарта (NVIDIA или AMD, 4 GB+) не е задължителна, но прави локалния ИИ бърз. Интернет е нужен само за
+настройката, обновленията и облачния чат по избор. Програмата е на английски, но разбира имена на файлове и много
+заявки и на български.
+
+## Features
 
 A placeholder character in the corner of the screen. Click it to chat in a speech bubble: the local model
 finds files on your computer, and optional free cloud chat handles conversation.
@@ -111,6 +155,10 @@ Start menu shortcuts; the first start opens the setup wizard.
   but keeps `Documents\Assistant`. Settings > Features > "Delete all my data" removes that too.
 - **SmartScreen:** the installer isn't code-signed, so Windows shows "Windows protected your PC" the first time.
   Click More info > Run anyway.
+- **Download link and page:** the README's download link always points at the newest
+  `DesktopAssistant-win-Setup.exe` (GitHub's `releases/latest/download/` address), so it never needs changing.
+  The download page is `docs\index.html` (English and Bulgarian), served by GitHub Pages: repository
+  Settings > Pages > Deploy from a branch > `main`, folder `/docs`. It shows the newest version number by itself.
 
 ## Requirements (development)
 

@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistant: a desktop helper for Windows</title>
+<meta name="description" content="A friendly character on your Windows desktop that chats, finds your files and remembers what you ask. Free, private, runs on your PC.">
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+  /* System fonts only: no font service gets a request from visitors. */
+  :root {
+    --blob: #4A90E2;
+    --blob-deep: #2F6FBF;
+    --ink: #1C2330;
+    --muted: #5A6475;
+    --paper: #F7F9FC;
+    --card: #FFFFFF;
+    --line: #DFE5EE;
+    --warn-bg: #FFF7E6;
+    --warn-line: #F0C36A;
+    --ok: #2E8B57;
+    --shadow: 0 1px 2px rgba(20, 30, 50, .06), 0 8px 24px rgba(20, 30, 50, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --blob: #5A9DEB;
+      --blob-deep: #8BBAF2;
+      --ink: #E8ECF3;
+      --muted: #A3ADBD;
+      --paper: #12161D;
+      --card: #1B212B;
+      --line: #2C3442;
+      --warn-bg: #2B2414;
+      --warn-line: #7A6230;
+      --ok: #5CC98A;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 17px/1.55 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  a { color: var(--blob-deep); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+
+  /* Language: every text exists twice; only the chosen one shows. */
+  html[data-lang="en"] .bg, html[data-lang="bg"] .en { display: none !important; }
+
+  header.top { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; color: var(--ink); text-decoration: none; }
+  .brand img { width: 30px; height: 30px; }
+  .langs { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: var(--card); }
+  .langs button {
+    border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 600;
+    padding: 6px 14px; cursor: pointer;
+  }
+  .langs button[aria-pressed="true"] { background: var(--blob); color: #fff; }
+
+  /* Hero */
+  .hero { display: grid; grid-template-columns: 1.25fr 1fr; gap: 40px; align-items: center; padding: 36px 0 56px; }
+  .hero h1 { font-size: clamp(32px, 5vw, 50px); line-height: 1.1; margin: 0 0 16px; letter-spacing: -.02em; }
+  .hero p.lead { font-size: 19px; color: var(--muted); margin: 0 0 28px; max-width: 34em; }
+  .download {
+    display: inline-flex; align-items: center; gap: 12px; padding: 16px 26px; border-radius: 14px;
+    background: var(--blob); color: #fff; text-decoration: none; font-size: 19px; font-weight: 700;
+    box-shadow: 0 6px 18px rgba(74, 144, 226, .35); transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .download:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(74, 144, 226, .45); }
+  .download:focus-visible, .langs button:focus-visible { outline: 3px solid var(--blob-deep); outline-offset: 3px; }
+  .download svg { flex: none; }
+  .meta { margin-top: 12px; font-size: 14px; color: var(--muted); }
+  .meta a { color: var(--muted); }
+
+  .stage { position: relative; display: flex; justify-content: center; padding-top: 64px; }
+  .blob {
+    width: min(300px, 70vw); aspect-ratio: 1; border-radius: 50%; background: var(--blob); position: relative;
+    box-shadow: inset -18px -22px 0 rgba(0, 0, 0, .08), 0 24px 40px rgba(74, 144, 226, .28);
+    animation: bob 4s ease-in-out infinite;
+  }
+  .eye { position: absolute; top: 34%; width: 19%; aspect-ratio: 1; border-radius: 50%; background: #fff; }
+  .eye.left { left: 24%; } .eye.right { right: 24%; }
+  .pupil { position: absolute; left: 50%; top: 50%; width: 52%; aspect-ratio: 1; border-radius: 50%; background: #222;
+           transform: translate(-50%, -50%); }
+  .bubble {
+    position: absolute; top: 0; left: 0; z-index: 2; max-width: 230px; background: var(--card); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; font-size: 15px; box-shadow: var(--shadow);
+  }
+  .bubble::after {
+    content: ""; position: absolute; right: 28px; bottom: -8px; width: 14px; height: 14px; background: var(--card);
+    border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: rotate(45deg);
+  }
+  @keyframes bob { 50% { transform: translateY(-8px); } }
+  @media (prefers-reduced-motion: reduce) { .blob { animation: none; } .download { transition: none; } }
+
+  section { padding: 48px 0; border-top: 1px solid var(--line); }
+  section h2 { font-size: 28px; margin: 0 0 8px; letter-spacing: -.01em; }
+  section p.sub { color: var(--muted); margin: 0 0 28px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; box-shadow: var(--shadow); }
+  .card h3 { margin: 0 0 6px; font-size: 18px; }
+  .card p { margin: 0; color: var(--muted); font-size: 16px; }
+  .icon { width: 36px; height: 36px; border-radius: 10px; background: color-mix(in srgb, var(--blob) 16%, transparent);
+          display: grid; place-items: center; margin-bottom: 12px; color: var(--blob-deep); }
+  .extras { margin-top: 18px; color: var(--muted); font-size: 16px; }
+
+  .privacy { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 28px; padding: 0; margin: 0; list-style: none; }
+  .privacy li { display: flex; gap: 12px; align-items: flex-start; }
+  .privacy li svg { flex: none; margin-top: 3px; color: var(--ok); }
+
+  .steps { counter-reset: step; display: grid; gap: 14px; padding: 0; margin: 0 0 24px; list-style: none; }
+  .steps li { counter-increment: step; display: grid; grid-template-columns: 40px 1fr; gap: 14px; align-items: start; }
+  .steps li::before {
+    content: counter(step); width: 34px; height: 34px; border-radius: 50%; background: var(--blob); color: #fff;
+    display: grid; place-items: center; font-weight: 700;
+  }
+  .steps strong { display: block; }
+  .steps span.d { color: var(--muted); }
+
+  .warn { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 14px; padding: 20px;
+          display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: center; }
+  .warn h3 { margin: 0 0 8px; font-size: 18px; }
+  .warn p { margin: 0 0 8px; }
+  .warn p.small { font-size: 14px; color: var(--muted); margin: 0; }
+  /* A simplified drawing of the Windows warning, not a screenshot. */
+  .dialog { background: #0E5AA7; color: #fff; border-radius: 8px; padding: 16px 18px; font-size: 14px; position: relative; }
+  .dialog .t { font-size: 19px; font-weight: 600; margin-bottom: 8px; }
+  .dialog .l { text-decoration: underline; display: inline-block; margin-top: 6px; }
+  .dialog .row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .dialog .b { border: 1px solid rgba(255, 255, 255, .7); padding: 4px 14px; }
+  .mark { outline: 3px solid #FFC83D; outline-offset: 3px; border-radius: 3px; }
+  .dialog .n { position: absolute; background: #FFC83D; color: #222; font-weight: 700; width: 22px; height: 22px; border-radius: 50%;
+               display: grid; place-items: center; font-size: 13px; }
+
+  .req { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .req dl { margin: 0; }
+  .req dt { font-weight: 600; }
+  .req dd { margin: 0 0 12px; color: var(--muted); }
+
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; margin-bottom: 10px; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { margin: 10px 0 0; color: var(--muted); }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 14px; display: flex;
+           justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  footer a { color: var(--muted); }
+
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: 1fr; gap: 28px; padding-top: 16px; }
+    .stage { order: -1; padding-top: 0; }
+    .blob { width: min(200px, 55vw); }
+    .bubble { position: static; margin-bottom: 14px; max-width: none; }
+    .bubble::after { display: none; }
+    .stage { flex-direction: column; align-items: center; }
+    .grid { grid-template-columns: 1fr; }
+    .privacy, .req, .warn { grid-template-columns: 1fr; }
+    .download { width: 100%; justify-content: center; }
+  }
+  @media (min-width: 821px) and (max-width: 980px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="#"><img src="favicon.png" alt="">Assistant</a>
+    <div class="langs" role="group" aria-label="Language / Език">
+      <button type="button" data-set="en" aria-pressed="true">EN</button>
+      <button type="button" data-set="bg" aria-pressed="false">БГ</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div>
+        <h1>
+          <span class="en">A little helper that lives on your desktop</span>
+          <span class="bg">Малък помощник, който живее на работния ви плот</span>
+        </h1>
+        <p class="lead">
+          <span class="en">A friendly character for Windows that chats with you, finds your files, remembers what you ask and looks at a window when you want help with it. Free, and it runs on your own PC.</span>
+          <span class="bg">Дружелюбно човече за Windows, което си говори с вас, намира файловете ви, помни каквото го помолите и поглежда прозорец, когато искате помощ с него. Безплатно е и работи на вашия компютър.</span>
+        </p>
+        <a class="download" id="download" href="https://github.com/ciberwarrior39-sys/Assistant/releases/latest/download/DesktopAssistant-win-Setup.exe">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+          <span class="en">Download for Windows</span>
+          <span class="bg">Изтегляне за Windows</span>
+        </a>
+        <div class="meta">
+          <span class="en">Windows 10 and 11, 64-bit · free · </span>
+          <span class="bg">Windows 10 и 11, 64-битов · безплатно · </span>
+          <span id="version"></span>
+          <a href="https://github.com/ciberwarrior39-sys/Assistant/releases"><span class="en">all versions</span><span class="bg">всички версии</span></a>
+        </div>
+      </div>
+      <div class="stage" aria-hidden="true">
+        <div class="bubble">
+          <span class="en">Hi! Ask me “where's my CV?”</span>
+          <span class="bg">Здрасти! Питай ме „къде ми е CV-то?“</span>
+        </div>
+        <div class="blob" id="blob">
+          <div class="eye left"><div class="pupil"></div></div>
+          <div class="eye right"><div class="pupil"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <section id="features">
+      <h2><span class="en">What it does</span><span class="bg">Какво може</span></h2>
+      <p class="sub"><span class="en">Click the character to open a chat bubble, or hold Ctrl+Alt+Space and talk.</span><span class="bg">Щракнете върху човечето, за да отворите чата, или задръжте Ctrl+Alt+Space и говорете.</span></p>
+      <div class="grid">
+        <div class="card">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg></div>
+          <h3><span class="en">Chats with you</span><span class="bg">Разговаря с вас</span></h3>
+          <p><span class="en">A small AI runs on your computer. For smarter conversation you can connect a free cloud chat (Groq).</span><span class="bg">Малък изкуствен интелект работи на компютъра ви. За по-умен разговор можете да свържете безплатен облачен чат (Groq).</span></p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+          <h3><span class="en">Finds your files</span><span class="bg">Намира файловете ви</span></h3>
+          <p><span class="en">“Where's my CV?”, “the presentation I edited yesterday”. With buttons to open the file or its folder.</span><span class="bg">„Къде ми е CV-то?“, „презентацията, която редактирах вчера“. С бутони за отваряне на файла или папката му.</span></p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0-4 10.5V17h8v-3.5A6 6 0 0 0 12 3Z"/><path d="M9 21h6"/></svg></div>
+          <h3><span class="en">Remembers what you ask</span><span class="bg">Помни каквото поискате</span></h3>
+          <p><span class="en">“Remember my invoices are in D:\Finance.” Kept in plain text files you can read, edit or delete.</span><span class="bg">„Запомни, че фактурите ми са в D:\Finance.“ Пази се в обикновени текстови файлове, които можете да четете, променяте и изтривате.</span></p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/></svg></div>
+          <h3><span class="en">Looks at a window when asked</span><span class="bg">Поглежда прозорец, когато го помолите</span></h3>
+          <p><span class="en">“What does this error mean?” or “help me with this exercise”. Only the window you were using, only when you ask.</span><span class="bg">„Какво означава тази грешка?“ или „помогни ми с тази задача“. Само прозореца, който ползвате, и само когато поискате.</span></p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg></div>
+          <h3><span class="en">Listens and talks</span><span class="bg">Слуша и говори</span></h3>
+          <p><span class="en">Hold Ctrl+Alt+Space and ask out loud (in English). It answers with a natural voice. Audio is never saved.</span><span class="bg">Задръжте Ctrl+Alt+Space и питайте на глас (на английски). Отговаря с естествен глас. Звукът никога не се записва.</span></p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r="1.2" fill="currentColor"/><circle cx="15" cy="10" r="1.2" fill="currentColor"/><path d="M8.5 15c2 1.6 5 1.6 7 0"/></svg></div>
+          <h3><span class="en">Your own character</span><span class="bg">Ваше собствено човече</span></h3>
+          <p><span class="en">A blob, a robot or a cat, or make your own from GIFs and share it with friends as one file.</span><span class="bg">Топче, робот или котка, или си направете свое от GIF-ове и го споделете с приятели като един файл.</span></p>
+        </div>
+      </div>
+      <p class="extras">
+        <span class="en">Also: timers, coin flips and dice, a weekly look at what it noticed, a screensaver, and a game mode that gets out of the way while you play.</span>
+        <span class="bg">Още: таймери, ези-тура и зарове, седмичен преглед на забелязаното, скрийнсейвър и режим за игри, който се маха от пътя ви, докато играете.</span>
+      </p>
+    </section>
+
+    <section id="privacy">
+      <h2><span class="en">Private by design</span><span class="bg">Поверителност по замисъл</span></h2>
+      <p class="sub"><span class="en">What it learns stays on your computer, in files you can open.</span><span class="bg">Каквото научи, остава на компютъра ви, във файлове, които можете да отворите.</span></p>
+      <ul class="privacy">
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>
+          <span><span class="en">Everything it keeps is in <b>Documents\Assistant</b>, as plain text.</span><span class="bg">Всичко, което пази, е в <b>Documents\Assistant</b>, като обикновен текст.</span></span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>
+          <span><span class="en">Your files, screenshots and memories never go to the internet.</span><span class="bg">Вашите файлове, снимки на екрана и спомени никога не отиват в интернет.</span></span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>
+          <span><span class="en">The cloud chat is optional and gets plain conversation only. Every message sent is logged so you can check.</span><span class="bg">Облачният чат е по избор и получава само обикновен разговор. Всяко изпратено съобщение се записва, за да можете да проверите.</span></span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>
+          <span><span class="en">It looks at your screen only when you ask, and the picture is never saved.</span><span class="bg">Гледа екрана ви само когато поискате, а снимката никога не се запазва.</span></span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>
+          <span><span class="en">No account, no ads, no tracking.</span><span class="bg">Без акаунт, без реклами, без проследяване.</span></span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>
+          <span><span class="en">One button in Settings deletes all of it.</span><span class="bg">Един бутон в Настройките изтрива всичко.</span></span></li>
+      </ul>
+    </section>
+
+    <section id="install">
+      <h2><span class="en">Installing takes a few minutes</span><span class="bg">Инсталирането отнема няколко минути</span></h2>
+      <p class="sub"><span class="en">No administrator rights and no command line needed.</span><span class="bg">Не са нужни администраторски права, нито команден ред.</span></p>
+      <ol class="steps">
+        <li><div><strong><span class="en">Download and open the installer</span><span class="bg">Изтеглете и отворете инсталатора</span></strong>
+          <span class="d"><span class="en">DesktopAssistant-win-Setup.exe, about 90 MB.</span><span class="bg">DesktopAssistant-win-Setup.exe, около 90 MB.</span></span></div></li>
+        <li><div><strong><span class="en">If Windows shows a blue warning, let it run</span><span class="bg">Ако Windows покаже синьо предупреждение, разрешете го</span></strong>
+          <span class="d"><span class="en">See below for why it appears.</span><span class="bg">По-долу пише защо се появява.</span></span></div></li>
+        <li><div><strong><span class="en">Follow the setup wizard</span><span class="bg">Следвайте съветника за настройка</span></strong>
+          <span class="d"><span class="en">It checks your PC, downloads the right AI model and asks a few questions. Then the character appears in the corner of your screen, and a shortcut is added to the desktop and Start menu.</span><span class="bg">Той проверява компютъра ви, изтегля подходящия модел и задава няколко въпроса. После човечето се появява в ъгъла на екрана, а на работния плот и в менюто „Старт“ се добавя пряк път.</span></span></div></li>
+      </ol>
+
+      <div class="warn">
+        <div>
+          <h3><span class="en">About the “Windows protected your PC” warning</span><span class="bg">За предупреждението „Windows защити вашия компютър“</span></h3>
+          <p><span class="en">Windows shows it for new apps from small developers that haven't bought a code-signing certificate. Click <b>More info</b>, then <b>Run anyway</b>.</span><span class="bg">Windows го показва за нови програми от малки разработчици, които нямат платен сертификат за подписване. Натиснете <b>More info</b> (Повече информация), после <b>Run anyway</b> (Изпълни въпреки това).</span></p>
+          <p class="small"><span class="en">The full source code is public on GitHub, so anyone can check what the app does. On some new Windows 11 PCs, “Smart App Control” blocks unsigned apps without a Run anyway button; it can be turned off in Windows Security > App &amp; browser control.</span><span class="bg">Целият изходен код е публичен в GitHub, така че всеки може да провери какво прави програмата. На някои нови компютри с Windows 11 „Smart App Control“ блокира неподписани програми без бутон за изпълнение; може да се изключи от Защита на Windows > Управление на приложения и браузъри.</span></p>
+        </div>
+        <div class="dialog" aria-hidden="true">
+          <div class="t">Windows protected your PC</div>
+          <div>Microsoft Defender SmartScreen prevented an unrecognized app from starting.</div>
+          <span class="l mark">More info</span>
+          <div class="row"><span class="b mark">Run anyway</span><span class="b">Don't run</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="requirements">
+      <h2><span class="en">What your PC needs</span><span class="bg">Какво е нужно на компютъра</span></h2>
+      <div class="req">
+        <dl>
+          <dt><span class="en">System</span><span class="bg">Система</span></dt>
+          <dd><span class="en">Windows 10 or 11, 64-bit.</span><span class="bg">Windows 10 или 11, 64-битов.</span></dd>
+          <dt><span class="en">Memory</span><span class="bg">Памет</span></dt>
+          <dd><span class="en">8 GB of RAM or more. On less, choose Lite mode in setup.</span><span class="bg">8 GB RAM или повече. При по-малко изберете режим Lite в настройката.</span></dd>
+          <dt><span class="en">Graphics card</span><span class="bg">Видеокарта</span></dt>
+          <dd><span class="en">Optional. An NVIDIA or AMD card with 4 GB or more makes the local AI fast; without one it runs on the processor.</span><span class="bg">По избор. Карта на NVIDIA или AMD с 4 GB или повече прави локалния ИИ бърз; без такава той работи на процесора.</span></dd>
+        </dl>
+        <dl>
+          <dt><span class="en">Disk space</span><span class="bg">Място на диска</span></dt>
+          <dd><span class="en">About 170 MB for the app, plus a few GB for the AI model the wizard downloads (Lite mode skips it).</span><span class="bg">Около 170 MB за програмата и няколко GB за модела, който съветникът изтегля (в режим Lite не се тегли).</span></dd>
+          <dt><span class="en">Internet</span><span class="bg">Интернет</span></dt>
+          <dd><span class="en">For setup, updates and the optional cloud chat. Everything else works offline.</span><span class="bg">За настройката, обновленията и облачния чат по избор. Всичко останало работи и без интернет.</span></dd>
+          <dt><span class="en">Language</span><span class="bg">Език</span></dt>
+          <dd><span class="en">The app is in English. It understands file names and many requests in Bulgarian too.</span><span class="bg">Програмата е на английски. Разбира имена на файлове и много заявки и на български.</span></dd>
+        </dl>
+      </div>
+    </section>
+
+    <section id="faq">
+      <h2><span class="en">Questions</span><span class="bg">Въпроси</span></h2>
+      <details><summary><span class="en">Is it really free?</span><span class="bg">Наистина ли е безплатно?</span></summary>
+        <p><span class="en">Yes. The app and its local AI are free. The cloud chat uses Groq's free plan with your own free key.</span><span class="bg">Да. Програмата и локалният ИИ са безплатни. Облачният чат ползва безплатния план на Groq с ваш собствен безплатен ключ.</span></p></details>
+      <details><summary><span class="en">How does it update?</span><span class="bg">Как се обновява?</span></summary>
+        <p><span class="en">By itself. It checks once a day, downloads new versions quietly (usually under 1 MB) and installs them the next time it starts.</span><span class="bg">Само. Проверява веднъж на ден, тихо изтегля новите версии (обикновено под 1 MB) и ги инсталира при следващото стартиране.</span></p></details>
+      <details><summary><span class="en">Is it safe to run while I play games?</span><span class="bg">Безопасно ли е да работи, докато играя?</span></summary>
+        <p><span class="en">Game mode hides the character, frees the graphics card and never looks at a game's screen. For League of Legends and Valorant, Settings can also close the assistant completely when the Riot Client opens, so nothing of it runs next to Riot Vanguard.</span><span class="bg">Режимът за игри скрива човечето, освобождава видеокартата и никога не гледа екрана на игра. За League of Legends и Valorant в Настройките може също да изберете асистентът да се затваря напълно при отваряне на Riot Client, така че нищо от него да не работи заедно с Riot Vanguard.</span></p></details>
+      <details><summary><span class="en">How do I uninstall it?</span><span class="bg">Как да го деинсталирам?</span></summary>
+        <p><span class="en">Windows Settings > Apps > Installed apps > Assistant > Uninstall. Your notes in Documents\Assistant stay unless you delete them in Settings first.</span><span class="bg">Настройки на Windows > Приложения > Инсталирани приложения > Assistant > Деинсталиране. Бележките ви в Documents\Assistant остават, освен ако първо не ги изтриете от Настройките на асистента.</span></p></details>
+    </section>
+  </main>
+
+  <footer>
+    <span><span class="en">Made as a free, open project.</span><span class="bg">Направено като безплатен, отворен проект.</span></span>
+    <span><a href="https://github.com/ciberwarrior39-sys/Assistant"><span class="en">Source code on GitHub</span><span class="bg">Изходен код в GitHub</span></a> ·
+      <a href="https://github.com/ciberwarrior39-sys/Assistant/releases"><span class="en">Release notes</span><span class="bg">Бележки по версиите</span></a></span>
+  </footer>
+</div>
+
+<script>
+  // Language: Bulgarian for Bulgarian browsers, English otherwise; the choice is remembered on this browser.
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem("lang"); } catch (e) {}
+    var lang = saved || ((navigator.language || "").toLowerCase().indexOf("bg") === 0 ? "bg" : "en");
+    function apply(next) {
+      lang = next;
+      document.documentElement.setAttribute("data-lang", next);
+      document.documentElement.lang = next;
+      document.querySelectorAll(".langs button").forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.getAttribute("data-set") === next));
+      });
+      document.title = next === "bg" ? "Assistant: помощник за работния плот на Windows" : "Assistant: a desktop helper for Windows";
+    }
+    document.querySelectorAll(".langs button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        apply(b.getAttribute("data-set"));
+        try { localStorage.setItem("lang", lang); } catch (e) {}
+      });
+    });
+    apply(lang);
+  })();
+
+  // The newest version and its size, from GitHub's public release list. The page works the same without it.
+  fetch("https://api.github.com/repos/ciberwarrior39-sys/Assistant/releases/latest")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (release) {
+      if (!release || !release.tag_name) return;
+      var setup = (release.assets || []).filter(function (a) { return /Setup\.exe$/i.test(a.name); })[0];
+      var text = "v" + String(release.tag_name).replace(/^v/i, "");
+      if (setup) text += ", " + Math.round(setup.size / 1048576) + " MB";
+      document.getElementById("version").textContent = text + " · ";
+    })
+    .catch(function () {});
+
+  // Like in the app: the eyes follow the mouse pointer.
+  (function () {
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var pupils = document.querySelectorAll(".pupil");
+    window.addEventListener("pointermove", function (ev) {
+      pupils.forEach(function (p) {
+        var eye = p.parentElement.getBoundingClientRect();
+        var cx = eye.left + eye.width / 2, cy = eye.top + eye.height / 2;
+        var dx = ev.clientX - cx, dy = ev.clientY - cy;
+        var dist = Math.hypot(dx, dy) || 1;
+        var reach = eye.width * 0.22 * Math.min(1, dist / 200);
+        p.style.transform = "translate(calc(-50% + " + (dx / dist * reach) + "px), calc(-50% + " + (dy / dist * reach) + "px))";
+      });
+    }, { passive: true });
+  })();
+</script>
+</body>
+</html>
