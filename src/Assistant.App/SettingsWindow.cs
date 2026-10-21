@@ -579,6 +579,10 @@ public sealed class SettingsWindow : Window
         startup.IsEnabled = host.Installed;
         panel.Children.Add(startup);
         if (!host.Installed) panel.Children.Add(Hint("Only the installed app can start with Windows, not a copy run from source."));
+        panel.Children.Add(Check("Close while I play Riot games (quit as soon as the Riot Client, League or Valorant opens)",
+            edited.QuitForRiotGames, value => edited.QuitForRiotGames = value));
+        panel.Children.Add(Hint("So nothing of the assistant runs next to Riot Vanguard. It won't start while one of them is open, " +
+                                "and it doesn't come back by itself: start it from the desktop icon when you're done playing."));
 
         panel.Children.Add(Heading("Watching and helping"));
         panel.Children.Add(Check("Activity log (which apps and windows you use, kept 7 days, never sent anywhere)", edited.ActivityLogging,

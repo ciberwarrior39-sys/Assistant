@@ -13,6 +13,9 @@ static class StartWithWindows
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     const string ValueName = "Assistant";
 
+    /// <summary>Added to the Run entry, so the app knows nobody is waiting for it (no message boxes at sign-in).</summary>
+    public const string AutostartArgument = "--autostart";
+
     /// <summary>
     /// Installed by the setup file: Velopack keeps the app in ...\DesktopAssistant\current\, with Update.exe one level up.
     /// "current" keeps its name across updates, so the registered path stays valid.
@@ -29,7 +32,7 @@ static class StartWithWindows
         try
         {
             using RegistryKey key = Registry.CurrentUser.CreateSubKey(RunKey, writable: true);
-            string wanted = $"\"{exe}\"";
+            string wanted = $"\"{exe}\" {AutostartArgument}";
             if (!on) key.DeleteValue(ValueName, throwOnMissingValue: false);
             else if (key.GetValue(ValueName) as string != wanted) key.SetValue(ValueName, wanted);
         }

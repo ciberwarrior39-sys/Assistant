@@ -12,9 +12,16 @@ namespace Assistant.App;
 /// Remembers which window the user was using (not the assistant's own) and captures just that window
 /// when asked. Excluded and minimized windows are refused. The picture is scaled down so it fits the
 /// small model's context, kept in memory only, and never written to disk.
+///
+/// Games are never captured: nothing during game mode, and no window that looks like a game (fullscreen, or in
+/// the game list), even when the chat bubble is open over it. Anti-cheat software watches for programs that
+/// reach into a game's window, and PrintWindow asks the window itself to draw.
 /// </summary>
-public sealed class WindowCapture(Exclusions exclusions)
+public sealed class WindowCapture(Exclusions exclusions, IReadOnlyCollection<string> gameExecutables)
 {
+    /// <summary>Set by game mode: while a game is in front, nothing is captured at all.</summary>
+    public bool GameMode { get; set; }
+
     const int MaxSide = 1024; // about 600 image tokens: room left in a 2048-token context
     const uint PwRenderFullContent = 2; // also captures GPU-drawn windows like browsers
 
@@ -29,12 +36,18 @@ public sealed class WindowCapture(Exclusions exclusions)
 
     public WindowShot Capture()
     {
+        if (GameMode)
+            return new WindowShot(null, "", "Game mode is on, so I don't look at the screen until the game is closed.");
         if (lastWindow is not { } target || !IsWindow(target.Window))
             return new WindowShot(null, "", "I don't know which window you mean. Click the window, then ask me again.");
 
         string name = $"{AppNames.Name(target.App)} - {Shorten(target.Title)}";
         if (exclusions.IsExcluded(target.App, target.Title))
             return new WindowShot(null, name, "That window is in exclusions.json, so I won't look at it.");
+        if (target.FullscreenGame || Desktop.IsBorderlessFullscreen(target.Window)
+            || gameExecutables.Contains(target.App, StringComparer.OrdinalIgnoreCase))
+            return new WindowShot(null, name, "That window fills the whole screen like a game or a video, so I won't look at it. " +
+                                              "If it isn't a game, take it out of fullscreen and ask again.");
         if (IsIconic(target.Window))
             return new WindowShot(null, name, "That window is minimized. Open it, then ask me again.");
         if (!GetWindowRect(target.Window, out RECT rect) || rect.Width <= 0 || rect.Height <= 0)

@@ -124,6 +124,19 @@ public partial class App : Application
         AppConfig config = AppConfig.Load(data.ConfigFile);
         appConfig = config;
         configFile = data.ConfigFile;
+
+        // Close while I play Riot games: with the Riot Client, League or Valorant open, don't start at all.
+        if (config.QuitForRiotGames && RiotGames.RunningProgram() is { } riotProgram)
+        {
+            DiagnosticLog.Info($"{riotProgram} is open; not starting (Close while I play Riot games)");
+            if (!e.Args.Contains(StartWithWindows.AutostartArgument))
+                MessageBox.Show("A Riot game or the Riot Client is open, so the assistant won't start " +
+                                "(Settings > Features > Close while I play Riot games).\n\nStart it again after you close the Riot Client.",
+                                "Assistant");
+            Shutdown();
+            return;
+        }
+
         Retention.Purge(data, Retention.RawLogs);
 
         // First run (or "Run setup again"): the wizard sets up the brain, file search, voice and cloud keys.
@@ -178,7 +191,7 @@ public partial class App : Application
 
         var memory = new MemoryStore(data.MemoryFolder);
         var reminders = new Reminders(); // "set a timer for 5 minutes"
-        var windowCapture = new WindowCapture(exclusions); // "look at this": the window the user was using
+        var windowCapture = new WindowCapture(exclusions, config.GameExecutables); // "look at this": the window the user was using
         var localModel = new OllamaProvider(ollama, config.Model, config.ContextSize) { KeepAlive = profile.ModelKeepAlive };
         AssistantService? service = null; // the memory tools check the message being answered
         Func<string> currentUserText = () => service?.CurrentUserText ?? "";
@@ -358,6 +371,7 @@ public partial class App : Application
             DiagnosticLog.Info(on ? "Game mode on" : "Game mode off");
             gaming = on;
             character.SetGameMode(on);
+            windowCapture.GameMode = on;
             assistant.CloudOnly = on;
             handRaiser.Paused = on;
             if (on) screensaver.Stop();
@@ -378,6 +392,22 @@ public partial class App : Application
             screensaver.Observe(snapshot, gaming);
         };
         watcher.Start();
+
+        // Close while I play Riot games: every 2 seconds, a look at the names of running programs (nothing else).
+        // Not while Settings is open, so ticking the box doesn't quit before it's saved.
+        var riotWatch = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        riotWatch.Tick += async (_, _) =>
+        {
+            if (!config.QuitForRiotGames || settingsWindow is { IsLoaded: true }) return;
+            if (RiotGames.RunningProgram() is not { } riot) return;
+            riotWatch.Stop();
+            DiagnosticLog.Info($"{riot} opened; quitting (Close while I play Riot games)");
+            // A separately installed Ollama keeps running, but without our model in memory.
+            using var unload = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await localModel.UnloadAsync(unload.Token);
+            Shutdown();
+        };
+        riotWatch.Start();
 
         // The model starts loading when the chat bubble opens, so it's ready by the time the question is typed;
         // between uses it leaves memory after the profile's keep-alive time.

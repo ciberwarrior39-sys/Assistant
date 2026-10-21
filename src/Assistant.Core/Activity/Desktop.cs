@@ -92,7 +92,7 @@ public static class Desktop
     }
 
     // A window without a title bar that covers its whole monitor: borderless-fullscreen games and fullscreen video.
-    static bool IsBorderlessFullscreen(IntPtr window)
+    public static bool IsBorderlessFullscreen(IntPtr window)
     {
         string windowClass = ClassName(window);
         if (windowClass is "Progman" or "WorkerW" or "Shell_TrayWnd") return false; // desktop and taskbar

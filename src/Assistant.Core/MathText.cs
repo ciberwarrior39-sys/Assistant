@@ -5,40 +5,66 @@ namespace Assistant.Core;
 
 /// <summary>
 /// Makes model output readable in the chat bubble, which shows plain text: LaTeX becomes symbols
-/// ("\vec{u} \cdot \vec{v}" → "u⃗ · v⃗", "\frac{1}{2}" → "1/2", "x^2" → "x²") and markdown marks are dropped
-/// ("**bold**" → "bold", "* item" → "• item"). File paths are left exactly as they are.
+/// ("\vec{u} \cdot \vec{v}" → "u⃗ · v⃗", "\frac{1}{2}" → "1/2", "\sqrt3" → "√3", "x^2" → "x²") and markdown marks
+/// are dropped ("**bold**" → "bold", "* item" → "• item", "---" lines go). File paths are left exactly as they are.
 /// </summary>
 public static partial class MathText
 {
     static readonly Dictionary<string, string> Symbols = new()
     {
-        ["cdot"] = "·", ["times"] = "×", ["div"] = "÷", ["pm"] = "±", ["mp"] = "∓",
-        ["leq"] = "≤", ["le"] = "≤", ["geq"] = "≥", ["ge"] = "≥", ["neq"] = "≠", ["ne"] = "≠",
-        ["approx"] = "≈", ["equiv"] = "≡", ["infty"] = "∞", ["propto"] = "∝",
-        ["rightarrow"] = "→", ["to"] = "→", ["Rightarrow"] = "⇒", ["implies"] = "⇒", ["leftarrow"] = "←",
-        ["Leftrightarrow"] = "⇔", ["iff"] = "⇔", ["mapsto"] = "↦",
-        ["angle"] = "∠", ["circ"] = "°", ["degree"] = "°", ["perp"] = "⊥", ["parallel"] = "∥",
-        ["in"] = "∈", ["notin"] = "∉", ["subset"] = "⊂", ["cup"] = "∪", ["cap"] = "∩", ["emptyset"] = "∅",
-        ["forall"] = "∀", ["exists"] = "∃", ["neg"] = "¬", ["land"] = "∧", ["lor"] = "∨",
-        ["sum"] = "∑", ["prod"] = "∏", ["int"] = "∫", ["partial"] = "∂", ["nabla"] = "∇",
+        ["cdot"] = "·", ["cdotp"] = "·", ["times"] = "×", ["div"] = "÷", ["pm"] = "±", ["mp"] = "∓", ["ast"] = "∗",
+        ["leq"] = "≤", ["le"] = "≤", ["leqslant"] = "≤", ["geq"] = "≥", ["ge"] = "≥", ["geqslant"] = "≥",
+        ["neq"] = "≠", ["ne"] = "≠", ["approx"] = "≈", ["sim"] = "∼", ["simeq"] = "≃", ["cong"] = "≅", ["equiv"] = "≡",
+        ["infty"] = "∞", ["propto"] = "∝", ["ll"] = "≪", ["gg"] = "≫",
+        ["rightarrow"] = "→", ["to"] = "→", ["longrightarrow"] = "⟶", ["Rightarrow"] = "⇒", ["implies"] = "⇒",
+        ["Longrightarrow"] = "⟹", ["leftarrow"] = "←", ["gets"] = "←", ["Leftarrow"] = "⇐",
+        ["leftrightarrow"] = "↔", ["Leftrightarrow"] = "⇔", ["iff"] = "⇔", ["mapsto"] = "↦",
+        ["uparrow"] = "↑", ["downarrow"] = "↓",
+        ["angle"] = "∠", ["measuredangle"] = "∡", ["circ"] = "°", ["degree"] = "°", ["perp"] = "⊥", ["bot"] = "⊥",
+        ["parallel"] = "∥", ["triangle"] = "△", ["square"] = "□", ["Box"] = "□",
+        ["therefore"] = "∴", ["because"] = "∵",
+        ["langle"] = "⟨", ["rangle"] = "⟩", ["lvert"] = "|", ["rvert"] = "|", ["vert"] = "|", ["mid"] = "|",
+        ["lVert"] = "‖", ["rVert"] = "‖", ["Vert"] = "‖", ["lfloor"] = "⌊", ["rfloor"] = "⌋", ["lceil"] = "⌈", ["rceil"] = "⌉",
+        ["colon"] = ":", ["prime"] = "′", ["ell"] = "ℓ", ["hbar"] = "ħ",
+        ["in"] = "∈", ["notin"] = "∉", ["ni"] = "∋", ["subset"] = "⊂", ["subseteq"] = "⊆", ["supset"] = "⊃", ["supseteq"] = "⊇",
+        ["cup"] = "∪", ["cap"] = "∩", ["setminus"] = "∖", ["emptyset"] = "∅", ["varnothing"] = "∅",
+        ["forall"] = "∀", ["exists"] = "∃", ["neg"] = "¬", ["lnot"] = "¬", ["land"] = "∧", ["wedge"] = "∧", ["lor"] = "∨", ["vee"] = "∨",
+        ["oplus"] = "⊕", ["otimes"] = "⊗",
+        ["sum"] = "∑", ["prod"] = "∏", ["int"] = "∫", ["iint"] = "∬", ["oint"] = "∮", ["partial"] = "∂", ["nabla"] = "∇",
         ["alpha"] = "α", ["beta"] = "β", ["gamma"] = "γ", ["delta"] = "δ", ["epsilon"] = "ε", ["varepsilon"] = "ε",
         ["zeta"] = "ζ", ["eta"] = "η", ["theta"] = "θ", ["vartheta"] = "θ", ["iota"] = "ι", ["kappa"] = "κ",
-        ["lambda"] = "λ", ["mu"] = "μ", ["nu"] = "ν", ["xi"] = "ξ", ["pi"] = "π", ["rho"] = "ρ", ["sigma"] = "σ",
-        ["tau"] = "τ", ["phi"] = "φ", ["varphi"] = "φ", ["chi"] = "χ", ["psi"] = "ψ", ["omega"] = "ω",
-        ["Gamma"] = "Γ", ["Delta"] = "Δ", ["Theta"] = "Θ", ["Lambda"] = "Λ", ["Pi"] = "Π", ["Sigma"] = "Σ",
+        ["lambda"] = "λ", ["mu"] = "μ", ["nu"] = "ν", ["xi"] = "ξ", ["pi"] = "π", ["rho"] = "ρ", ["varrho"] = "ρ",
+        ["sigma"] = "σ", ["tau"] = "τ", ["upsilon"] = "υ", ["phi"] = "φ", ["varphi"] = "φ", ["chi"] = "χ", ["psi"] = "ψ", ["omega"] = "ω",
+        ["Gamma"] = "Γ", ["Delta"] = "Δ", ["Theta"] = "Θ", ["Lambda"] = "Λ", ["Xi"] = "Ξ", ["Pi"] = "Π", ["Sigma"] = "Σ",
         ["Phi"] = "Φ", ["Psi"] = "Ψ", ["Omega"] = "Ω",
-        ["cos"] = "cos", ["sin"] = "sin", ["tan"] = "tan", ["cot"] = "cot", ["sec"] = "sec", ["csc"] = "csc",
-        ["arccos"] = "arccos", ["arcsin"] = "arcsin", ["arctan"] = "arctan", ["ln"] = "ln", ["log"] = "log",
-        ["exp"] = "exp", ["lim"] = "lim", ["max"] = "max", ["min"] = "min", ["deg"] = "deg",
-        ["quad"] = "  ", ["qquad"] = "   ", ["left"] = "", ["right"] = "", ["displaystyle"] = "",
-        ["dots"] = "…", ["ldots"] = "…", ["cdots"] = "⋯",
+        ["cos"] = "cos", ["sin"] = "sin", ["tan"] = "tan", ["tg"] = "tg", ["cot"] = "cot", ["cotg"] = "cotg", ["ctg"] = "cotg",
+        ["sec"] = "sec", ["csc"] = "csc", ["arccos"] = "arccos", ["arcsin"] = "arcsin", ["arctan"] = "arctan", ["arccot"] = "arccot",
+        ["sinh"] = "sinh", ["cosh"] = "cosh", ["tanh"] = "tanh", ["ln"] = "ln", ["lg"] = "lg", ["log"] = "log",
+        ["exp"] = "exp", ["lim"] = "lim", ["max"] = "max", ["min"] = "min", ["sup"] = "sup", ["inf"] = "inf",
+        ["det"] = "det", ["gcd"] = "gcd", ["deg"] = "deg", ["dim"] = "dim", ["mod"] = "mod", ["bmod"] = "mod", ["pmod"] = "mod",
+        ["quad"] = "  ", ["qquad"] = "   ",
+        ["dots"] = "…", ["ldots"] = "…", ["cdots"] = "⋯", ["vdots"] = "⋮", ["ddots"] = "⋱",
     };
 
-    // Stand-ins for escaped braces while the grouping braces are removed.
-    const string OpenSet = "\uE000", CloseSet = "\uE001";
+    // Commands that take an argument and are handled below. With the symbols, they decide whether a text has LaTeX.
+    static readonly HashSet<string> Structural =
+    [
+        "vec", "overrightarrow", "vv", "frac", "dfrac", "tfrac", "cfrac", "sqrt", "hat", "widehat", "bar", "overline",
+        "tilde", "widetilde", "dot", "ddot", "underline", "boxed", "begin", "end", "left", "right", "big", "Big", "bigg", "Bigg",
+        "text", "textbf", "textit", "textrm", "mathbf", "mathrm", "mathit", "mathsf", "mathcal", "mathbb", "operatorname",
+        "boldsymbol", "bm", "emph", "mbox", "displaystyle",
+    ];
+
+    static readonly Dictionary<char, char> Blackboard = new()
+    {
+        ['R'] = 'ℝ', ['N'] = 'ℕ', ['Z'] = 'ℤ', ['Q'] = 'ℚ', ['C'] = 'ℂ',
+    };
 
     const string SuperFrom = "0123456789+-=()ni°", SuperTo = "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿⁱ°";
     const string SubFrom = "0123456789+-=()aeoxijnmk", SubTo = "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₒₓᵢⱼₙₘₖ";
+
+    // Stand-ins for escaped characters while the LaTeX ones are removed.
+    const string OpenSet = "\uE000", CloseSet = "\uE001", Ampersand = "\uE002";
 
     public static string Readable(string text)
     {
@@ -54,62 +80,114 @@ public static partial class MathText
             at = path.Index + path.Length;
         }
         result.Append(Convert(text[at..]));
-        return result.ToString().Trim();
+
+        string readable = TrailingSpaces().Replace(result.ToString(), "\n");
+        return BlankLines().Replace(readable, "\n\n").Trim();
     }
 
     static string Convert(string text)
     {
         text = Markdown(text);
-        bool math = LatexCommand().IsMatch(text) || MathDollars().IsMatch(text) || PlainPower().IsMatch(text);
+        bool math = HasLatex(text) || MathDollars().IsMatch(text) || PlainPower().IsMatch(text);
         if (!math) return text;
 
         text = DisplayDollars().Replace(text, match => match.Groups[1].Value);
         text = MathDollars().Replace(text, match => match.Groups[1].Value);
-        text = text.Replace(@"\(", "").Replace(@"\)", "").Replace(@"\[", "").Replace(@"\]", "").Replace(@"\\", "\n");
-        text = text.Replace(@"\,", " ").Replace(@"\;", " ").Replace(@"\!", "").Replace(@"\ ", " ")
-                   .Replace(@"\{", OpenSet).Replace(@"\}", CloseSet).Replace(@"\|", "‖");
+        text = LatexEnvironment().Replace(text, ""); // \begin{aligned} ... \end{aligned}: only the lines inside stay
+        text = LineBreak().Replace(text, "\n"); // before \[ goes, since "\\[2pt]" contains it
+        text = text.Replace(@"\(", "").Replace(@"\)", "").Replace(@"\[", "").Replace(@"\]", "");
+        text = text.Replace(@"\,", " ").Replace(@"\;", " ").Replace(@"\:", " ").Replace(@"\!", "").Replace(@"\ ", " ")
+                   .Replace(@"\{", OpenSet).Replace(@"\}", CloseSet).Replace(@"\|", "‖")
+                   .Replace(@"\&", Ampersand).Replace(@"\%", "%").Replace(@"\$", "$").Replace(@"\#", "#").Replace(@"\_", "_");
+        text = text.Replace("&", ""); // alignment marks: "u &= ..." → "u = ..."
 
-        text = Wrapper().Replace(text, match => match.Groups[1].Value); // \text{...}, \mathbf{...}
-        string commands = text;
-        text = Command().Replace(text, match =>
-        {
-            if (!Symbols.TryGetValue(match.Groups[1].Value, out string? symbol)) return match.Value;
-            // "\cos\theta" → "cos θ", not "cosθ"
-            int next = match.Index + match.Length;
-            bool joined = symbol.Length > 1 && symbol.All(char.IsLetter) && next < commands.Length
-                          && (char.IsLetter(commands[next]) || commands[next] == '\\');
-            return joined ? symbol + " " : symbol;
-        });
+        text = Symbol(text, keepUnknown: true);
 
-        // Innermost first, a few rounds for nesting like \frac{\sqrt{3}}{2}.
-        for (int round = 0; round < 4; round++)
+        // Innermost first, a few rounds for nesting like \boxed{\frac{\sqrt{3}}{2}}.
+        for (int round = 0; round < 6; round++)
         {
             string before = text;
-            text = Vector().Replace(text, match => Arrow(match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value));
-            text = Fraction().Replace(text, match => $"{Group(match.Groups[1].Value)}/{Group(match.Groups[2].Value)}");
-            text = Root().Replace(text, match => "√" + Group(match.Groups[1].Value));
+            text = Wrapper().Replace(text, match => Unwrap(match.Groups[1].Value, Argument(match, 2)));
+            text = Vector().Replace(text, match => Arrow(Argument(match, 1)));
+            text = Accent().Replace(text, match => Accented(match.Groups[1].Value, Argument(match, 2)));
+            text = Fraction().Replace(text, match => $"{Group(Argument(match, 1))}/{Group(Argument(match, 3))}");
+            text = Root().Replace(text, match => RootOf(match.Groups[1].Value, Argument(match, 2)));
             text = SuperBraces().Replace(text, match => Script(match.Groups[1].Value, SuperFrom, SuperTo, "^"));
             text = SubBraces().Replace(text, match => Script(match.Groups[1].Value, SubFrom, SubTo, "_"));
             if (text == before) break;
         }
         text = SuperSingle().Replace(text, match => Script(match.Groups[1].Value, SuperFrom, SuperTo, "^"));
         text = SubSingle().Replace(text, match => Script(match.Groups[1].Value, SubFrom, SubTo, "_"));
+
+        // Whatever command is left is formatting nobody needs to see (\displaystyle, \big, unknown ones).
+        text = Symbol(text, keepUnknown: false);
         text = text.Replace("^°", "°").Replace("{", "").Replace("}", "");
-        text = text.Replace(OpenSet, "{").Replace(CloseSet, "}"); // \{1, 2\} was a set: its braces stay
+        text = text.Replace(OpenSet, "{").Replace(CloseSet, "}").Replace(Ampersand, "&"); // \{1, 2\} was a set: its braces stay
         return Spaces().Replace(text, " ");
     }
 
-    // **bold**, `code`, "# heading", "* item" / "- item" → plain text with "• ".
-    static string Markdown(string text)
+    static bool HasLatex(string text) =>
+        Command().Matches(text).Any(match => Symbols.ContainsKey(match.Groups[1].Value) || Structural.Contains(match.Groups[1].Value));
+
+    // Known commands become their symbol; "\cos\theta" → "cos θ", not "cosθ" (but "\cos\left(" → "cos(").
+    static string Symbol(string text, bool keepUnknown) => Command().Replace(text, match =>
     {
-        text = Bold().Replace(text, match => match.Groups[1].Value);
-        text = Code().Replace(text, match => match.Groups[1].Value);
-        text = Heading().Replace(text, "");
-        return Bullet().Replace(text, match => match.Groups[1].Value + "• ");
+        if (!Symbols.TryGetValue(match.Groups[1].Value, out string? symbol)) return keepUnknown ? match.Value : "";
+        bool word = symbol.Length > 1 && symbol.All(char.IsLetter);
+        return word && WordFollows(text, match.Index + match.Length) ? symbol + " " : symbol;
+    });
+
+    static readonly HashSet<string> Invisible = ["left", "right", "big", "Big", "bigg", "Bigg", "displaystyle", "begin", "end"];
+
+    static bool WordFollows(string text, int at)
+    {
+        if (at >= text.Length) return false;
+        if (char.IsLetter(text[at])) return true;
+        if (text[at] != '\\') return false;
+        int end = at + 1;
+        while (end < text.Length && char.IsAsciiLetter(text[end])) end++;
+        string name = text[(at + 1)..end];
+        if (Symbols.TryGetValue(name, out string? symbol)) return symbol.Length > 0 && char.IsLetter(symbol[0]);
+        return Structural.Contains(name) && !Invisible.Contains(name);
+    }
+
+    // An argument is {braced} (group n) or a single character / number written straight after (group n + 1).
+    static string Argument(Match match, int group) =>
+        match.Groups[group].Success ? match.Groups[group].Value : match.Groups[group + 1].Value;
+
+    static string Unwrap(string command, string content)
+    {
+        if (command == "mathbb" && content.Trim().Length == 1 && Blackboard.TryGetValue(content.Trim()[0], out char letter))
+            return letter.ToString();
+        return content;
     }
 
     // u⃗: the combining arrow goes over the last letter ("AB" → "AB⃗").
     static string Arrow(string name) => name.Trim() + "\u20D7";
+
+    static string Accented(string accent, string content)
+    {
+        content = content.Trim();
+        if (content.Length == 0) return "";
+        return accent switch
+        {
+            "overline" => string.Concat(content.Select(ch => $"{ch}\u0305")), // a line over every letter: AB̅ → A̅B̅
+            "underline" => content,
+            "hat" or "widehat" => content + "\u0302",
+            "bar" => content + "\u0304",
+            "tilde" or "widetilde" => content + "\u0303",
+            "ddot" => content + "\u0308",
+            _ => content + "\u0307", // dot
+        };
+    }
+
+    static string RootOf(string index, string content) => index.Trim() switch
+    {
+        "" or "2" => "√" + Group(content),
+        "3" => "∛" + Group(content),
+        "4" => "∜" + Group(content),
+        _ => Script(index, SuperFrom, SuperTo, "^") + "√" + Group(content),
+    };
 
     // A single number or letter needs no brackets in a fraction or root; anything longer does.
     static string Group(string part)
@@ -126,11 +204,18 @@ public static partial class MathText
         return part.Length == 1 ? mark + part : $"{mark}({part})";
     }
 
+    // **bold**, `code`, "# heading", "---" rules, "* item" / "- item" → plain text with "• ".
+    static string Markdown(string text)
+    {
+        text = Bold().Replace(text, match => match.Groups[1].Value);
+        text = Code().Replace(text, match => match.Groups[1].Value);
+        text = Heading().Replace(text, "");
+        text = Rule().Replace(text, "");
+        return Bullet().Replace(text, match => match.Groups[1].Value + "• ");
+    }
+
     [GeneratedRegex(@"[A-Za-z]:\\[^\s""'<>|?*]*")]
     private static partial Regex WindowsPath();
-
-    [GeneratedRegex(@"\\(vec|frac|sqrt|cdot|times|theta|alpha|beta|pi|angle|circ|text|mathbf|mathrm|left|right|cos|sin|leq|geq|neq|approx|overrightarrow|infty|sum|int)\b")]
-    private static partial Regex LatexCommand();
 
     [GeneratedRegex(@"\$\$(.+?)\$\$", RegexOptions.Singleline)]
     private static partial Regex DisplayDollars();
@@ -139,19 +224,32 @@ public static partial class MathText
     [GeneratedRegex(@"\$([^$\n]*[\\^_=][^$\n]*)\$(?!\d)")]
     private static partial Regex MathDollars();
 
-    [GeneratedRegex(@"\\(?:text|textbf|textit|mathbf|mathrm|mathit|operatorname|boldsymbol)\{([^{}]*)\}")]
-    private static partial Regex Wrapper();
+    [GeneratedRegex(@"\\(?:begin|end)\s*\{[A-Za-z*]*\}(?:\{[^{}]*\})?")]
+    private static partial Regex LatexEnvironment();
 
     [GeneratedRegex(@"\\([A-Za-z]+)")]
     private static partial Regex Command();
 
-    [GeneratedRegex(@"\\(?:vec|overrightarrow|vv)\s*(?:\{([^{}]*)\}|([A-Za-z]))")]
+    // "\\" ends a line; one newline after it is part of the same break.
+    [GeneratedRegex(@"\\\\(?:\[[^\]]*\])?[ \t]*(?:\r?\n)?")]
+    private static partial Regex LineBreak();
+
+    // \mathbf{a}, and the short form \mathbf a.
+    [GeneratedRegex(@"\\(text|textbf|textit|textrm|mathbf|mathrm|mathit|mathsf|mathcal|mathbb|operatorname|boldsymbol|bm|boxed|emph|mbox)\s*(?:\{([^{}]*)\}|([\p{L}\p{N}]))")]
+    private static partial Regex Wrapper();
+
+    [GeneratedRegex(@"\\(?:vec|overrightarrow|vv)\s*(?:\{([^{}]*)\}|([\p{L}\p{N}]))")]
     private static partial Regex Vector();
 
-    [GeneratedRegex(@"\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}")]
+    [GeneratedRegex(@"\\(overline|underline|widehat|hat|bar|widetilde|tilde|ddot|dot)\s*(?:\{([^{}]*)\}|([\p{L}\p{N}]))")]
+    private static partial Regex Accent();
+
+    // \frac{a}{b}, and the short forms \frac12 and \frac{a}2.
+    [GeneratedRegex(@"\\[dtc]?frac\s*(?:\{([^{}]*)\}|([\p{L}\p{N}]))\s*(?:\{([^{}]*)\}|([\p{L}\p{N}]))")]
     private static partial Regex Fraction();
 
-    [GeneratedRegex(@"\\sqrt\s*\{([^{}]*)\}")]
+    // \sqrt{x}, \sqrt[3]{x}, and the short forms \sqrt3, \sqrt 22 and \sqrt x.
+    [GeneratedRegex(@"\\sqrt\s*(?:\[([^\]]*)\])?\s*(?:\{([^{}]*)\}|(\d+(?:[.,]\d+)?|\p{L}))")]
     private static partial Regex Root();
 
     [GeneratedRegex(@"\^\{([^{}]*)\}")]
@@ -179,6 +277,9 @@ public static partial class MathText
     [GeneratedRegex(@"^\s{0,3}#{1,6}\s+", RegexOptions.Multiline)]
     private static partial Regex Heading();
 
+    [GeneratedRegex(@"^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$", RegexOptions.Multiline)]
+    private static partial Regex Rule();
+
     [GeneratedRegex(@"^(\s*)[*-]\s+", RegexOptions.Multiline)]
     private static partial Regex Bullet();
 
@@ -188,4 +289,10 @@ public static partial class MathText
 
     [GeneratedRegex(@"[ \t]{2,}")]
     private static partial Regex Spaces();
+
+    [GeneratedRegex(@"[ \t]+\r?\n")]
+    private static partial Regex TrailingSpaces();
+
+    [GeneratedRegex(@"(?:\r?\n){3,}")]
+    private static partial Regex BlankLines();
 }
