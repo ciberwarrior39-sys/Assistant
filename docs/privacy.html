@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en" data-lang="en" data-title-en="Privacy policy · Assistant" data-title-bg="Политика за поверителност · Assistant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy · Assistant</title>
+<meta name="description" content="What Assistant keeps on your computer, and exactly when it connects to the internet.">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="policy.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./"><img src="favicon.png" alt="">Assistant</a>
+    <div class="langs" role="group" aria-label="Language / Език">
+      <button type="button" data-set="en" aria-pressed="true">EN</button>
+      <button type="button" data-set="bg" aria-pressed="false">БГ</button>
+    </div>
+  </header>
+
+  <h1><span class="en">Privacy policy</span><span class="bg">Политика за поверителност</span></h1>
+  <p class="lead">
+    <span class="en">Short version: what the assistant learns stays on your computer. It goes online only for updates, for downloads you choose, and for the cloud chat if you turn it on.</span>
+    <span class="bg">Накратко: каквото научи асистентът, остава на компютъра ви. Той излиза в интернет само за обновления, за изтегляния, които сами изберете, и за облачния чат, ако го включите.</span>
+  </p>
+
+  <h2><span class="en">What stays on your computer</span><span class="bg">Какво остава на компютъра ви</span></h2>
+  <ul>
+    <li><span class="en">Memory, settings, the activity log (kept 7 days) and the weekly review: plain files in <code>Documents\Assistant</code> that you can open, edit or delete.</span>
+        <span class="bg">Паметта, настройките, дневникът на дейността (пази се 7 дни) и седмичният преглед: обикновени файлове в <code>Documents\Assistant</code>, които можете да отваряте, променяте и изтривате.</span></li>
+    <li><span class="en">Screenshots, taken only when you ask about your screen: kept in memory for at most 10 minutes, never saved and never sent anywhere.</span>
+        <span class="bg">Снимките на екрана, правени само когато питате за екрана: пазят се в паметта най-много 10 минути, никога не се записват и никъде не се изпращат.</span></li>
+    <li><span class="en">Your voice: turned into text on your computer. Audio is never saved or sent.</span>
+        <span class="bg">Гласът ви: превръща се в текст на компютъра ви. Звукът никога не се записва и не се изпраща.</span></li>
+    <li><span class="en">The local AI (Ollama) runs on your own computer and is reached only from it.</span>
+        <span class="bg">Локалният ИИ (Ollama) работи на вашия компютър и е достъпен само от него.</span></li>
+    <li><span class="en">The developer log (<code>%LocalAppData%\Assistant\logs</code>) records errors and timings, never what you typed or said.</span>
+        <span class="bg">Дневникът за разработчици (<code>%LocalAppData%\Assistant\logs</code>) записва грешки и времена, никога какво сте написали или казали.</span></li>
+  </ul>
+
+  <h2><span class="en">When it connects to the internet</span><span class="bg">Кога се свързва с интернет</span></h2>
+  <table>
+    <thead><tr><th><span class="en">What</span><span class="bg">Какво</span></th><th><span class="en">When</span><span class="bg">Кога</span></th><th><span class="en">Where, and what is sent</span><span class="bg">Къде и какво се изпраща</span></th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="en">Update check</span><span class="bg">Проверка за обновления</span></td>
+        <td><span class="en">Once a day, and when you press Check for updates. Can be turned off in Settings &gt; Features.</span><span class="bg">Веднъж на ден и когато натиснете Check for updates. Може да се изключи от Settings &gt; Features.</span></td>
+        <td><span class="en">GitHub (this project's releases). An ordinary web request: nothing about you or your files.</span><span class="bg">GitHub (версиите на този проект). Обикновена заявка: нищо за вас или файловете ви.</span></td>
+      </tr>
+      <tr>
+        <td><span class="en">Downloads in setup</span><span class="bg">Изтегляния при настройка</span></td>
+        <td><span class="en">Only when you choose them in the setup wizard or Settings.</span><span class="bg">Само когато ги изберете в съветника или в Настройките.</span></td>
+        <td><span class="en">Ollama (GitHub), the AI model (Ollama's model library), the speech model and Piper voices (Hugging Face), Piper (GitHub), Everything (voidtools.com). Ordinary download requests.</span><span class="bg">Ollama (GitHub), моделът (библиотеката на Ollama), моделът за реч и гласовете на Piper (Hugging Face), Piper (GitHub), Everything (voidtools.com). Обикновени заявки за изтегляне.</span></td>
+      </tr>
+      <tr>
+        <td><span class="en">Cloud chat (optional)</span><span class="bg">Облачен чат (по избор)</span></td>
+        <td><span class="en">Only if you add a Groq or OpenRouter key.</span><span class="bg">Само ако добавите ключ за Groq или OpenRouter.</span></td>
+        <td><span class="en">Groq or OpenRouter receive your plain chat messages, your saved preferences (<code>preferences.md</code>), and text you approve with “Solve with cloud chat”. Never your files, screenshots, activity, other memory files, or “remember…”/“forget…” messages. Every request is logged in <code>Documents\Assistant\sent</code>.</span><span class="bg">Groq или OpenRouter получават обикновените ви съобщения в чата, запазените предпочитания (<code>preferences.md</code>) и текст, който одобрите чрез „Solve with cloud chat“. Никога файловете ви, снимки на екрана, дейността, другите файлове с памет или съобщения „запомни…“/„забрави…“. Всяка заявка се записва в <code>Documents\Assistant\sent</code>.</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <span class="en">Their own privacy policies apply to what they receive: <a href="https://groq.com/privacy-policy">Groq</a>, <a href="https://openrouter.ai/privacy">OpenRouter</a>, <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub</a>.</span>
+    <span class="bg">За това, което получават, важат собствените им политики: <a href="https://groq.com/privacy-policy">Groq</a>, <a href="https://openrouter.ai/privacy">OpenRouter</a>, <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub</a>.</span>
+  </p>
+
+  <h2><span class="en">What it never does</span><span class="bg">Какво никога не прави</span></h2>
+  <ul>
+    <li><span class="en">No accounts, no ads, no analytics or telemetry.</span><span class="bg">Без акаунти, реклами, анализи или телеметрия.</span></li>
+    <li><span class="en">No keyboard logging, and it never looks at the screen or the microphone unless you ask.</span><span class="bg">Не записва клавиатурата и никога не гледа екрана или микрофона, освен ако не поискате.</span></li>
+  </ul>
+
+  <h2><span class="en">This website</span><span class="bg">Този сайт</span></h2>
+  <p>
+    <span class="en">Hosted by GitHub Pages. The download page asks GitHub for the newest version number. There are no cookies or analytics; your language choice is remembered only in your own browser.</span>
+    <span class="bg">Хостван е от GitHub Pages. Страницата за изтегляне пита GitHub за номера на най-новата версия. Няма бисквитки или анализи; изборът на език се помни само във вашия браузър.</span>
+  </p>
+
+  <h2><span class="en">Deleting your data</span><span class="bg">Изтриване на данните</span></h2>
+  <p>
+    <span class="en">Settings &gt; Features &gt; “Delete all my data” removes <code>Documents\Assistant</code>. Uninstalling (Windows Settings &gt; Apps) removes the app, its local AI, models and logs.</span>
+    <span class="bg">Settings &gt; Features &gt; „Delete all my data“ изтрива <code>Documents\Assistant</code>. Деинсталирането (Настройки на Windows &gt; Приложения) премахва програмата, локалния ИИ, моделите и дневниците.</span>
+  </p>
+
+  <h2><span class="en">Questions</span><span class="bg">Въпроси</span></h2>
+  <p>
+    <span class="en">Open an <a href="https://github.com/ciberwarrior39-sys/Assistant/issues">issue on GitHub</a>. Last updated: October 2026.</span>
+    <span class="bg">Отворете <a href="https://github.com/ciberwarrior39-sys/Assistant/issues">issue в GitHub</a>. Последна промяна: октомври 2026 г.</span>
+  </p>
+
+  <footer>
+    <a href="./"><span class="en">Download page</span><span class="bg">Страница за изтегляне</span></a> ·
+    <a href="code-signing.html"><span class="en">Code signing policy</span><span class="bg">Политика за подписване на кода</span></a> ·
+    <a href="https://github.com/ciberwarrior39-sys/Assistant"><span class="en">Source code</span><span class="bg">Изходен код</span></a>
+  </footer>
+</div>
+<script src="lang.js"></script>
+</body>
+</html>

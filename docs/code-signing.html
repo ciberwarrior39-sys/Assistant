@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en" data-lang="en" data-title-en="Code signing policy · Assistant" data-title-bg="Политика за подписване на кода · Assistant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code signing policy · Assistant</title>
+<meta name="description" content="How releases of Assistant are built and code-signed, and who can approve them.">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="policy.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./"><img src="favicon.png" alt="">Assistant</a>
+    <div class="langs" role="group" aria-label="Language / Език">
+      <button type="button" data-set="en" aria-pressed="true">EN</button>
+      <button type="button" data-set="bg" aria-pressed="false">БГ</button>
+    </div>
+  </header>
+
+  <h1><span class="en">Code signing policy</span><span class="bg">Политика за подписване на кода</span></h1>
+  <p class="lead">
+    <span class="en">How releases are built and signed, and who is allowed to approve them.</span>
+    <span class="bg">Как се създават и подписват версиите и кой има право да ги одобрява.</span>
+  </p>
+
+  <div class="note">
+    <p><strong>Free code signing provided by <a href="https://signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a>.</strong></p>
+    <p>
+      <span class="en">Status: we have applied to the SignPath Foundation. Until the application is approved, releases are not signed yet, and Windows shows a “Windows protected your PC” warning when you install.</span>
+      <span class="bg">Състояние: подадохме заявка към SignPath Foundation. Докато не бъде одобрена, версиите още не са подписани и Windows показва предупреждение „Windows защити вашия компютър“ при инсталиране.</span>
+    </p>
+  </div>
+
+  <h2><span class="en">What is signed</span><span class="bg">Какво се подписва</span></h2>
+  <ul>
+    <li><span class="en">The app itself (<code>Assistant.exe</code>, <code>Assistant.Core.dll</code>) and the installer (<code>DesktopAssistant-win-Setup.exe</code>).</span>
+        <span class="bg">Самата програма (<code>Assistant.exe</code>, <code>Assistant.Core.dll</code>) и инсталаторът (<code>DesktopAssistant-win-Setup.exe</code>).</span></li>
+    <li><span class="en">Only files built from the source code in <a href="https://github.com/ciberwarrior39-sys/Assistant">this repository</a> by its Release workflow on GitHub Actions. Nothing built on a personal computer is ever signed.</span>
+        <span class="bg">Само файлове, създадени от изходния код в <a href="https://github.com/ciberwarrior39-sys/Assistant">това хранилище</a> от неговия процес Release в GitHub Actions. Нищо, създадено на личен компютър, не се подписва.</span></li>
+    <li><span class="en">Every signing request is approved by hand before anything is signed.</span>
+        <span class="bg">Всяка заявка за подписване се одобрява ръчно, преди нещо да бъде подписано.</span></li>
+  </ul>
+
+  <h2><span class="en">Included open-source components</span><span class="bg">Включени компоненти с отворен код</span></h2>
+  <p>
+    <span class="en">The installer also contains these components from other projects. They are not signed by us:</span>
+    <span class="bg">Инсталаторът съдържа и тези компоненти от други проекти. Те не се подписват от нас:</span>
+  </p>
+  <ul>
+    <li><a href="https://github.com/dotnet/runtime">.NET</a> <span class="en">runtime and WPF (Microsoft, MIT license)</span><span class="bg">среда и WPF (Microsoft, лиценз MIT)</span></li>
+    <li><a href="https://github.com/velopack/velopack">Velopack</a> <span class="en">installer and updater (MIT)</span><span class="bg">инсталатор и обновяване (MIT)</span></li>
+    <li><a href="https://github.com/naudio/NAudio">NAudio</a> <span class="en">microphone and sound (MIT)</span><span class="bg">микрофон и звук (MIT)</span></li>
+    <li><a href="https://github.com/sandrohanea/whisper.net">Whisper.net</a> <span class="en">and</span><span class="bg">и</span> <a href="https://github.com/ggml-org/whisper.cpp">whisper.cpp</a> <span class="en">speech recognition (MIT)</span><span class="bg">разпознаване на реч (MIT)</span></li>
+    <li><a href="https://www.voidtools.com/support/everything/sdk/">Everything SDK</a> <span class="en">file search interface (voidtools)</span><span class="bg">интерфейс за търсене на файлове (voidtools)</span></li>
+  </ul>
+  <p>
+    <span class="en">Downloaded later by the setup wizard, only when you choose them, and not part of the signed installer: <a href="https://github.com/ollama/ollama">Ollama</a> and its AI model, the speech model, <a href="https://github.com/rhasspy/piper">Piper</a> and its voices, and <a href="https://www.voidtools.com/">Everything</a>.</span>
+    <span class="bg">Изтеглят се по-късно от съветника за настройка, само ако ги изберете, и не са част от подписания инсталатор: <a href="https://github.com/ollama/ollama">Ollama</a> и неговият модел, моделът за реч, <a href="https://github.com/rhasspy/piper">Piper</a> и гласовете му, и <a href="https://www.voidtools.com/">Everything</a>.</span>
+  </p>
+
+  <h2><span class="en">Team roles</span><span class="bg">Роли в екипа</span></h2>
+  <table>
+    <thead><tr><th><span class="en">Role</span><span class="bg">Роля</span></th><th><span class="en">Members</span><span class="bg">Членове</span></th></tr></thead>
+    <tbody>
+      <tr><td><span class="en">Committers and reviewers</span><span class="bg">Автори и рецензенти</span></td>
+          <td><a href="https://github.com/ciberwarrior39-sys">ciberwarrior39-sys</a></td></tr>
+      <tr><td><span class="en">Approvers</span><span class="bg">Одобряващи</span></td>
+          <td><a href="https://github.com/ciberwarrior39-sys">ciberwarrior39-sys</a></td></tr>
+    </tbody>
+  </table>
+  <p>
+    <span class="en">Changes proposed by anyone else (pull requests) are reviewed by a committer before they are merged. The members are the people with write access to <a href="https://github.com/ciberwarrior39-sys/Assistant">the repository</a>; their GitHub accounts use two-factor authentication.</span>
+    <span class="bg">Промени, предложени от други хора (pull requests), се преглеждат от автор, преди да бъдат приети. Членовете са хората с право на запис в <a href="https://github.com/ciberwarrior39-sys/Assistant">хранилището</a>; профилите им в GitHub ползват двуфакторно удостоверяване.</span>
+  </p>
+
+  <h2><span class="en">Privacy</span><span class="bg">Поверителност</span></h2>
+  <p>
+    <span class="en">What the app sends over the internet, and when, is described in the <a href="privacy.html">privacy policy</a>.</span>
+    <span class="bg">Какво изпраща програмата по интернет и кога е описано в <a href="privacy.html">политиката за поверителност</a>.</span>
+  </p>
+
+  <h2><span class="en">Reporting a problem</span><span class="bg">Съобщаване за проблем</span></h2>
+  <p>
+    <span class="en">If you think a signed file wasn't built from this project, or something about a release looks wrong, please open an <a href="https://github.com/ciberwarrior39-sys/Assistant/issues">issue on GitHub</a>.</span>
+    <span class="bg">Ако смятате, че подписан файл не е създаден от този проект или нещо във версия изглежда нередно, моля, отворете <a href="https://github.com/ciberwarrior39-sys/Assistant/issues">issue в GitHub</a>.</span>
+  </p>
+
+  <footer>
+    <a href="./"><span class="en">Download page</span><span class="bg">Страница за изтегляне</span></a> ·
+    <a href="privacy.html"><span class="en">Privacy policy</span><span class="bg">Политика за поверителност</span></a> ·
+    <a href="https://github.com/ciberwarrior39-sys/Assistant"><span class="en">Source code</span><span class="bg">Изходен код</span></a>
+  </footer>
+</div>
+<script src="lang.js"></script>
+</body>
+</html>

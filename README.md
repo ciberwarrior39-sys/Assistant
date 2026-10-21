@@ -20,6 +20,8 @@ You don't need "Code > Download ZIP": that's the source code, not the app.
    character appears in the corner of the screen, with shortcuts on the desktop and in the Start menu.
 
 Updates install themselves. To uninstall: Windows Settings > Apps > Installed apps > Assistant.
+[Privacy policy](https://ciberwarrior39-sys.github.io/Assistant/privacy.html) ·
+[Code signing policy](https://ciberwarrior39-sys.github.io/Assistant/code-signing.html)
 
 **Needs:** Windows 10 or 11 (64-bit), 8 GB of RAM or more (Lite mode for less), a few GB of free space for the AI model.
 A graphics card (NVIDIA or AMD, 4 GB+) is optional and makes the local AI fast. Internet only for setup, updates and
@@ -41,6 +43,8 @@ the optional cloud chat.
    После човечето се появява в ъгъла на екрана, с преки пътища на работния плот и в менюто „Старт“.
 
 Обновленията се инсталират сами. Деинсталиране: Настройки на Windows > Приложения > Инсталирани приложения > Assistant.
+[Политика за поверителност](https://ciberwarrior39-sys.github.io/Assistant/privacy.html) ·
+[Политика за подписване на кода](https://ciberwarrior39-sys.github.io/Assistant/code-signing.html)
 
 **Изисквания:** Windows 10 или 11 (64-битов), 8 GB RAM или повече (режим Lite при по-малко), няколко GB свободно място
 за модела. Видеокарта (NVIDIA или AMD, 4 GB+) не е задължителна, но прави локалния ИИ бърз. Интернет е нужен само за
@@ -138,6 +142,12 @@ Cloud keys are saved encrypted for the Windows user (DPAPI) as `"dpapi:..."` in 
 
 ## Making an installer
 
+**Releases** are built on GitHub: Actions tab > **Release** > Run workflow > type the version (e.g. `0.3.5`) > Run workflow.
+It publishes, packs and uploads the release with GitHub's own token (no personal token needed), and keeps the installer
+with the run for 14 days. Only these builds are code-signed (see the [code signing policy](https://ciberwarrior39-sys.github.io/Assistant/code-signing.html)).
+
+**Test builds** on your own PC:
+
 ```
 .\build-release.ps1 -Version 1.0.0
 ```
@@ -159,6 +169,10 @@ Start menu shortcuts; the first start opens the setup wizard.
   `DesktopAssistant-win-Setup.exe` (GitHub's `releases/latest/download/` address), so it never needs changing.
   The download page is `docs\index.html` (English and Bulgarian), served by GitHub Pages: repository
   Settings > Pages > Deploy from a branch > `main`, folder `/docs`. It shows the newest version number by itself.
+
+## License
+
+[MIT](LICENSE).
 
 ## Requirements (development)
 

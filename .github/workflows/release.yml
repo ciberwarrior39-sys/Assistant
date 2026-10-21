@@ -1,0 +1,99 @@
+# Builds, packs and publishes a release of the assistant, entirely on GitHub.
+# Start it from the Actions tab: "Release" > Run workflow > type the version (e.g. 0.3.5) > Run workflow.
+# Every release needs a higher version than the last one. Code signing (SignPath) is added here once approved.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.3.5 (higher than the last one)"
+        required: true
+
+permissions:
+  contents: write   # create the GitHub release and upload its files
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  VPK_VERSION: "1.2.161"   # keep equal to the Velopack package version in Assistant.App.csproj
+  # Taken from the input through the environment, never pasted into scripts, so odd input can't run as code.
+  VERSION: ${{ inputs.version }}
+  REPO_URL: https://github.com/${{ github.repository }}
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Check the version
+        shell: pwsh
+        run: |
+          if ($env:VERSION -notmatch '^\d+\.\d+\.\d+$') { throw "The version must look like 1.2.3, not '$env:VERSION'." }
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Everything64.dll isn't kept in the repository; it comes from the official Everything SDK.
+      # Its SHA-256 and license file are printed in the log, so every build shows exactly what went in.
+      - name: Get the Everything SDK
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://www.voidtools.com/Everything-SDK.zip" -OutFile "$env:RUNNER_TEMP\Everything-SDK.zip"
+          Expand-Archive "$env:RUNNER_TEMP\Everything-SDK.zip" "$env:RUNNER_TEMP\Everything-SDK"
+          $dll = Get-ChildItem "$env:RUNNER_TEMP\Everything-SDK" -Recurse -Filter Everything64.dll | Select-Object -First 1
+          if (-not $dll) { throw "Everything64.dll wasn't found in the SDK." }
+          New-Item lib -ItemType Directory -Force | Out-Null
+          Copy-Item $dll.FullName lib\Everything64.dll
+          Write-Host "Everything64.dll SHA-256: $((Get-FileHash lib\Everything64.dll).Hash)"
+          Get-ChildItem "$env:RUNNER_TEMP\Everything-SDK" -Recurse -Include *license*, *copying*, *.txt |
+            ForEach-Object { Write-Host "== $($_.Name)"; Get-Content $_.FullName -TotalCount 40 }
+
+      - name: Install the Velopack packer
+        shell: pwsh
+        run: |
+          dotnet tool install -g vpk --version $env:VPK_VERSION
+          "$env:USERPROFILE\.dotnet\tools" | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          dotnet publish src\Assistant.App\Assistant.App.csproj -c Release -r win-x64 --self-contained -o publish `
+            -p:Version=$env:VERSION -p:UpdateRepo=$env:REPO_URL
+          if ($LASTEXITCODE -ne 0) { throw "Publishing failed." }
+
+      - name: Get earlier releases (for small delta updates)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          vpk download github --repoUrl $env:REPO_URL --token $env:GH_TOKEN --outputDir releases
+          # No earlier release is fine.
+          exit 0
+
+      - name: Pack
+        shell: pwsh
+        run: |
+          vpk pack --packId DesktopAssistant --packVersion $env:VERSION --packDir publish --mainExe Assistant.exe `
+            --packTitle "Assistant" --runtime win-x64 --icon src\Assistant.App\assistant.ico --outputDir releases
+          if ($LASTEXITCODE -ne 0) { throw "Packing failed." }
+
+      # The installer, also kept with this run for 14 days (handy for testing before anyone updates).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DesktopAssistant-${{ inputs.version }}-Setup
+          path: releases/DesktopAssistant-win-Setup.exe
+          retention-days: 14
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          vpk upload github --repoUrl $env:REPO_URL --token $env:GH_TOKEN --outputDir releases --publish `
+            --releaseName "Assistant $env:VERSION" --tag "v$env:VERSION"
+          if ($LASTEXITCODE -ne 0) { throw "Uploading failed." }
