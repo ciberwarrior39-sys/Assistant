@@ -220,6 +220,19 @@ Start menu shortcuts; the first start opens the setup wizard.
   The download page is `docs\index.html` (English and Bulgarian), served by GitHub Pages: repository
   Settings > Pages > Deploy from a branch > `main`, folder `/docs`. It shows the newest version number by itself.
 
+## Reviews on the download page
+
+The download page (`docs/index.html`) shows the installer's download count (all versions together, from GitHub's
+public release list) and a **Reviews and feedback** section. The section stays hidden until it's set up, in the
+script near the end of `docs/index.html`:
+
+- **Public reviews** (`repoId`, `categoryId`): GitHub Discussions shown through [giscus](https://giscus.app), loaded
+  only when a visitor clicks "Show reviews". Needs Discussions turned on, a `Reviews` category (Announcement format),
+  and the giscus app installed on the repository; giscus.app then shows both IDs. Reviews can be hidden or deleted
+  in the repository's Discussions tab.
+- **Private feedback** (`feedbackForm`): the share link of a free form (for example Tally) for people without a
+  GitHub account. Only you see the answers.
+
 ## License
 
 [MIT](LICENSE).

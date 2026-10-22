@@ -37,6 +37,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
@@ -145,6 +146,18 @@
   summary { cursor: pointer; font-weight: 600; }
   details p { margin: 10px 0 0; color: var(--muted); }
 
+  .reviews { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; align-items: start; }
+  .reviews .card p { margin-bottom: 14px; }
+  .reviews .card p.small { font-size: 14px; margin: 10px 0 0; }
+  .button {
+    display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; border: 1px solid var(--blob);
+    background: var(--blob); color: #fff; font: inherit; font-size: 16px; font-weight: 600; text-decoration: none; cursor: pointer;
+  }
+  .button.ghost { background: transparent; color: var(--blob-deep); }
+  .button:hover { filter: brightness(1.06); }
+  #giscus { margin-top: 18px; }
+  #giscus:empty { display: none; }
+
   footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 14px; display: flex;
            justify-content: space-between; gap: 16px; flex-wrap: wrap; }
   footer a { color: var(--muted); }
@@ -157,7 +170,7 @@
     .bubble::after { display: none; }
     .stage { flex-direction: column; align-items: center; }
     .grid { grid-template-columns: 1fr; }
-    .privacy, .req, .warn { grid-template-columns: 1fr; }
+    .privacy, .req, .warn, .reviews { grid-template-columns: 1fr; }
     .download { width: 100%; justify-content: center; }
   }
   @media (min-width: 821px) and (max-width: 980px) { .grid { grid-template-columns: repeat(2, 1fr); } }
@@ -194,6 +207,7 @@
           <span class="en">Windows 10 and 11, 64-bit · free · </span>
           <span class="bg">Windows 10 и 11, 64-битов · безплатно · </span>
           <span id="version"></span>
+          <span id="downloads" hidden><span class="en"></span><span class="bg"></span> · </span>
           <a href="https://github.com/ciberwarrior39-sys/Assistant/releases"><span class="en">all versions</span><span class="bg">всички версии</span></a>
         </div>
       </div>
@@ -318,6 +332,25 @@
       </div>
     </section>
 
+    <section id="reviews" hidden>
+      <h2><span class="en">Reviews and feedback</span><span class="bg">Отзиви и мнения</span></h2>
+      <p class="sub"><span class="en">Tried it? Say what you liked, what annoyed you or what's missing. Every message is read.</span><span class="bg">Пробвахте ли го? Кажете какво ви хареса, какво ви подразни или какво липсва. Всяко съобщение се чете.</span></p>
+      <div class="reviews">
+        <div class="card" id="public-reviews" hidden>
+          <h3><span class="en">Public reviews</span><span class="bg">Публични отзиви</span></h3>
+          <p><span class="en">Read what others wrote, or write your own. Posting needs a free GitHub account.</span><span class="bg">Прочетете какво са написали другите или напишете свой отзив. За публикуване е нужен безплатен акаунт в GitHub.</span></p>
+          <button type="button" class="button" id="show-reviews"><span class="en">Show reviews</span><span class="bg">Покажи отзивите</span></button>
+          <p class="small"><span class="en">The reviews load from GitHub (through giscus) only after you click, so nothing is sent to them before that.</span><span class="bg">Отзивите се зареждат от GitHub (чрез giscus) едва след като натиснете, така че дотогава нищо не им се изпраща.</span></p>
+          <div id="giscus"></div>
+        </div>
+        <div class="card" id="private-feedback" hidden>
+          <h3><span class="en">No GitHub account?</span><span class="bg">Нямате акаунт в GitHub?</span></h3>
+          <p><span class="en">Send feedback through a short form instead. No account needed, and only the developer reads it.</span><span class="bg">Изпратете мнението си през кратка форма. Не е нужен акаунт и го чете само разработчикът.</span></p>
+          <a class="button ghost" id="feedback-form" href="#" target="_blank" rel="noopener"><span class="en">Send feedback privately</span><span class="bg">Изпрати мнение лично</span></a>
+        </div>
+      </div>
+    </section>
+
     <section id="faq">
       <h2><span class="en">Questions</span><span class="bg">Въпроси</span></h2>
       <details><summary><span class="en">Is it really free?</span><span class="bg">Наистина ли е безплатно?</span></summary>
@@ -364,17 +397,71 @@
     apply(lang);
   })();
 
-  // The newest version and its size, from GitHub's public release list. The page works the same without it.
-  fetch("https://api.github.com/repos/ciberwarrior39-sys/Assistant/releases/latest")
+  // The newest version, its size and how many times the installer was downloaded, from GitHub's public release list.
+  // Only the installer counts: updates download other files, so one person updating many times isn't counted again.
+  // The page works the same without it.
+  fetch("https://api.github.com/repos/ciberwarrior39-sys/Assistant/releases?per_page=100")
     .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (release) {
-      if (!release || !release.tag_name) return;
-      var setup = (release.assets || []).filter(function (a) { return /Setup\.exe$/i.test(a.name); })[0];
-      var text = "v" + String(release.tag_name).replace(/^v/i, "");
-      if (setup) text += ", " + Math.round(setup.size / 1048576) + " MB";
-      document.getElementById("version").textContent = text + " · ";
+    .then(function (releases) {
+      if (!releases || !releases.length) return;
+      function installer(release) {
+        return (release.assets || []).filter(function (a) { return /Setup\.exe$/i.test(a.name); })[0];
+      }
+      var latest = releases.filter(function (r) { return !r.draft && !r.prerelease; })[0];
+      if (latest && latest.tag_name) {
+        var setup = installer(latest);
+        var text = "v" + String(latest.tag_name).replace(/^v/i, "");
+        if (setup) text += ", " + Math.round(setup.size / 1048576) + " MB";
+        document.getElementById("version").textContent = text + " · ";
+      }
+      var total = releases.reduce(function (sum, r) { var a = installer(r); return sum + (a ? a.download_count : 0); }, 0);
+      if (total > 0) {
+        var box = document.getElementById("downloads");
+        box.querySelector(".en").textContent = total.toLocaleString("en-US") + (total === 1 ? " download" : " downloads");
+        box.querySelector(".bg").textContent = total.toLocaleString("bg-BG") + (total === 1 ? " изтегляне" : " изтегляния");
+        box.hidden = false;
+      }
     })
     .catch(function () {});
+
+  // Reviews. Fill these in once (see README > "Reviews on the download page"); a part left empty stays hidden.
+  (function () {
+    var giscus = {
+      repo: "ciberwarrior39-sys/Assistant",
+      repoId: "R_kgDOVKo7xA",       // data-repo-id from giscus.app
+      category: "Reviews",
+      categoryId: "DIC_kwDOVKo7xM4DJXfF"    // data-category-id from giscus.app
+    };
+    var feedbackForm = ""; // the form's share link, e.g. https://tally.so/r/xxxxxx
+
+    var hasPublic = giscus.repoId && giscus.categoryId;
+    if (!hasPublic && !feedbackForm) return;
+    document.getElementById("reviews").hidden = false;
+
+    if (feedbackForm) {
+      document.getElementById("feedback-form").href = feedbackForm;
+      document.getElementById("private-feedback").hidden = false;
+    }
+    if (!hasPublic) return;
+    document.getElementById("public-reviews").hidden = false;
+
+    // giscus is loaded only now, on the visitor's click.
+    var button = document.getElementById("show-reviews");
+    button.addEventListener("click", function () {
+      button.hidden = true;
+      var script = document.createElement("script");
+      script.src = "https://giscus.app/client.js";
+      script.async = true;
+      script.crossOrigin = "anonymous";
+      var settings = {
+        "repo": giscus.repo, "repo-id": giscus.repoId, "category": giscus.category, "category-id": giscus.categoryId,
+        "mapping": "specific", "term": "Reviews", "strict": "1", "reactions-enabled": "1", "emit-metadata": "0",
+        "input-position": "top", "theme": "preferred_color_scheme", "lang": "en", "loading": "lazy"
+      };
+      Object.keys(settings).forEach(function (key) { script.setAttribute("data-" + key, settings[key]); });
+      document.getElementById("giscus").appendChild(script);
+    });
+  })();
 
   // Like in the app: the eyes follow the mouse pointer.
   (function () {
