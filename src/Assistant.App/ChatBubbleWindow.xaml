@@ -58,18 +58,40 @@
                         <DataTemplate DataType="{x:Type local:ChatItem}">
                             <StackPanel Margin="0,0,0,12">
                                 <TextBlock Text="{Binding Who}" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource LabelSize}"/>
-                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                <!-- Read-only text box styled as plain text: mark any part of a message and copy it (Ctrl+C or right-click) -->
+                                <TextBox Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" Margin="-2,2,0,0" Padding="0"
+                                         Background="Transparent" BorderThickness="0" IsTabStop="False"
+                                         Foreground="{DynamicResource Text}" CaretBrush="Transparent"/>
 
-                                <!-- After a screen answer: a worked answer from the cloud, from the text only (asks first) -->
-                                <Button Content="Solve with cloud chat…" Visibility="{Binding CloudButtonVisibility}" Tag="{Binding}"
-                                        Click="OnCloudFollowUp" HorizontalAlignment="Left" Padding="10,2" Margin="0,6,0,0"
-                                        ToolTip="Reads the text off the screenshot on this computer and shows it to you first. Only that text is sent, never the image."/>
+                                <!-- Copy (answers worth pasting), and after a screen or selected-text answer: the cloud, text only (asks first) -->
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <Button Content="Copy" Visibility="{Binding CopyVisibility}" Tag="{Binding}" Click="OnCopyReply"
+                                            Padding="10,2" Margin="0,0,6,0" ToolTip="Copy the answer, to paste it anywhere"/>
+                                    <Button Content="{Binding CloudButtonLabel}" Visibility="{Binding CloudButtonVisibility}" Tag="{Binding}"
+                                            Click="OnCloudFollowUp" Padding="10,2"
+                                            ToolTip="Shows you exactly what would be sent first. Nothing leaves this computer until you press Send."/>
+                                </StackPanel>
 
                                 <!-- What a tool did, word for word (saved or forgotten memory lines) -->
                                 <ItemsControl ItemsSource="{Binding Notes}" Margin="0,4,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding}" Foreground="{DynamicResource Note}" FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- Choices and confirmations from actions ("Which app?", "Empty the Recycle Bin?") -->
+                                <ItemsControl ItemsSource="{Binding Choices}" Margin="0,6,0,0">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Content="{Binding Label}" IsEnabled="{Binding IsEnabled}" Tag="{Binding}" Click="OnChoice"
+                                                    Padding="10,2" Margin="0,0,6,6"/>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -124,12 +146,12 @@
                                 <StackPanel>
                                     <TextBlock Text="Send this to the cloud chat?" FontWeight="SemiBold"/>
                                     <TextBlock Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap" Margin="0,2,0,6"
-                                               Text="Read off the screenshot on this computer. Fix anything it misread. Only your question and this text are sent (and logged in the sent folder); the screenshot stays here."/>
-                                    <TextBlock Text="Your question" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}"/>
+                                               Text="{Binding Explanation}"/>
+                                    <TextBlock Text="{Binding QuestionLabel}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}"/>
                                     <TextBox Text="{Binding Question, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsOpen}"
                                              TextWrapping="Wrap" Background="Transparent" BorderThickness="0,0,0,1" Margin="0,0,0,6"
                                              Foreground="{DynamicResource Text}" CaretBrush="{DynamicResource Text}"/>
-                                    <TextBlock Text="Text from your screen" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}"/>
+                                    <TextBlock Text="{Binding TextLabel}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}"/>
                                     <TextBox Text="{Binding ScreenText, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsOpen}"
                                              TextWrapping="Wrap" AcceptsReturn="True" MaxHeight="220" VerticalScrollBarVisibility="Auto"
                                              Background="Transparent" BorderThickness="0,0,0,1"
@@ -138,6 +160,52 @@
                                         <Button Content="Send" Padding="10,2" Tag="{Binding}" Click="OnSendToCloud"/>
                                         <Button Content="Cancel" Padding="10,2" Margin="6,0,0,0" Tag="{Binding}" Click="OnCancelCloud"/>
                                     </StackPanel>
+                                    <TextBlock Text="{Binding Outcome}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+
+                        <!-- The to-do list: ticking a box saves todo.md at once -->
+                        <DataTemplate DataType="{x:Type local:TodoListItem}">
+                            <Border BorderBrush="{DynamicResource CardEdge}" BorderThickness="1" CornerRadius="6" Padding="8,6" Margin="0,0,4,8">
+                                <ItemsControl ItemsSource="{Binding Rows}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox IsChecked="{Binding Done, Mode=TwoWay}" Margin="0,3" Foreground="{DynamicResource Text}">
+                                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap"/>
+                                            </CheckBox>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Border>
+                        </DataTemplate>
+
+                        <!-- Help with selected text: what was picked up, and what to do with it -->
+                        <DataTemplate DataType="{x:Type local:TextHelpItem}">
+                            <Border BorderBrush="{DynamicResource CardEdge}" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,4,8">
+                                <StackPanel>
+                                    <TextBlock Text="Help with this text" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding Source}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap"/>
+                                    <Border BorderBrush="{DynamicResource CardEdge}" BorderThickness="3,0,0,0" Padding="8,2,2,2" Margin="0,6,0,4">
+                                        <TextBlock Text="{Binding Preview}" TextWrapping="Wrap" MaxHeight="96" TextTrimming="CharacterEllipsis" FontStyle="Italic"/>
+                                    </Border>
+                                    <TextBlock Text="{Binding Size}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap"/>
+                                    <WrapPanel Margin="0,8,0,0" Visibility="{Binding ButtonsVisibility}">
+                                        <Button Content="Explain" CommandParameter="Explain" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
+                                        <Button Content="Summarise" CommandParameter="Summarise" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
+                                        <Button Content="Translate to English" CommandParameter="ToEnglish" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
+                                        <Button Content="Translate to Bulgarian" CommandParameter="ToBulgarian" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
+                                        <Button Content="Fix grammar" CommandParameter="FixGrammar" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
+                                        <Button Content="Make shorter" CommandParameter="Shorter" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
+                                    </WrapPanel>
+                                    <TextBlock Text="Or ask your own question about it:" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}"
+                                               Visibility="{Binding ButtonsVisibility}"/>
+                                    <DockPanel Margin="0,2,0,0" Visibility="{Binding ButtonsVisibility}">
+                                        <Button DockPanel.Dock="Right" Content="Ask" CommandParameter="Ask" Tag="{Binding}" Click="OnTextTask" Padding="10,2" Margin="6,0,0,0"/>
+                                        <TextBox Text="{Binding Question, UpdateSourceTrigger=PropertyChanged}" Tag="{Binding}" PreviewKeyDown="OnTextQuestionKey"
+                                                 TextWrapping="Wrap" Background="Transparent" BorderThickness="0,0,0,1"
+                                                 Foreground="{DynamicResource Text}" CaretBrush="{DynamicResource Text}"/>
+                                    </DockPanel>
                                     <TextBlock Text="{Binding Outcome}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" Margin="0,4,0,0"/>
                                 </StackPanel>
                             </Border>

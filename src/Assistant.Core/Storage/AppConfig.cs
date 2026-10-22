@@ -85,6 +85,15 @@ public sealed class AppConfig
     // downloads it quietly and installs it on the next start.
     public bool AutoUpdate { get; set; } = true;
 
+    // A gentle "time for a break?" after this many minutes of using the PC without a 5-minute pause; 0 turns it off.
+    public int BreakReminderMinutes { get; set; } = 60;
+
+    // The day the birthday greeting was last shown (yyyy-MM-dd), so it comes once.
+    public string LastBirthdayGreeting { get; set; } = "";
+
+    // "search the web for …": google, duckduckgo or bing. The query opens in the default browser.
+    public string SearchEngine { get; set; } = "google";
+
     // Start with Windows (installed app only): a Run entry for the current user, also switchable in Task Manager.
     public bool StartWithWindows { get; set; } = true;
 

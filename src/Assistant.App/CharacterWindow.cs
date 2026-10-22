@@ -38,10 +38,35 @@ public sealed class CharacterWindow : Window
     readonly Border badge;
     readonly DispatcherTimer unhide = new();
     readonly ScaleTransform size = new(1, 1);
+
+    // Idle life: a hop and a stretch on top of the mood's bounce; hearts and hats drawn over the figure.
+    readonly TranslateTransform hop = new();
+    readonly ScaleTransform stretch = new(1, 1);
+    readonly Canvas effects = new()
+    {
+        Width = 96, Height = 96, IsHitTestVisible = false, ClipToBounds = false,
+        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
+    };
+    readonly DispatcherTimer noteTimer = new();
+    readonly DispatcherTimer lookAround = new() { Interval = TimeSpan.FromMilliseconds(900) };
+    int lookStep;
+    FrameworkElement? hatShown;
+    HatKind hat = HatKind.None;
+    string? note;      // a short message on the label for a while ("download done: …"), over the mood's label
+    Action? noteClick; // what clicking the label does then
+
+    // Petting: the cursor going back and forth over the character, 5 turns within 1.5 seconds.
+    double lastCursorX = double.NaN;
+    int lastDirection;
+    readonly Queue<DateTime> turns = new();
+    DateTime lastPet = DateTime.MinValue;
     readonly DispatcherTimer gazeTimer = new() { Interval = GazeSlow };
     Vector gaze; // where the eyes look now, eased toward the cursor
     bool cursorNear;
     bool stillWhenIdle; // Lite: no movement while nothing is happening
+
+    /// <summary>Lite: no movement while nothing is happening (so no idle tricks or walks either).</summary>
+    public bool StillWhenIdle => stillWhenIdle;
     DateTime cursorLastNear;
     static readonly TimeSpan CursorLeaveDelay = TimeSpan.FromSeconds(0.6); // no flicker at the edge of the range
     Appearance appearance = new();
@@ -52,6 +77,15 @@ public sealed class CharacterWindow : Window
 
     /// <summary>The menu's "Settings…" was chosen.</summary>
     public event Action? SettingsRequested;
+
+    /// <summary>The menu's "Help with selected text" was chosen.</summary>
+    public event Action? TextHelpRequested;
+
+    /// <summary>The mouse moved back and forth over the character.</summary>
+    public event Action? Petted;
+
+    /// <summary>The character was double-clicked.</summary>
+    public event Action? Poked;
 
     public CharacterWindow(CharacterMood mood, ChatBubbleWindow bubble, CharacterPacks packs, string placementFile, string dataRoot, Action quit)
     {
@@ -75,10 +109,13 @@ public sealed class CharacterWindow : Window
         Top = saved?.Y ?? SystemParameters.WorkArea.Bottom - Height - 8;
 
         var motion = new TransformGroup();
+        motion.Children.Add(stretch);
         motion.Children.Add(tilt);
         motion.Children.Add(bob);
+        motion.Children.Add(hop);
         stage = new Grid { RenderTransform = motion, RenderTransformOrigin = new Point(0.5, 0.5), HorizontalAlignment = HorizontalAlignment.Center };
         stage.Children.Add(look.Figure);
+        stage.Children.Add(effects);
 
         badge = new Border
         {
@@ -97,6 +134,15 @@ public sealed class CharacterWindow : Window
         Content = layout;
 
         MouseLeftButtonDown += OnLeftButtonDown;
+        // A note with something to show ("download done: …") opens it when its label is clicked.
+        badge.MouseLeftButtonDown += (_, e) =>
+        {
+            if (noteClick is not { } click) return;
+            e.Handled = true;
+            click();
+        };
+        noteTimer.Tick += (_, _) => ClearNote();
+        lookAround.Tick += (_, _) => LookAroundStep();
         ContextMenu = BuildMenu(dataRoot, quit);
         mood.Changed += ApplyMood;
         unhide.Tick += (_, _) =>
@@ -170,12 +216,14 @@ public sealed class CharacterWindow : Window
 
     public void OpenChat()
     {
+        StopWalking();
         mood.Touch();
         bubble.ShowNear(new Rect(Left, Top, Width, Height));
     }
 
     public void HideFor(TimeSpan duration)
     {
+        StopWalking();
         bubble.Hide();
         Hide();
         StopAnimations();
@@ -189,6 +237,7 @@ public sealed class CharacterWindow : Window
         inGameMode = on;
         if (on)
         {
+            StopWalking();
             bubble.Hide();
             Hide();
             StopAnimations();
@@ -208,6 +257,15 @@ public sealed class CharacterWindow : Window
 
     void OnLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        StopWalking();
+        // A double-click is a poke; the first click already opened (or closed) the chat as usual.
+        if (e.ClickCount >= 2)
+        {
+            e.Handled = true;
+            if (appearance.Reactions) Poked?.Invoke();
+            return;
+        }
+
         double startLeft = Left, startTop = Top;
         try
         {
@@ -239,10 +297,165 @@ public sealed class CharacterWindow : Window
         if (Math.Abs(area.Bottom - (Top + Height)) < SnapDistance) Top = area.Bottom - Height;
     }
 
+    // ---- Life: notes, hearts, hats, little tricks and walking -----------------------------------------------------
+
+    /// <summary>A short message on the label for a while, over the mood's own; with onClick, clicking the label runs it.</summary>
+    public void ShowNote(string text, TimeSpan duration, Action? onClick = null)
+    {
+        note = text;
+        noteClick = onClick;
+        noteTimer.Stop();
+        noteTimer.Interval = duration;
+        noteTimer.Start();
+        ApplyMood(mood.Current);
+    }
+
+    void ClearNote()
+    {
+        noteTimer.Stop();
+        note = null;
+        noteClick = null;
+        ApplyMood(mood.Current);
+    }
+
+    /// <summary>A few hearts float up (petting).</summary>
+    public void Hearts()
+    {
+        if (!IsVisible) return;
+        SolidColorBrush pink = Motion.Frozen(Color.FromRgb(0xFF, 0x5C, 0x8A));
+        for (int i = 0; i < 3; i++)
+        {
+            var heart = new TextBlock { Text = "♥", Foreground = pink, FontSize = 15 + i * 3, FontWeight = FontWeights.Bold };
+            Canvas.SetLeft(heart, 22 + i * 20);
+            Canvas.SetTop(heart, 24);
+            effects.Children.Add(heart);
+            var start = TimeSpan.FromMilliseconds(i * 160);
+            var rise = new DoubleAnimation(24, -28, TimeSpan.FromSeconds(1.2)) { BeginTime = start };
+            var fade = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(1.2)) { BeginTime = start };
+            Timeline.SetDesiredFrameRate(rise, Motion.FramesPerSecond);
+            Timeline.SetDesiredFrameRate(fade, Motion.FramesPerSecond);
+            fade.Completed += (_, _) => effects.Children.Remove(heart);
+            heart.BeginAnimation(Canvas.TopProperty, rise);
+            heart.BeginAnimation(OpacityProperty, fade);
+        }
+    }
+
+    /// <summary>A seasonal hat on the drawn characters (custom ones keep their own look). None takes it off.</summary>
+    public void ShowHat(HatKind kind)
+    {
+        hat = kind;
+        if (hatShown is not null) effects.Children.Remove(hatShown);
+        hatShown = null;
+        if (kind == HatKind.None || look.HatAnchor is not { } anchor) return;
+
+        double scale = look.HatScale;
+        FrameworkElement drawn = CharacterHats.Create(kind);
+        drawn.RenderTransform = new ScaleTransform(scale, scale);
+        Canvas.SetLeft(drawn, anchor.X - CharacterHats.Size / 2 * scale);
+        Canvas.SetTop(drawn, anchor.Y - CharacterHats.Size * scale);
+        effects.Children.Add(drawn);
+        hatShown = drawn;
+    }
+
+    public enum Trick { Blink, LookAround, Stretch, Hop, Yawn }
+
+    /// <summary>A little idle movement. Calm animations keep only the blink and looking around.</summary>
+    public void Play(Trick trick)
+    {
+        if (!IsVisible) return;
+        if (appearance.CalmAnimations && trick is Trick.Hop or Trick.Stretch or Trick.Yawn) trick = Trick.Blink;
+        switch (trick)
+        {
+            case Trick.Blink:
+                look.Blink();
+                break;
+            case Trick.LookAround:
+                if (cursorNear || !look.HasEyes)
+                {
+                    look.Blink();
+                    break;
+                }
+                lookStep = 0;
+                LookAroundStep();
+                lookAround.Start();
+                break;
+            case Trick.Hop:
+                Once(hop, TranslateTransform.YProperty, -14, 0.16);
+                break;
+            case Trick.Stretch:
+                Once(stretch, ScaleTransform.ScaleYProperty, 1.12, 0.35);
+                Once(stretch, ScaleTransform.ScaleXProperty, 0.94, 0.35);
+                break;
+            case Trick.Yawn:
+                Once(stretch, ScaleTransform.ScaleYProperty, 1.15, 0.9);
+                Once(stretch, ScaleTransform.ScaleXProperty, 0.92, 0.9);
+                ShowNote("*yawn*", TimeSpan.FromSeconds(2));
+                break;
+        }
+    }
+
+    // Left, right, back to the middle; the cursor coming close takes over at any point.
+    void LookAroundStep()
+    {
+        if (cursorNear || lookStep > 2)
+        {
+            lookAround.Stop();
+            if (!cursorNear) look.LookAt(default);
+            return;
+        }
+        look.LookAt(lookStep switch { 0 => new Vector(-0.8, 0.1), 1 => new Vector(0.8, 0.1), _ => default });
+        lookStep++;
+    }
+
+    static void Once(IAnimatable target, DependencyProperty property, double to, double seconds)
+    {
+        var there = new DoubleAnimation(to, TimeSpan.FromSeconds(seconds)) { AutoReverse = true, FillBehavior = FillBehavior.Stop };
+        there.EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut };
+        Timeline.SetDesiredFrameRate(there, Motion.FramesPerSecond);
+        target.BeginAnimation(property, there);
+    }
+
+    /// <summary>Walks a little way along the screen with small hops, then stays there. Not while the chat is open.</summary>
+    public void Walk()
+    {
+        if (!IsVisible || bubble.IsVisible) return;
+        Rect area = SystemParameters.WorkArea;
+        double distance = Random.Shared.Next(120, 320) * (Random.Shared.Next(2) == 0 ? -1 : 1);
+        double target = Math.Clamp(Left + distance, area.Left, area.Right - Width);
+        if (Math.Abs(target - Left) < 40) target = Math.Clamp(Left - distance, area.Left, area.Right - Width);
+        if (Math.Abs(target - Left) < 40) return;
+
+        var walk = new DoubleAnimation(Left, target, TimeSpan.FromSeconds(Math.Abs(target - Left) / 60));
+        Timeline.SetDesiredFrameRate(walk, Motion.FramesPerSecond);
+        walk.Completed += (_, _) =>
+        {
+            if (!walking) return;
+            StopWalking();
+            CharacterPlacement.Save(placementFile, Left, Top);
+        };
+        walking = true;
+        Motion.Loop(hop, TranslateTransform.YProperty, 0, -6, 0.4);
+        BeginAnimation(LeftProperty, walk);
+    }
+
+    bool walking;
+
+    // Keeps it where it is now (a drag or the chat opening interrupts a walk).
+    void StopWalking()
+    {
+        if (!walking) return;
+        walking = false;
+        double here = Left;
+        BeginAnimation(LeftProperty, null);
+        Left = here;
+        Motion.Still(hop, TranslateTransform.YProperty, 0);
+    }
+
     ContextMenu BuildMenu(string dataRoot, Action quit)
     {
         var menu = new ContextMenu();
         menu.Items.Add(MenuEntry("Chat", ToggleChat));
+        menu.Items.Add(MenuEntry("Help with selected text", () => TextHelpRequested?.Invoke()));
         menu.Items.Add(MenuEntry("Settings…", () => SettingsRequested?.Invoke()));
         menu.Items.Add(MenuEntry("Open data folder", () => Shell.OpenFolder(dataRoot)));
         menu.Items.Add(MenuEntry("Hide for 1 hour", () => HideFor(TimeSpan.FromHours(1))));
@@ -269,7 +482,7 @@ public sealed class CharacterWindow : Window
         }
 
         Vector target = default;
-        bool near = false;
+        bool near = false, inside = false;
         if (GetCursorPos(out CursorPoint cursor))
         {
             try
@@ -279,6 +492,8 @@ public sealed class CharacterWindow : Window
                 Vector toCursor = pointer - eyes;
                 double distance = toCursor.Length;
                 near = distance < GazeDistance * appearance.Scale;
+                inside = pointer.X >= 0 && pointer.Y >= 0 && pointer.X <= ActualWidth && pointer.Y <= ActualHeight;
+                DetectPetting(pointer, inside);
                 // Close to the face the eyes turn part of the way; further out they look straight at it.
                 if (near && mood.Current != Mood.Sleepy) target = toCursor / Math.Max(distance, 40 * appearance.Scale);
             }
@@ -291,7 +506,7 @@ public sealed class CharacterWindow : Window
 
         if (!look.HasEyes)
         {
-            gazeTimer.Interval = GazeSlow; // only "cursor nearby" to watch for
+            gazeTimer.Interval = inside ? gazeFast : GazeSlow; // "cursor nearby" to watch for, and petting
             return;
         }
 
@@ -302,8 +517,38 @@ public sealed class CharacterWindow : Window
             gaze = next;
             look.LookAt(gaze);
         }
-        // Fast only while the eyes are on the cursor or still moving.
-        gazeTimer.Interval = target != default || gaze != default ? gazeFast : GazeSlow;
+        // Fast only while the eyes are on the cursor or still moving (or the cursor is on it: petting).
+        gazeTimer.Interval = inside || target != default || gaze != default ? gazeFast : GazeSlow;
+    }
+
+    void DetectPetting(Point pointer, bool inside)
+    {
+        if (!inside || !appearance.Reactions)
+        {
+            lastCursorX = double.NaN;
+            return;
+        }
+        if (double.IsNaN(lastCursorX))
+        {
+            lastCursorX = pointer.X;
+            return;
+        }
+        double moved = pointer.X - lastCursorX;
+        if (Math.Abs(moved) < 4) return;
+        lastCursorX = pointer.X;
+        int direction = Math.Sign(moved);
+        if (direction == lastDirection) return;
+        lastDirection = direction;
+
+        DateTime now = DateTime.UtcNow;
+        turns.Enqueue(now);
+        while (turns.Count > 0 && now - turns.Peek() > TimeSpan.FromSeconds(1.5)) turns.Dequeue();
+        if (turns.Count >= 5 && now - lastPet > TimeSpan.FromSeconds(4))
+        {
+            turns.Clear();
+            lastPet = now;
+            Petted?.Invoke();
+        }
     }
 
     // Tells the look when the cursor arrives (right away) and leaves (after a moment).
@@ -353,6 +598,8 @@ public sealed class CharacterWindow : Window
         cursorNear = false;
         stage.Children.Clear();
         stage.Children.Add(look.Figure);
+        stage.Children.Add(effects);
+        ShowHat(hat);
     }
 
     // Each mood: body color, label, bounce height and speed, wobble, how open the eyes are.
@@ -400,8 +647,10 @@ public sealed class CharacterWindow : Window
         MoodLook shown = Look(current);
         look.Apply(current, shown, appearance.CalmAnimations, colorOverride is not null);
 
-        badgeText.Text = shown.Label;
-        badge.Visibility = shown.Label.Length > 0 ? Visibility.Visible : Visibility.Hidden;
+        string label = note ?? shown.Label;
+        badgeText.Text = label;
+        badge.Visibility = label.Length > 0 ? Visibility.Visible : Visibility.Hidden;
+        badge.Cursor = noteClick is null ? null : Cursors.Hand;
 
         // Custom animations move by themselves; bouncing them too would look wrong.
         // Lite keeps the drawn characters still while idle or asleep, so they cost nothing then.

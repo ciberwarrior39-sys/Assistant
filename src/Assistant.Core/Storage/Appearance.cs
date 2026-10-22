@@ -53,6 +53,21 @@ public sealed class Appearance
     /// <summary>Smaller bounces and no wobble.</summary>
     public bool CalmAnimations { get; set; }
 
+    /// <summary>Petting (moving the mouse back and forth over it) and poking (double-click).</summary>
+    public bool Reactions { get; set; } = true;
+
+    /// <summary>Small reactions to a finished download, a low battery or plugging in, and coming back to the PC.</summary>
+    public bool EventReactions { get; set; } = true;
+
+    /// <summary>Blinking, looking around, stretching and little hops while nothing is happening.</summary>
+    public bool IdleTricks { get; set; } = true;
+
+    /// <summary>Hats for Halloween, Christmas, New Year and the user's birthday (if they asked it to remember it).</summary>
+    public bool SeasonalLooks { get; set; } = true;
+
+    /// <summary>Walking along the screen now and then. Off by default: movement is distracting while working.</summary>
+    public bool Wander { get; set; }
+
     /// <summary>light or dark.</summary>
     public string BubbleTheme { get; set; } = "light";
 
@@ -91,6 +106,11 @@ public sealed class Appearance
         Size = Size,
         ShowLabels = ShowLabels,
         CalmAnimations = CalmAnimations,
+        Reactions = Reactions,
+        EventReactions = EventReactions,
+        IdleTricks = IdleTricks,
+        SeasonalLooks = SeasonalLooks,
+        Wander = Wander,
         BubbleTheme = BubbleTheme,
         BubbleTextSize = BubbleTextSize,
     };

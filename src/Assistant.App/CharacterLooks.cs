@@ -38,6 +38,15 @@ public abstract class CharacterLook
 
     /// <summary>The cursor came close, or left. Custom characters can play their Noticed animation.</summary>
     public virtual void CursorNear(bool near) { }
+
+    /// <summary>Where a seasonal hat sits (its bottom middle), in the figure's coordinates. Null: no hats (custom characters).</summary>
+    public virtual Point? HatAnchor => null;
+
+    /// <summary>How big the hat is on this character.</summary>
+    public virtual double HatScale => 1;
+
+    /// <summary>A quick blink (idle life). Characters without eyelids do nothing.</summary>
+    public virtual void Blink() { }
 }
 
 /// <summary>Shared animation helpers, all at the window's frame rate to keep CPU use low.</summary>
@@ -88,6 +97,14 @@ static class Motion
         eye.Children.Add(new Ellipse { Fill = Brushes.White });
         eye.Children.Add(new Ellipse { Width = pupilWidth, Height = pupilHeight, Fill = Dark, RenderTransform = gaze });
         return eye;
+    }
+
+    /// <summary>Eyes shut for a moment and open again, back to whatever the mood had them at.</summary>
+    public static void Blink(ScaleTransform eyelids)
+    {
+        var close = new DoubleAnimation(0.1, TimeSpan.FromMilliseconds(80)) { AutoReverse = true, FillBehavior = FillBehavior.Stop };
+        Timeline.SetDesiredFrameRate(close, FramesPerSecond);
+        eyelids.BeginAnimation(ScaleTransform.ScaleYProperty, close);
     }
 
     /// <summary>Moves both pupils: up to maxX and maxY pixels from the middle.</summary>
@@ -146,6 +163,9 @@ public sealed class BlobLook : CharacterLook
     }
 
     public override void LookAt(Vector direction) => Motion.Gaze(pupils, direction, 4, 4);
+
+    public override Point? HatAnchor => new(48, 12);
+    public override void Blink() => Motion.Blink(eyelids);
 }
 
 /// <summary>A little robot: a boxy head with a screen for a face, and an antenna that blinks while it works.</summary>
@@ -220,6 +240,11 @@ public sealed class RobotLook : CharacterLook
 
     // The screen-eyes slide around inside the face screen.
     public override void LookAt(Vector direction) => Motion.Gaze(pupils, direction, 6, 4);
+
+    // Beside the antenna, on the right of the head.
+    public override Point? HatAnchor => new(70, 28);
+    public override double HatScale => 0.75;
+    public override void Blink() => Motion.Blink(eyelids);
 }
 
 /// <summary>A cat: round head, pointy ears, whiskers and a tail that swishes faster when it's happy.</summary>
@@ -307,4 +332,9 @@ public sealed class CatLook : CharacterLook
 
     // Tall slit pupils: they move further sideways than up and down.
     public override void LookAt(Vector direction) => Motion.Gaze(pupils, direction, 5, 2);
+
+    // Between the ears.
+    public override Point? HatAnchor => new(48, 30);
+    public override double HatScale => 0.85;
+    public override void Blink() => Motion.Blink(eyelids);
 }

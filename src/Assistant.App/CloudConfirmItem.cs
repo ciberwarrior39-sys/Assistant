@@ -15,6 +15,16 @@ public sealed class CloudConfirmItem(string question, string screenText) : INoti
     string outcome = "";
     bool isOpen = true;
 
+    /// <summary>Selected text rather than text read off a screenshot: changes the card's wording and where it's sent.</summary>
+    public bool ForSelectedText { get; init; }
+
+    public string QuestionLabel => ForSelectedText ? "Your request" : "Your question";
+    public string TextLabel => ForSelectedText ? "Selected text" : "Text from your screen";
+
+    public string Explanation => ForSelectedText
+        ? "Only your request and this text are sent (and logged in the sent folder). Remove anything private first."
+        : "Read off the screenshot on this computer. Fix anything it misread. Only your question and this text are sent (and logged in the sent folder); the screenshot stays here.";
+
     public string Question
     {
         get => questionText;

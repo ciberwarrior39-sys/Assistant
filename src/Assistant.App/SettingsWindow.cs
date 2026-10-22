@@ -226,6 +226,35 @@ public sealed class SettingsWindow : Window
             value => edited.Appearance.ShowLabels = value));
         panel.Children.Add(Check("Calm animations (smaller bounces, no wobble)", edited.Appearance.CalmAnimations,
             value => edited.Appearance.CalmAnimations = value));
+
+        panel.Children.Add(Heading("Life"));
+        panel.Children.Add(Hint("Small things that make it feel alive. None of them opens the chat, and all of them stop during a game."));
+        panel.Children.Add(Check("Petting and poking (move the mouse back and forth over it, or double-click it)", edited.Appearance.Reactions,
+            value => edited.Appearance.Reactions = value));
+        panel.Children.Add(Check("React to downloads, the battery and you coming back", edited.Appearance.EventReactions,
+            value => edited.Appearance.EventReactions = value));
+        panel.Children.Add(Check("Little idle animations (blinking, looking around, stretching)", edited.Appearance.IdleTricks,
+            value => edited.Appearance.IdleTricks = value));
+        panel.Children.Add(Check("Seasonal hats (Halloween, Christmas, New Year, and your birthday if it remembers it)", edited.Appearance.SeasonalLooks,
+            value => edited.Appearance.SeasonalLooks = value));
+        panel.Children.Add(Check("Walk around the screen now and then (can be distracting)", edited.Appearance.Wander,
+            value => edited.Appearance.Wander = value));
+
+        int[] breaks = [0, 30, 45, 60, 90, 120];
+        var breakBox = new ComboBox
+        {
+            Width = 140,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            ItemsSource = new[] { "Off", "30 minutes", "45 minutes", "1 hour", "1.5 hours", "2 hours" },
+        };
+        breakBox.SelectedIndex = Math.Max(0, Array.IndexOf(breaks, edited.BreakReminderMinutes));
+        breakBox.SelectionChanged += (_, _) =>
+        {
+            edited.BreakReminderMinutes = breaks[Math.Max(0, breakBox.SelectedIndex)];
+            Changed();
+        };
+        panel.Children.Add(Labeled("Break reminder", breakBox));
+        panel.Children.Add(Hint("After this long at the PC it stretches and suggests a break. A 5-minute pause starts the count over; games don't count."));
         return panel;
     }
 
@@ -583,6 +612,14 @@ public sealed class SettingsWindow : Window
             edited.QuitForRiotGames, value => edited.QuitForRiotGames = value));
         panel.Children.Add(Hint("So nothing of the assistant runs next to Riot Vanguard. It won't start while one of them is open, " +
                                 "and it doesn't come back by itself: start it from the desktop icon when you're done playing."));
+
+        panel.Children.Add(Heading("Web search"));
+        string[] engines = ["google", "duckduckgo", "bing"];
+        var engine = new ComboBox { Width = 160, HorizontalAlignment = HorizontalAlignment.Left, ItemsSource = new[] { "Google", "DuckDuckGo", "Bing" } };
+        engine.SelectedIndex = Math.Max(0, Array.IndexOf(engines, edited.SearchEngine));
+        engine.SelectionChanged += (_, _) => edited.SearchEngine = engines[Math.Max(0, engine.SelectedIndex)];
+        panel.Children.Add(Labeled("Search with", engine));
+        panel.Children.Add(Hint("For \"search the web for …\": the search opens in your browser. DuckDuckGo doesn't tie searches to you."));
 
         panel.Children.Add(Heading("Watching and helping"));
         panel.Children.Add(Check("Activity log (which apps and windows you use, kept 7 days, never sent anywhere)", edited.ActivityLogging,

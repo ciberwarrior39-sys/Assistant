@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using Velopack;
 using Assistant.Core;
@@ -11,6 +12,7 @@ using Assistant.Core.Characters;
 using Assistant.Core.Diagnostics;
 using Assistant.Core.Llm;
 using Assistant.Core.Memory;
+using Assistant.Core.Organizer;
 using Assistant.Core.Search;
 using Assistant.Core.Setup;
 using Assistant.Core.Storage;
@@ -190,7 +192,10 @@ public partial class App : Application
             new SentLog(data.SentFolder));
 
         var memory = new MemoryStore(data.MemoryFolder);
-        var reminders = new Reminders(); // "set a timer for 5 minutes"
+        // "set a timer for 5 minutes", "remind me tomorrow at 9 to …": kept in reminders.json across restarts.
+        var reminders = new Reminders(new ReminderStore(data.RemindersFile));
+        // Notes and the to-do list, in notes.md and todo.md.
+        var organizer = new OrganizerAnswers(new NotesStore(data.NotesFile), new TodoStore(data.TodoFile), reminders);
         var windowCapture = new WindowCapture(exclusions, config.GameExecutables); // "look at this": the window the user was using
         var localModel = new OllamaProvider(ollama, config.Model, config.ContextSize) { KeepAlive = profile.ModelKeepAlive };
         AssistantService? service = null; // the memory tools check the message being answered
@@ -207,6 +212,7 @@ public partial class App : Application
         var assistant = new AssistantService(localModel, tools, cloud, memory, reminders)
         {
             LocalModelEnabled = profile.LocalModel,
+            Organizer = organizer,
         };
         service = assistant;
         var resources = new ResourceMonitor(ollama);
@@ -221,6 +227,7 @@ public partial class App : Application
         character.ApplyPerformance(profile);
         bubble.ApplyAppearance(config.Appearance);
         character.Show();
+        CharacterLife? life = null; // made once game mode is known, below
 
         tray = CreateTrayIcon(character, data.Root);
 
@@ -275,6 +282,7 @@ public partial class App : Application
                 {
                     character.ApplyAppearance(edited.Appearance);
                     bubble.ApplyAppearance(edited.Appearance);
+                    life?.SettingsChanged();
                     activity.Enabled = edited.ActivityLogging;
                     StartWithWindows.Sync(edited.StartWithWindows);
                     voice?.ConfigureVoice(edited.VoiceName, edited.VoiceRate);
@@ -315,6 +323,39 @@ public partial class App : Application
         };
         character.SettingsRequested += () => openSettings?.Invoke();
 
+        // Doing things on the PC: "open Spotify", "volume to 30", "take a screenshot", "empty the recycle bin" (asks first).
+        // For a screenshot, the character and the bubble step out of the picture for a moment.
+        bool bubbleWasOpen = false;
+        assistant.Actions = new WindowsActions(
+            searchEngine: () => config.SearchEngine,
+            placeFacts: () => memory.Facts(MemoryKind.Places).Select(fact => fact.Text),
+            gameMode: () => windowCapture.GameMode,
+            openAssistantSettings: () => openSettings?.Invoke(),
+            showAssistant: visible =>
+            {
+                if (!visible)
+                {
+                    bubbleWasOpen = bubble.IsVisible;
+                    bubble.Hide();
+                    character.Hide();
+                }
+                else
+                {
+                    character.ShowAgain();
+                    if (bubbleWasOpen) character.OpenChat();
+                }
+            },
+            ownWindow: () => new WindowInteropHelper(character).EnsureHandle());
+
+        // Help with selected text: mark text anywhere, right-click the character. Read through Windows' accessibility
+        // interface (or the last copied text), shown on a card; nothing is sent anywhere until the user picks a cloud option.
+        character.TextHelpRequested += async () =>
+        {
+            character.ShowAgain();
+            character.OpenChat();
+            await bubble.OfferTextHelpAsync(() => SelectedText.PickAsync(windowCapture));
+        };
+
         // A character file was double-clicked: preview it, then import it and switch to it.
         void ImportCharacter(string file)
         {
@@ -351,6 +392,8 @@ public partial class App : Application
         reminders.Due += text =>
         {
             bubble.Say(text);
+            // Also a Windows notification, seen even when the bubble is closed or the character is hidden.
+            tray?.ShowBalloonTip(10_000, "Assistant", text, System.Windows.Forms.ToolTipIcon.None);
             if (!gaming)
             {
                 character.ShowAgain();
@@ -360,9 +403,22 @@ public partial class App : Application
             else System.Media.SystemSounds.Exclamation.Play();
         };
 
+        // Reminders that fell due while the app was closed (PC off, or closed for a Riot game): said once, at start.
+        if (reminders.TakeMissed() is { } missedText)
+        {
+            bubble.Say(missedText);
+            tray?.ShowBalloonTip(10_000, "Assistant", missedText, System.Windows.Forms.ToolTipIcon.None);
+            mood.Set(Mood.TimeUp, TimeSpan.FromSeconds(10));
+        }
+
         // The silent hand-raise, from the same snapshots as the activity log.
         var handRaiser = new HandRaiser(mood, bubble, character, new StruggleDetector(exclusions),
                                         new FeedbackLog(data.FeedbackFolder), config, data.ConfigFile);
+
+        // Petting, idle tricks, downloads, the battery, breaks, coming back, hats and the birthday. Quiet in game mode.
+        var characterLife = new CharacterLife(character, mood, config, data.ConfigFile, () => gaming,
+                                              () => memory.Facts(MemoryKind.AboutMe).Select(fact => fact.Text), bubble.Say);
+        life = characterLife;
 
         // Game mode: free the GPU, hide, and answer through the cloud while a game is in front.
         var gameMode = new GameModeDetector(config.GameExecutables);
@@ -371,6 +427,7 @@ public partial class App : Application
             DiagnosticLog.Info(on ? "Game mode on" : "Game mode off");
             gaming = on;
             character.SetGameMode(on);
+            if (!on) characterLife.WelcomeBack();
             windowCapture.GameMode = on;
             assistant.CloudOnly = on;
             handRaiser.Paused = on;
@@ -390,6 +447,7 @@ public partial class App : Application
             if (config.GameModeEnabled) gameMode.Observe(snapshot);
             handRaiser.Observe(snapshot);
             screensaver.Observe(snapshot, gaming);
+            characterLife.Observe(snapshot);
         };
         watcher.Start();
 

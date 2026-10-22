@@ -1,7 +1,10 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using Assistant.Core.Actions;
 using Assistant.Core.Diagnostics;
 using Assistant.Core.Llm;
 using Assistant.Core.Memory;
+using Assistant.Core.Organizer;
 using Assistant.Core.Search;
 using Assistant.Core.Tools;
 
@@ -21,6 +24,18 @@ public sealed record AssistantReply(string Text, IReadOnlyList<FileHit> Files, i
     /// Pressing it reads the text off the screenshot locally and shows it for approval; only that text is sent.
     /// </summary>
     public string? CloudFollowUp { get; init; }
+
+    /// <summary>
+    /// With <see cref="CloudFollowUp"/>: the text to send with it, already known (selected text). Null means it is read
+    /// off the kept screenshot first.
+    /// </summary>
+    public string? CloudText { get; init; }
+
+    /// <summary>Show the to-do checklist under the reply.</summary>
+    public bool ShowTodos { get; init; }
+
+    /// <summary>Buttons under the reply: a choice between apps, or a confirmation ("Empty the Recycle Bin").</summary>
+    public IReadOnlyList<ActionOption> Options { get; init; } = [];
 }
 
 /// <summary>
@@ -63,7 +78,7 @@ public sealed partial class AssistantService
         for example "look at this", "what does this error mean?" or "what am I looking at?".
 
         Memory tools, only for what the user saved or asks to save:
-        - remember: only when the user says "remember", "note that" or "don't forget". kind: about_me, preference or place.
+        - remember: only when the user says "remember" or "don't forget". kind: about_me, preference or place.
         - recall: when the user asks what you know about them or something they told you before.
         - forget: when the user asks you to forget or delete something saved.
         Examples:
@@ -121,6 +136,12 @@ public sealed partial class AssistantService
     /// </summary>
     public bool LocalModelEnabled { get; set; } = true;
 
+    /// <summary>Notes, the to-do list and reminders, answered by code (null: not set up).</summary>
+    public OrganizerAnswers? Organizer { get; init; }
+
+    /// <summary>Opening apps, folders and sites, volume, media, screenshots… (set by the app once its windows exist).</summary>
+    public IActionRunner? Actions { get; set; }
+
     const string LiteHelp = """
         In Lite mode I answer direct requests: "find my CV", "documents I edited today", "what did I do today?",
         "what's my name?", "remember that ...", "flip a coin" or "set a timer for 5 minutes".
@@ -164,7 +185,27 @@ public sealed partial class AssistantService
 
         // Coin flips, dice, the time, sums, timers: answered by code, instantly, even in game mode.
         if (QuickAnswers.TryAnswer(userText, DateTime.Now, Random.Shared, reminders) is { } quick)
+        {
+            MarkPrivate("quick_answer"); // a timer's label ("…to take my pills") is nobody else's business
             return Finish(quick, files, notes, 0, "local");
+        }
+
+        // Notes, the to-do list and reminders: by code too, and private like memory.
+        if (Organizer?.TryAnswer(userText, DateTime.Now) is { } organized)
+        {
+            MarkPrivate("organizer");
+            notes.AddRange(organized.Notes);
+            return Finish(organized.Text, files, notes, 0, "local") with { ShowTodos = organized.ShowTodos };
+        }
+
+        // "open Spotify", "volume to 30", "take a screenshot": done by the app. "open my CV" isn't an app, folder or
+        // site, so the runner passes and file search answers it below.
+        if (Actions is not null && ActionParser.Parse(userText) is { } intent && await Actions.RunAsync(intent, ct) is { } done)
+        {
+            MarkPrivate("action");
+            files.AddRange(done.Files);
+            return Finish(done.Text, files, notes, 0, "local") with { Options = done.Options };
+        }
 
         var replies = new List<string>();
         int toolCalls = 0;
@@ -288,6 +329,18 @@ public sealed partial class AssistantService
     }
 
     /// <summary>
+    /// Records this turn as handled by the app, like a tool call, so BuildCloudMessages leaves the whole turn out:
+    /// what the user typed and the answer never reach the cloud with later chat.
+    /// </summary>
+    void MarkPrivate(string handledBy)
+    {
+        history.Add(ChatMessage.ForAssistantToolCalls("", [new ToolCall(handledBy, EmptyArguments)]));
+        history.Add(ChatMessage.ForTool(handledBy, "Answered by the app."));
+    }
+
+    static readonly JsonElement EmptyArguments = JsonSerializer.SerializeToElement(new { });
+
+    /// <summary>
     /// The local model must not state a path it was never given: every C:\... in its reply has to come from
     /// a file card or a saved fact. Otherwise the reply is replaced, because a confident wrong path is worse than none.
     /// </summary>
@@ -399,6 +452,66 @@ public sealed partial class AssistantService
 
     const int SolveMaxTokens = 1500;   // a worked answer for a few sub-questions
     const int MaxHistoryReplyChars = 600; // what the local model keeps of it, inside its small context
+
+    /// <summary>A button under an action reply was pressed (an app chosen, or "Empty the Recycle Bin").</summary>
+    public async Task<AssistantReply> RunActionAsync(ActionIntent intent, CancellationToken ct)
+    {
+        ActionReply? done = Actions is null ? null : await Actions.RunAsync(intent, ct);
+        return new AssistantReply(done?.Text ?? "I couldn't do that anymore.", done?.Files ?? [], 0, "local")
+        {
+            Options = done?.Options ?? [],
+        };
+    }
+
+    /// <summary>Cloud chat is connected (a Groq or OpenRouter key).</summary>
+    public bool CloudAvailable => cloud is { IsConfigured: true };
+
+    /// <summary>
+    /// "Help with selected text", answered by the local model. The text is cut to what the local model can hold, with a
+    /// note when it was. Not added to the chat history: the marked text could be anything, and the history is what
+    /// plain chat may later send to the cloud.
+    /// </summary>
+    public async Task<AssistantReply> HelpWithTextAsync(TextTask task, string text, string? question, CancellationToken ct)
+    {
+        string used = TextHelp.Cut(text, TextHelp.LocalLimit(task));
+        var notes = new List<string>();
+        if (used.Length < text.Trim().Length)
+        {
+            notes.Add($"Used the first {used.Length:N0} of {text.Trim().Length:N0} characters" +
+                      (CloudAvailable ? $"; cloud chat can take up to {TextHelp.MaxCloudChars:N0}." : "."));
+        }
+
+        LlmResponse response = await llm.ChatAsync(TextHelp.Messages(task, used, question), [], ct);
+        string answer = MathText.Readable(response.Content);
+        if (answer.Length == 0) answer = "I couldn't come up with anything for that text.";
+        return new AssistantReply(answer, [], 0, "local")
+        {
+            Notes = notes,
+            CloudFollowUp = CloudAvailable ? TextHelp.Instruction(task, question) : null,
+            CloudText = CloudAvailable ? TextHelp.Cut(text, TextHelp.MaxCloudChars) : null,
+        };
+    }
+
+    /// <summary>
+    /// The same request through cloud chat, after the user saw (and maybe edited) exactly what goes: the request, the
+    /// text and the saved preferences. Logged in sent\ like every cloud message; not added to the history either.
+    /// </summary>
+    public async Task<AssistantReply> AskCloudAboutTextAsync(string instruction, string text, CancellationToken ct)
+    {
+        if (cloud is not { IsConfigured: true })
+            return new AssistantReply("Cloud chat isn't connected. Settings > Features can connect it.", [], 0, "local");
+
+        var messages = new List<ChatMessage>
+        {
+            ChatMessage.ForSystem(TextHelp.CloudSystemPrompt + PreferencesBlock()),
+            ChatMessage.ForUser(TextHelp.Request(instruction, TextHelp.Cut(text, TextHelp.MaxCloudChars))),
+        };
+        CloudReply? answer = await cloud.AskAsync(messages, (2400, 0.3), ct);
+        if (answer is null)
+            return new AssistantReply("The cloud chat isn't answering right now (the free quota may be used up). Try again in a minute.",
+                                      [], 0, "local, cloud unavailable");
+        return new AssistantReply(MathText.Readable(answer.Text), [], 0, answer.Provider);
+    }
 
     /// <summary>The kept screenshot for "Solve with cloud chat", when screen reading is on.</summary>
     LookAtScreenTool? ScreenTool => tools.TryGetValue("look_at_screen", out ITool? tool) ? tool as LookAtScreenTool : null;

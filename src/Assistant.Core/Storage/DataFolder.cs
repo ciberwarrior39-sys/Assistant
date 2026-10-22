@@ -24,6 +24,15 @@ public sealed class DataFolder(string root)
     public string ExclusionsFile => Path.Combine(Root, "exclusions.json");
     public string ReviewFile => Path.Combine(Root, "review.json");
 
+    /// <summary>"note: ..." — one note per line.</summary>
+    public string NotesFile => Path.Combine(Root, "notes.md");
+
+    /// <summary>The to-do list, as Markdown checkboxes ("- [ ] task").</summary>
+    public string TodoFile => Path.Combine(Root, "todo.md");
+
+    /// <summary>Timers and reminders waiting to go off, so they survive a restart.</summary>
+    public string RemindersFile => Path.Combine(Root, "reminders.json");
+
     /// <summary>Custom characters, one folder each (Settings > Character > Create my own).</summary>
     public string CharactersFolder => Path.Combine(Root, "characters");
 
@@ -41,6 +50,8 @@ public sealed class DataFolder(string root)
             "# Preferences\n\nHow the assistant should behave, one per line starting with \"- \". Also sent with cloud chat.\n");
         WriteIfMissing(Path.Combine(MemoryFolder, "places.md"),
             "# Places\n\nFolders and files that matter to you, one per line starting with \"- \". Edit or delete any line.\n");
+        WriteIfMissing(NotesFile, Organizer.NotesStore.Header);
+        WriteIfMissing(TodoFile, Organizer.TodoStore.Header);
     }
 
     static void WriteIfMissing(string path, string content)

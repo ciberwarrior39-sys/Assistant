@@ -45,6 +45,14 @@ public static class Power
                && (state & DisplayRequired) != 0;
     }
 
+    /// <summary>Whether this PC has a battery, whether it's plugged in, and the charge (0–100).</summary>
+    public static (bool HasBattery, bool PluggedIn, int Percent) Battery()
+    {
+        if (!GetSystemPowerStatus(out SYSTEM_POWER_STATUS status)) return (false, true, 100);
+        bool hasBattery = status.BatteryFlag != 255 && (status.BatteryFlag & 128) == 0 && status.BatteryLifePercent <= 100;
+        return (hasBattery, status.ACLineStatus != 0, status.BatteryLifePercent);
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     struct SYSTEM_POWER_STATUS
     {

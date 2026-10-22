@@ -117,6 +117,56 @@ finds files on your computer, and optional free cloud chat handles conversation.
   "look at this" go straight to the right tool, decided by code: no model call, and the reply is built from the result,
   so nothing can be made up. Anything less clear still goes to the model. These also work in game mode
   (except looking at the screen).
+- **Doing things on the PC** (English and Bulgarian, answered by code, no confirmation unless noted):
+  "open Spotify" / "launch Discord" (any app in the Start menu; a choice of buttons when several match), "open Downloads"
+  or a folder saved with "remember…", "open YouTube" / "go to github.com" (an installed app wins over a website, except
+  weak matches for well-known sites), "search the web for …" (Google, DuckDuckGo or Bing: Settings > Features),
+  "volume up/down", "set volume to 30", "mute", "pause", "next song", "open Bluetooth settings" (Windows Settings pages),
+  "Windows settings", "settings" (the assistant's own), "lock my PC", "dark mode" / "light mode", "take a screenshot"
+  (the whole screen, saved in Pictures\Screenshots; the character steps aside first; not in game mode), and
+  "empty the recycle bin" (asks first, with the item count and size). Bulgarian: `отвори …`, `потърси в интернет …`,
+  `намали звука`, `звука на 30`, `пауза`, `следваща песен`, `заключи компютъра`, `тъмен режим`, `направи скрийншот`,
+  `изпразни кошчето`. No key presses are simulated: volume goes through Windows' audio interface, media control through
+  a Windows command message. "open my CV" isn't an app, folder or website, so file search answers it as before.
+- **Notes, to-do list and reminders** (English and Bulgarian, answered by code, private like memory, never sent to the cloud):
+  - "note: the wifi password is on the router", "show my notes", "notes about wifi", "delete the note about wifi"
+    (`бележка: …`, `покажи бележките`). Kept in `notes.md`, one dated line each.
+  - Adding: "add milk to my list", "put homework on my tasks", "new task call the bank", "todo buy milk"
+    (`добави хляб в списъка`, `добави задача …`). Checking: "my list", "what do I have to do?", "what's left?",
+    "anything to do?" (`какво имам за правене`, `какво ми остава`, `моите задачи`). Ticking off: "cross off milk",
+    "milk is done", "I'm done with the homework", "done: milk" (`зачеркни хляб`, `хляб е готово`, `свърших с …`).
+    "clear finished tasks" (`изчисти готовите`). The list shows as a
+    checklist in the chat; ticking a box saves at once. Kept in `todo.md` as Markdown checkboxes (`- [ ] task`), so any
+    notes app can edit it too.
+  - "remind me at 18:00 to study", "remind me tomorrow at 9 to call the bank", "remind me on Friday at 10 …",
+    "remind me to … in 2 hours", "what are my reminders", "cancel the reminder about the bank"
+    (`напомни ми утре в 9 да …`, `напомни ми след 2 часа да …`). The reply says the exact time it set. Timers and reminders
+    are kept in `reminders.json`, so they survive a restart; one due while the app was closed is announced at the next
+    start ("While I was off, you missed: …"). When one is due: the bubble, the "time's up!" mood, voice, and a Windows
+    notification (seen even when the character is hidden).
+  - "note …" phrases now go to notes; "remember …" still goes to memory.
+- **Help with selected text:** mark text anywhere with the mouse, right-click the character > **Help with selected text**.
+  A card shows what was picked up, with **Explain, Summarise, Translate to English / Bulgarian, Fix grammar, Make shorter**
+  or your own question; answers have a **Copy** button. The marked text is read through Windows' accessibility interface
+  (no simulated key presses, the clipboard is never changed); apps that don't share it (some Chrome pages, Discord) use
+  the last copied text instead, and the card says so. The local model answers (up to 2,500 characters, 1,200 for
+  translations and rewrites, whose answer is as long as the text); **Ask cloud chat instead…** shows exactly what would
+  be sent first. Not in game mode, not from windows in `exclusions.json`, and never added to the chat history.
+- **It feels alive** (Settings > Character > Life, every part can be turned off; all of it stops during a game and none
+  of it opens the chat):
+  - **Petting:** move the mouse back and forth over it and hearts float up; **double-click** it for a little hop ("boop!").
+  - **Idle animations:** now and then it blinks, looks around, stretches or hops; late at night it yawns. Not in Lite or
+    with calm animations (those keep only the blink).
+  - **Reactions:** a finished download ("download done: file.zip", click the label to show it in Explorer; only file
+    names in Downloads are seen, nothing is opened), a low battery (20 % or less, once until it's plugged in), plugging
+    in, and "welcome back!" after 20 minutes away or a game.
+  - **Break reminder:** after an hour at the PC (30 min to 2 h, or off) it stretches and asks "time for a break?".
+    A 5-minute pause starts the count over; games don't count.
+  - **Seasonal hats** on the Blob, the Robot and the Cat: a pumpkin on 31 October, a Santa hat 20–26 December, a party
+    hat on New Year's Eve and Day, and on your birthday, only if you told it to remember it ("remember my birthday is
+    14 March"); then it also says happy birthday once that day.
+  - **Walking around** the bottom of the screen every few minutes: off by default, since it can be distracting.
+- **Copying from the chat:** any part of a message can be marked with the mouse and copied (Ctrl+C or right-click).
 - **Looking at the screen:** ask "look at this" or "what does this error mean?" and the local model looks at the window
   you were using (never the whole screen) and answers. The picture stays in memory, is never saved and never goes
   to the cloud. Windows in `exclusions.json` and minimized windows are refused. A green "Looked at:" line shows which window.

@@ -15,7 +15,7 @@ namespace Assistant.Core.Tools;
 public sealed class RememberTool(MemoryStore memory, Func<string> currentUserText) : ITool
 {
     static readonly string[] Cues =
-        ["remember", "don't forget", "dont forget", "do not forget", "note that", "make a note", "keep in mind", "save that", "memorize"];
+        ["remember", "don't forget", "dont forget", "do not forget", "keep in mind", "save that", "memorize"];
 
     // Questions about memory, not requests to save: these go to recall.
     static readonly string[] Questions = ["do you remember", "what do you remember", "did i tell you", "what did i"];

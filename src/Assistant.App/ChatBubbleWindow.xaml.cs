@@ -32,7 +32,7 @@ public partial class ChatBubbleWindow : Window
     readonly DependencyService dependencies;
     readonly DataFolder data;
     readonly CharacterMood mood;
-    readonly ObservableCollection<object> items = []; // ChatItem, ReviewItem and CloudConfirmItem
+    readonly ObservableCollection<object> items = []; // ChatItem, ReviewItem, CloudConfirmItem, TextHelpItem and TodoListItem
     Action<ReviewCandidate, string?>? answerReview;     // kept text, or null for forget
     bool busy;
     int dialogsOpen; // while a dialog is up, losing focus must not hide the bubble
@@ -236,7 +236,12 @@ public partial class ChatBubbleWindow : Window
 
             // Always show which brain answered, so it's clear when a message went to the cloud.
             string from = reply.Source == "local" ? "Assistant" : $"Assistant · {reply.Source}";
-            items.Add(new ChatItem { Who = from, Text = reply.Text, Files = reply.Files, Notes = reply.Notes, CloudQuestion = reply.CloudFollowUp });
+            items.Add(new ChatItem
+            {
+                Who = from, Text = reply.Text, Files = reply.Files, Notes = reply.Notes, CloudQuestion = reply.CloudFollowUp,
+                Choices = ChoiceButton.For(reply.Options),
+            });
+            if (reply.ShowTodos && assistant.Organizer is { } organizer) items.Add(new TodoListItem(organizer.Todos));
             ShowReplyMood(reply);
 
             // Timings only: never log what the user asked.
@@ -273,9 +278,18 @@ public partial class ChatBubbleWindow : Window
     /// </summary>
     async void OnCloudFollowUp(object sender, RoutedEventArgs e)
     {
-        if (busy || sender is not Button { Tag: ChatItem { CloudQuestion: { } question } } button) return;
+        if (busy || sender is not Button { Tag: ChatItem { CloudQuestion: { } question } chat } button) return;
         button.Visibility = Visibility.Collapsed;
         mood.Touch();
+
+        // Selected text is already known: straight to the card that shows what would be sent.
+        if (chat.CloudText is { } selected)
+        {
+            items.Add(new CloudConfirmItem(question, selected) { ForSelectedText = true });
+            ScrollToBottom();
+            return;
+        }
+
         SetBusy(true, "Reading the text on your screen...");
         mood.Set(Mood.Thinking);
         try
@@ -317,11 +331,14 @@ public partial class ChatBubbleWindow : Window
         var timer = Stopwatch.StartNew();
         try
         {
-            AssistantReply reply = await assistant.AskCloudAboutScreenAsync(question, text, CancellationToken.None);
+            AssistantReply reply = item.ForSelectedText
+                ? await assistant.AskCloudAboutTextAsync(question, text, CancellationToken.None)
+                : await assistant.AskCloudAboutScreenAsync(question, text, CancellationToken.None);
             string from = reply.Source == "local" ? "Assistant" : $"Assistant · {reply.Source}";
-            items.Add(new ChatItem { Who = from, Text = reply.Text });
+            bool answered = !reply.Source.StartsWith("local", StringComparison.Ordinal);
+            items.Add(new ChatItem { Who = from, Text = reply.Text, CopyText = item.ForSelectedText && answered ? reply.Text : null });
             ShowReplyMood(reply);
-            DiagnosticLog.Info($"Screen follow-up in {timer.ElapsedMilliseconds} ms from {reply.Source}");
+            DiagnosticLog.Info($"{(item.ForSelectedText ? "Text" : "Screen")} follow-up in {timer.ElapsedMilliseconds} ms from {reply.Source}");
         }
         catch (TaskCanceledException ex)
         {
@@ -340,6 +357,157 @@ public partial class ChatBubbleWindow : Window
     {
         if (sender is FrameworkElement { Tag: CloudConfirmItem item } && item.IsOpen)
             item.Close("Not sent. Nothing left this computer.");
+    }
+
+    /// <summary>
+    /// The character's menu > "Help with selected text": reads what the user marked (or copied) and shows it on a card
+    /// with what can be done with it. Nothing is sent anywhere here.
+    /// </summary>
+    public async Task OfferTextHelpAsync(Func<Task<(PickedText? Text, string Problem)>> pick)
+    {
+        if (busy) return;
+        mood.Touch();
+        SetBusy(true, "Reading the marked text...");
+        try
+        {
+            (PickedText? picked, string problem) = await pick();
+            if (picked is null)
+            {
+                AddNote(problem);
+                return;
+            }
+            foreach (TextHelpItem older in items.OfType<TextHelpItem>().Where(card => card.IsOpen))
+                older.Close("Replaced by newer text.");
+            items.Add(new TextHelpItem(picked.Text, picked.Source));
+            mood.Set(Mood.Idle);
+        }
+        finally
+        {
+            SetBusy(false);
+            ScrollToBottom();
+        }
+    }
+
+    async void OnTextTask(object sender, RoutedEventArgs e)
+    {
+        if (busy || sender is not Button { Tag: TextHelpItem card, CommandParameter: string name } || !card.IsOpen
+            || !Enum.TryParse(name, out TextTask task)) return;
+        await RunTextTaskAsync(card, task);
+    }
+
+    // Enter in the "ask your own question" box asks it (instead of the bubble's own Send).
+    async void OnTextQuestionKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || sender is not FrameworkElement { Tag: TextHelpItem card }) return;
+        e.Handled = true;
+        if (!busy && card.IsOpen) await RunTextTaskAsync(card, TextTask.Ask);
+    }
+
+    async Task RunTextTaskAsync(TextHelpItem card, TextTask task)
+    {
+        string? question = null;
+        if (task == TextTask.Ask)
+        {
+            question = card.Question.Trim();
+            if (question.Length == 0) return;
+        }
+
+        // Lite has no local model: the only way is the cloud, and only after the user sees what would be sent.
+        if (!assistant.LocalModelEnabled)
+        {
+            if (assistant.CloudAvailable)
+                items.Add(new CloudConfirmItem(TextHelp.Instruction(task, question), TextHelp.Cut(card.Text, TextHelp.MaxCloudChars))
+                {
+                    ForSelectedText = true,
+                });
+            else
+                AddNote("Lite mode has no local model, and cloud chat isn't connected. Settings > Features can connect it.");
+            ScrollToBottom();
+            return;
+        }
+
+        mood.Touch();
+        items.Add(new ChatItem { Who = "You", Text = question ?? TextHelp.Label(task) });
+        card.Question = "";
+        SetBusy(true, "Working on the text...");
+        mood.Set(Mood.Thinking);
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            AssistantReply reply = await assistant.HelpWithTextAsync(task, card.Text, question, CancellationToken.None);
+            items.Add(new ChatItem
+            {
+                Who = "Assistant",
+                Text = reply.Text,
+                Notes = reply.Notes,
+                CopyText = reply.Text,
+                CloudQuestion = reply.CloudFollowUp,
+                CloudText = reply.CloudText,
+            });
+            ShowReplyMood(reply);
+            // Timings only: never log the text.
+            DiagnosticLog.Info($"Text help ({task}) in {timer.ElapsedMilliseconds} ms");
+        }
+        catch (HttpRequestException ex)
+        {
+            DiagnosticLog.Error("Ollama unreachable", ex);
+            AddNote("I can't reach Ollama. Make sure it's running, then press Recheck.");
+        }
+        catch (LlmException ex)
+        {
+            DiagnosticLog.Error("Ollama returned an error", ex);
+            AddNote($"Ollama returned an error: {ex.Message}");
+        }
+        catch (TaskCanceledException ex)
+        {
+            DiagnosticLog.Error("Ollama timed out", ex);
+            AddNote("Ollama took too long to answer. Try again in a moment.");
+        }
+        finally
+        {
+            SetBusy(false);
+            ScrollToBottom();
+        }
+    }
+
+    // A choice under an action reply: an app to open, a confirmation, or Cancel.
+    async void OnChoice(object sender, RoutedEventArgs e)
+    {
+        if (busy || sender is not FrameworkElement { Tag: ChoiceButton choice } || !choice.IsEnabled) return;
+        choice.CloseGroup();
+        if (choice.Intent is not { } intent)
+        {
+            items.Add(new ChatItem { Who = "Assistant", Text = "OK, cancelled." });
+            ScrollToBottom();
+            return;
+        }
+
+        SetBusy(true);
+        try
+        {
+            AssistantReply reply = await assistant.RunActionAsync(intent, CancellationToken.None);
+            items.Add(new ChatItem { Who = "Assistant", Text = reply.Text, Files = reply.Files, Choices = ChoiceButton.For(reply.Options) });
+            ShowReplyMood(reply);
+        }
+        finally
+        {
+            SetBusy(false);
+            ScrollToBottom();
+        }
+    }
+
+    void OnCopyReply(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: ChatItem { CopyText: { } text } } button) return;
+        try
+        {
+            Clipboard.SetText(text);
+            button.Content = "Copied ✓";
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            button.Content = "Clipboard busy, try again";
+        }
     }
 
     void ShowReplyMood(AssistantReply reply)

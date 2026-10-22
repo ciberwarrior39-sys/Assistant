@@ -8,6 +8,9 @@ using Assistant.Core.Tools;
 
 namespace Assistant.App;
 
+/// <summary>The window to read marked text from, or why not (Problem).</summary>
+public sealed record TextSource(IntPtr Window, string Name, string? Problem, bool ClipboardAllowed);
+
 /// <summary>
 /// Remembers which window the user was using (not the assistant's own) and captures just that window
 /// when asked. Excluded and minimized windows are refused. The picture is scaled down so it fits the
@@ -78,6 +81,27 @@ public sealed class WindowCapture(Exclusions exclusions, IReadOnlyCollection<str
         quality.Param[0] = new EncoderParameter(Encoder.Quality, 85L);
         small.Save(jpeg, codec, quality);
         return new WindowShot(jpeg.ToArray(), name);
+    }
+
+    /// <summary>
+    /// "Help with selected text": the window whose marked text may be read, under the same rules as screenshots
+    /// (no games, nothing in exclusions.json). <see cref="TextSource.ClipboardAllowed"/>: when the marked text can't be
+    /// read, the last copied text may be offered instead (not for a refused window).
+    /// </summary>
+    public TextSource TextTarget()
+    {
+        if (GameMode)
+            return new(IntPtr.Zero, "", "Game mode is on, so I don't read other windows until the game is closed.", false);
+        if (lastWindow is not { } target || !IsWindow(target.Window))
+            return new(IntPtr.Zero, "", "I don't know which window you mean. Mark the text, then right-click me again.", true);
+
+        string name = AppNames.Name(target.App);
+        if (exclusions.IsExcluded(target.App, target.Title))
+            return new(target.Window, name, "That window is in exclusions.json, so I won't read it.", false);
+        if (target.FullscreenGame || Desktop.IsBorderlessFullscreen(target.Window)
+            || gameExecutables.Contains(target.App, StringComparer.OrdinalIgnoreCase))
+            return new(target.Window, name, "That window fills the whole screen like a game or a video, so I won't read it.", false);
+        return new(target.Window, name, null, true);
     }
 
     static string Shorten(string title) => title.Length > 60 ? title[..60] + "…" : title;

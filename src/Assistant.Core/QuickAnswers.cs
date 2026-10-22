@@ -4,13 +4,27 @@ using System.Text.RegularExpressions;
 
 namespace Assistant.Core;
 
-/// <summary>Timers the user sets by asking ("set a timer for 5 minutes"). The app shows and says them when they're due.</summary>
+/// <summary>
+/// Timers and reminders the user sets by asking ("set a timer for 5 minutes", "remind me tomorrow at 9 to ...").
+/// The app shows and says them when they're due, and keeps them in reminders.json so they survive a restart.
+/// </summary>
 public interface IReminders
 {
     /// <summary>Starts a timer; false if too many are running.</summary>
     bool Start(TimeSpan after, string label);
+
+    /// <summary>A reminder at a set time; false if too many are waiting.</summary>
+    bool At(DateTime due, string label);
+
     IReadOnlyList<(string Label, TimeSpan Left)> Running { get; }
+
+    /// <summary>Everything waiting, soonest first.</summary>
+    IReadOnlyList<(string Label, DateTime Due, bool Timer)> Upcoming { get; }
+
     int CancelAll();
+
+    /// <summary>Cancels the one reminder matching the words; returns the labels that matched (one means it was cancelled).</summary>
+    IReadOnlyList<string> Cancel(string words);
 }
 
 /// <summary>
