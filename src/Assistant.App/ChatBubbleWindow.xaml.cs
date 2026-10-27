@@ -36,6 +36,9 @@ public partial class ChatBubbleWindow : Window
     readonly ObservableCollection<object> items = []; // WelcomeItem, ChatItem, ReviewItem, CloudConfirmItem, TextHelpItem and TodoListItem
     readonly Storyboard typing = new();  // the three dots while it works
     string lastSent = "";                // ↑ in an empty box brings it back
+    readonly DispatcherTimer recheck = new() { Interval = TimeSpan.FromSeconds(10) }; // while something needed is missing
+    readonly DateTime startedAt = DateTime.UtcNow;
+    bool statusBroken;
     Action<ReviewCandidate, string?>? answerReview;     // kept text, or null for forget
     bool busy;
     int dialogsOpen; // while a dialog is up, losing focus must not hide the bubble
@@ -80,6 +83,13 @@ public partial class ChatBubbleWindow : Window
             else if (!IsVisible && HasOpenReview) mood.Set(Mood.Review);
         };
 
+        // The app's own Ollama takes a while to start: while something needed is missing, look again every 10 seconds
+        // (and whenever the bubble opens) until it works. The first minute counts as starting up, not as a problem.
+        recheck.Tick += async (_, _) => await RefreshStatusAsync();
+        IsVisibleChanged += async (_, _) =>
+        {
+            if (IsVisible && statusBroken) await RefreshStatusAsync();
+        };
         _ = RefreshStatusAsync();
     }
 
@@ -314,20 +324,34 @@ public partial class ChatBubbleWindow : Window
     /// </summary>
     async Task RefreshStatusAsync()
     {
-        StatusDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Muted");
-        StatusDot.ToolTip = "Checking…";
+        if (!statusBroken) StatusDot.ToolTip = "Checking…";
         IReadOnlyList<DependencyStatus> statuses = await dependencies.CheckAllAsync(CancellationToken.None);
 
         var broken = statuses.Where(s => !s.Ready && !s.Optional).ToList();
         bool optionalFailing = statuses.Any(s => !s.Ready && s.Optional && !s.Detail.StartsWith("not set up", StringComparison.Ordinal));
-        StatusDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, broken.Count > 0 ? "Bad" : optionalFailing ? "Warn" : "Good");
-        StatusDot.ToolTip = string.Join("\n", statuses.Select(s =>
+        bool startingUp = DateTime.UtcNow - startedAt < TimeSpan.FromMinutes(1);
+        statusBroken = broken.Count > 0;
+        if (statusBroken) recheck.Start();
+        else recheck.Stop();
+
+        string dot = statusBroken ? (startingUp ? "Muted" : "Bad") : optionalFailing ? "Warn" : "Good";
+        StatusDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, dot);
+        StatusDot.ToolTip = (statusBroken && startingUp ? "Starting up…\n" : "") + string.Join("\n", statuses.Select(s =>
             $"{(s.Ready ? "✓" : s.Optional ? "–" : "✗")} {s.Name}: {s.Detail}"));
 
-        ProblemText.Text = broken.Count == 0 ? "" :
-            string.Join(" ", broken.Select(s => $"{s.Name}: {s.Detail}.")) + " Fix it, then ⋯ > Check again.";
-        ProblemText.Visibility = broken.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        // While starting up, no alarm: the app's own Ollama is usually still loading.
+        ProblemText.Text = statusBroken && !startingUp ? string.Join(" ", broken.Select(Advice)) + " I'll keep checking." : "";
+        ProblemText.Visibility = ProblemText.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    // What's wrong in plain words, and what to do about it.
+    static string Advice(DependencyStatus status) => status.Name switch
+    {
+        "Ollama" when status.Detail.StartsWith("model missing", StringComparison.Ordinal) =>
+            "The local model isn't downloaded yet: tray > Run setup again gets it.",
+        "Ollama" => "The local model isn't answering. Restarting the assistant usually fixes it.",
+        _ => $"{status.Name}: {status.Detail}.",
+    };
 
     void OnClose(object sender, RoutedEventArgs e) => Hide();
 
@@ -369,6 +393,7 @@ public partial class ChatBubbleWindow : Window
             });
             if (reply.ShowTodos && assistant.Organizer is { } organizer) items.Add(new TodoListItem(organizer.Todos));
             ShowReplyMood(reply);
+            if (statusBroken) _ = RefreshStatusAsync(); // a reply that worked may mean it's fixed
 
             // Timings only: never log what the user asked.
             DiagnosticLog.Info($"Reply in {timer.ElapsedMilliseconds} ms from {reply.Source}, {reply.ToolCalls} tool call(s), {reply.Files.Count} file(s)");
@@ -377,7 +402,7 @@ public partial class ChatBubbleWindow : Window
         catch (HttpRequestException ex)
         {
             DiagnosticLog.Error("Ollama unreachable", ex);
-            AddNote("I can't reach the local model (Ollama). Make sure it's running, then ⋯ > Check again.");
+            AddNote("I can't reach the local model (Ollama). If the assistant just started, give it a minute; otherwise restarting it usually fixes it.");
         }
         catch (LlmException ex)
         {
@@ -577,7 +602,7 @@ public partial class ChatBubbleWindow : Window
         catch (HttpRequestException ex)
         {
             DiagnosticLog.Error("Ollama unreachable", ex);
-            AddNote("I can't reach the local model (Ollama). Make sure it's running, then ⋯ > Check again.");
+            AddNote("I can't reach the local model (Ollama). If the assistant just started, give it a minute; otherwise restarting it usually fixes it.");
         }
         catch (LlmException ex)
         {
