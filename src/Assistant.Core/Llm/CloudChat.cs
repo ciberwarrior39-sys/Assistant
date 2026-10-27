@@ -29,22 +29,25 @@ public sealed class CloudChat(IReadOnlyList<OpenAiCompatibleProvider> providers,
                     LlmResponse response = longAnswer is { } room
                         ? await provider.ChatAsync(messages, room.MaxTokens, room.Temperature, ct)
                         : await provider.ChatAsync(messages, [], ct);
-                    sentLog.Record(provider.Name, response.Model ?? provider.CurrentModel, messages, response.Usage, "ok");
+                    sentLog.Record(provider.Name, response.Model ?? provider.ModelNow, messages, response.Usage, "ok");
                     if (response.Content.Length > 0) return new CloudReply(response.Content, provider.Name);
                     break;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or LlmException
                                            || (ex is TaskCanceledException && !ct.IsCancellationRequested))
                 {
-                    sentLog.Record(provider.Name, provider.CurrentModel, messages, null, $"failed: {ex.Message}");
+                    sentLog.Record(provider.Name, provider.ModelNow, messages, null, $"failed: {ex.Message}");
                     DiagnosticLog.Error($"{provider.Name} failed", ex);
 
-                    // 404 usually means the model was retired or isn't allowed for this key:
-                    // switch to one the key can use and try once more. Anything else (429 = free quota
-                    // used up, 401 = bad key, offline) moves on to the next provider.
+                    // 404 usually means the model was retired or isn't allowed for this key: switch to one the key
+                    // can use and try once more. 429 means this model's per-minute quota is used up: another model
+                    // (with its own quota) answers for a couple of minutes. Anything else (401 = bad key, offline)
+                    // moves on to the next provider.
                     bool retry = attempt == 1
-                        && ex is LlmException { StatusCode: 404 }
-                        && await provider.SwitchToAvailableModelAsync(ct);
+                        && ex is LlmException { StatusCode: 404 or 429 } failure
+                        && (failure.StatusCode == 404
+                            ? await provider.SwitchToAvailableModelAsync(ct)
+                            : await provider.StandInAfterRateLimitAsync(ct));
                     if (!retry) break;
                 }
             }

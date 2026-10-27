@@ -68,8 +68,15 @@
                                     <Button Content="Copy" Visibility="{Binding CopyVisibility}" Tag="{Binding}" Click="OnCopyReply"
                                             Padding="10,2" Margin="0,0,6,0" ToolTip="Copy the answer, to paste it anywhere"/>
                                     <Button Content="{Binding CloudButtonLabel}" Visibility="{Binding CloudButtonVisibility}" Tag="{Binding}"
-                                            Click="OnCloudFollowUp" Padding="10,2"
+                                            Click="OnCloudFollowUp" Padding="10,2" Margin="0,0,6,0"
                                             ToolTip="Shows you exactly what would be sent first. Nothing leaves this computer until you press Send."/>
+                                    <!-- 👍/👎: saved with the question and answer in feedback\ on this computer (kept 7 days) -->
+                                    <Button Content="👍" Visibility="{Binding RateVisibility}" Tag="{Binding}" Click="OnRate" Padding="5,0" Margin="0,0,2,0"
+                                            Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Muted}"
+                                            ToolTip="Good answer"/>
+                                    <Button Content="👎" Visibility="{Binding RateVisibility}" Tag="{Binding}" Click="OnRate" Padding="5,0"
+                                            Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Muted}"
+                                            ToolTip="Bad answer. The question and the answer are saved in the feedback folder on this computer (kept 7 days), so they can be looked at."/>
                                 </StackPanel>
 
                                 <!-- What a tool did, word for word (saved or forgotten memory lines) -->

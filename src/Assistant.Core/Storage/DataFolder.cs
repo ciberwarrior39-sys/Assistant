@@ -20,6 +20,9 @@ public sealed class DataFolder(string root)
     public string ActivityFolder => Path.Combine(Root, "activity");
     public string FeedbackFolder => Path.Combine(Root, "feedback");
     public string SentFolder => Path.Combine(Root, "sent");
+
+    /// <summary>A line or two about each chat, kept 7 days (conversations\yyyy-MM-dd.md).</summary>
+    public string ConversationsFolder => Path.Combine(Root, "conversations");
     public string ConfigFile => Path.Combine(Root, "config.json");
     public string ExclusionsFile => Path.Combine(Root, "exclusions.json");
     public string ReviewFile => Path.Combine(Root, "review.json");
@@ -39,7 +42,7 @@ public sealed class DataFolder(string root)
     /// <summary>Creates any missing folders and starter files. Never overwrites what the user has edited.</summary>
     public void EnsureCreated()
     {
-        foreach (string folder in new[] { Root, MemoryFolder, ActivityFolder, FeedbackFolder, SentFolder, CharactersFolder })
+        foreach (string folder in new[] { Root, MemoryFolder, ActivityFolder, FeedbackFolder, SentFolder, ConversationsFolder, CharactersFolder })
             Directory.CreateDirectory(folder);
 
         if (!File.Exists(ConfigFile)) new AppConfig().Save(ConfigFile);

@@ -20,7 +20,7 @@ public sealed class AppConfig
     public bool OllamaEmbedded { get; set; }
     public string OllamaUrl { get; set; } = "http://localhost:11434/";
     public string Model { get; set; } = "qwen3.5:2b";
-    public int ContextSize { get; set; } = 2048;
+    public int ContextSize { get; set; } = 4096; // room for the conversation plus the facts picked for each message
 
     // full, balanced or lite (PerformanceProfile): how heavy the assistant may be. The setup wizard picks it from the
     // hardware; Settings > Features changes it (after a restart).
@@ -30,9 +30,13 @@ public sealed class AppConfig
     // Leave a key empty to skip that provider. Without any key, everything runs locally.
     // Keys are saved encrypted for this Windows user ("dpapi:..."); a key pasted here as plain text is encrypted on the next save.
     [JsonIgnore] public string GroqApiKey { get; set; } = "";
-    public string GroqModel { get; set; } = "llama-3.3-70b-versatile";
+    public string GroqModel { get; set; } = "openai/gpt-oss-120b";
     [JsonIgnore] public string OpenRouterApiKey { get; set; } = "";
     public string OpenRouterModel { get; set; } = "openrouter/free";
+
+    // Cloud chat may also get the few about-me facts that matter for the message (never places, files, notes,
+    // activity or past conversations). Off unless the user turns it on in Settings > Features.
+    public bool CloudKnowsAboutMe { get; set; }
 
     [JsonPropertyName("groqApiKey")]
     public string GroqApiKeyStored
@@ -109,6 +113,7 @@ public sealed class AppConfig
                 AppConfig config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(path), Options) ?? new AppConfig();
                 config.Appearance ??= new Appearance();
                 config.Appearance.Repair();
+                config.Upgrade();
                 // Writes back any settings added in newer versions, keeping the user's values.
                 try
                 {
@@ -127,6 +132,13 @@ public sealed class AppConfig
             DiagnosticLog.Error("config.json is not valid JSON; using defaults", ex);
         }
         return new AppConfig();
+    }
+
+    /// <summary>Old defaults that were never changed by hand move to the new ones (the file stores every value).</summary>
+    void Upgrade()
+    {
+        if (GroqModel == "llama-3.3-70b-versatile") GroqModel = "openai/gpt-oss-120b"; // 0.4.1: a much stronger model
+        if (ContextSize == 2048) ContextSize = 4096;                                      // 0.4.1: room for picked facts
     }
 
     public void Save(string path) => File.WriteAllText(path, JsonSerializer.Serialize(this, Options));

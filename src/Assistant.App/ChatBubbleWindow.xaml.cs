@@ -239,7 +239,7 @@ public partial class ChatBubbleWindow : Window
             items.Add(new ChatItem
             {
                 Who = from, Text = reply.Text, Files = reply.Files, Notes = reply.Notes, CloudQuestion = reply.CloudFollowUp,
-                Choices = ChoiceButton.For(reply.Options),
+                Choices = ChoiceButton.For(reply.Options), Question = text, Source = reply.Source,
             });
             if (reply.ShowTodos && assistant.Organizer is { } organizer) items.Add(new TodoListItem(organizer.Todos));
             ShowReplyMood(reply);
@@ -494,6 +494,20 @@ public partial class ChatBubbleWindow : Window
             SetBusy(false);
             ScrollToBottom();
         }
+    }
+
+    // 👍 or 👎 under a reply: saved once, on this computer, then both buttons go quiet.
+    void OnRate(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: ChatItem { Question: { } question } item, Parent: Panel row } button) return;
+        bool good = (string)button.Content == "👍";
+        new FeedbackLog(data.FeedbackFolder).Append(new ReplyRating(DateTime.Now, good ? "good" : "bad", question, item.Text, item.Source));
+        foreach (Button rate in row.Children.OfType<Button>().Where(other => other.Content is "👍" or "👎"))
+        {
+            rate.IsEnabled = false;
+            if (rate != button) rate.Visibility = Visibility.Collapsed;
+        }
+        button.ToolTip = good ? "Thanks!" : "Thanks, saved in the feedback folder.";
     }
 
     void OnCopyReply(object sender, RoutedEventArgs e)

@@ -4,7 +4,7 @@ using Assistant.Core.Diagnostics;
 namespace Assistant.Core.Storage;
 
 /// <summary>
-/// Deletes raw logs (activity, feedback, sent) older than the retention period.
+/// Deletes raw logs (activity, feedback, sent, conversation notes) older than the retention period.
 /// Memory files are never touched: what you chose to keep stays.
 /// </summary>
 public static class Retention
@@ -16,7 +16,7 @@ public static class Retention
         DateTime cutoff = DateTime.Today - keep;
         int deleted = 0;
 
-        foreach (string folder in new[] { data.ActivityFolder, data.FeedbackFolder, data.SentFolder })
+        foreach (string folder in new[] { data.ActivityFolder, data.FeedbackFolder, data.SentFolder, data.ConversationsFolder })
         {
             if (!Directory.Exists(folder)) continue;
             foreach (string file in Directory.EnumerateFiles(folder))

@@ -24,6 +24,14 @@ public sealed class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient 
     /// <summary>The model in use; changes when the configured one turns out to be unavailable.</summary>
     public string CurrentModel { get; private set; } = endpoint.Model;
 
+    // After a "too many requests" (each model has its own per-minute quota), another model answers for a while.
+    string? standIn;
+    DateTime standInUntil;
+    static readonly TimeSpan StandInFor = TimeSpan.FromMinutes(2);
+
+    /// <summary>The model the next request goes to: the stand-in while one is active, otherwise the current one.</summary>
+    public string ModelNow => standIn is not null && DateTime.UtcNow < standInUntil ? standIn : CurrentModel;
+
     public Task<LlmResponse> ChatAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition> tools, CancellationToken ct) =>
         ChatAsync(messages, MaxReplyTokens, 0.7, ct);
 
@@ -46,10 +54,11 @@ public sealed class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient 
             messageArray.Add(new JsonObject { ["role"] = role, ["content"] = message.Content });
         }
 
-        bool reasoningModel = CurrentModel.StartsWith("openai/gpt-oss", StringComparison.OrdinalIgnoreCase);
+        string model = ModelNow;
+        bool reasoningModel = model.StartsWith("openai/gpt-oss", StringComparison.OrdinalIgnoreCase);
         var body = new JsonObject
         {
-            ["model"] = CurrentModel,
+            ["model"] = model,
             ["messages"] = messageArray,
             ["max_tokens"] = reasoningModel ? Math.Max(MaxReasoningModelTokens, maxTokens + MaxReasoningModelTokens - MaxReplyTokens) : maxTokens,
             ["temperature"] = temperature,
@@ -94,9 +103,9 @@ public sealed class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient 
                 u.TryGetProperty("completion_tokens", out JsonElement o) && o.TryGetInt32(out int completion) ? completion : 0);
         }
 
-        string? model = root.TryGetProperty("model", out JsonElement m) && m.ValueKind == JsonValueKind.String ? m.GetString() : null;
+        string? answeredBy = root.TryGetProperty("model", out JsonElement m) && m.ValueKind == JsonValueKind.String ? m.GetString() : null;
 
-        return new LlmResponse(content.Trim(), []) { Usage = usage, Model = model };
+        return new LlmResponse(content.Trim(), []) { Usage = usage, Model = answeredBy };
     }
 
     /// <summary>
@@ -114,6 +123,24 @@ public sealed class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient 
 
         DiagnosticLog.Info($"{endpoint.Name}: model {CurrentModel} is unavailable, switching to {next}");
         CurrentModel = next;
+        return true;
+    }
+
+    /// <summary>
+    /// After a 429 (this model's free per-minute quota is used up): the next fallback model the key may use answers
+    /// for the next 2 minutes. Returns false when there is none, or a stand-in is already in use.
+    /// </summary>
+    public async Task<bool> StandInAfterRateLimitAsync(CancellationToken ct)
+    {
+        if (endpoint.FallbackModels.Count == 0 || ModelNow != CurrentModel) return false;
+        IReadOnlyList<string> available = await ListModelsAsync(ct);
+        string? next = endpoint.FallbackModels.FirstOrDefault(model =>
+            !string.Equals(model, CurrentModel, StringComparison.OrdinalIgnoreCase) && available.Contains(model));
+        if (next is null) return false;
+
+        DiagnosticLog.Info($"{endpoint.Name}: {CurrentModel} is rate limited, {next} answers for {StandInFor.TotalMinutes:0} minutes");
+        standIn = next;
+        standInUntil = DateTime.UtcNow + StandInFor;
         return true;
     }
 

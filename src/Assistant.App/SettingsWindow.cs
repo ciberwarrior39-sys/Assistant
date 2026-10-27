@@ -654,7 +654,8 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(Hint("It starts 2 seconds after the click; keep the mouse still. Any input stops it."));
 
         panel.Children.Add(Heading("Smarter chat (optional, free)"));
-        var hint = Hint("Plain conversation can use a free cloud model. Files, memory, activity and screenshots never go there. Groq is recommended. ");
+        var hint = Hint("Plain conversation goes to a free cloud model, which is much smarter than the local one. Files, screenshots, " +
+                        "activity, notes and memory never go there (except about-me facts, if you allow it below). Groq is recommended. ");
         var link = new Hyperlink(new Run("Get a free Groq key")) { NavigateUri = new Uri("https://console.groq.com/keys") };
         link.RequestNavigate += (_, e) =>
         {
@@ -666,6 +667,10 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(Labeled("Groq key", KeyBox(edited.GroqApiKey, value => edited.GroqApiKey = value)));
         panel.Children.Add(Labeled("OpenRouter key", KeyBox(edited.OpenRouterApiKey, value => edited.OpenRouterApiKey = value)));
         panel.Children.Add(Hint("Keys are saved encrypted for your Windows account, in config.json on this computer only."));
+        panel.Children.Add(Check("Let cloud chat know about me: your name and the about-me facts that matter for the message",
+            edited.CloudKnowsAboutMe, value => edited.CloudKnowsAboutMe = value));
+        panel.Children.Add(Hint("Only lines from memory\\about-me.md, picked per message. Places, files, notes, activity and past " +
+                                "conversations never go. Every request, with exactly what was sent, is in the sent folder."));
 
         panel.Children.Add(Heading("Updates"));
         panel.Children.Add(Check("Check for a new version once a day and install it on the next start", edited.AutoUpdate,

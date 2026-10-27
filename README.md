@@ -81,8 +81,16 @@ finds files on your computer, and optional free cloud chat handles conversation.
 - **7-day retention:** `activity\`, `feedback\` and `sent\` files older than 7 days are deleted automatically.
 - **Memory:** say "remember that my CV is in D:\Jobs" or "remember I like short answers"; ask "what do you know about me?";
   say "forget my CV folder". Facts live in `memory\about-me.md`, `preferences.md` and `places.md`, one line each
-  starting with `- `, and edits apply right away. Only `preferences.md` is sent with cloud chat; the rest never leaves
-  this computer, and "remember…"/"forget…" messages are never sent to the cloud.
+  starting with `- `, and edits apply right away. Only `preferences.md` is sent with cloud chat (plus, if you turn on
+  **Let cloud chat know about me** in Settings > Features, your name and the `about-me.md` facts that share words with
+  the message); `places.md` never leaves this computer, and "remember…"/"forget…" messages are never sent to the cloud.
+  The local model gets up to 3 saved facts that share words with each message, so it can use them without being asked.
+- **Remembers past chats** (kept 7 days): 2 minutes after the bubble closes, the local model writes a line or two
+  about the chat to `conversations\<date>.md` (needs at least two messages; not in game mode or Lite). The local model
+  sees the notes that match a new message, and "what did we talk about yesterday?" / `за какво говорихме вчера` lists
+  them. Never sent to the cloud; edit or delete the files any time.
+- **👍 / 👎** under replies: saves the question, the answer and who answered in `feedback\ratings-<date>.jsonl`
+  (kept 7 days), so bad answers can be looked at.
 - **Weekly review:** once a week the character shows "weekly review"; open the bubble to Keep (or edit, then Keep) or
   Forget up to 5 facts noticed in the activity log. Unanswered after 2 days means forgotten. State is in `review.json`.
   The tray menu's **Weekly review now** runs it early (it needs a few days of activity to find anything).
@@ -251,8 +259,11 @@ dotnet run --project src\Assistant.App
 
 ## Optional: smarter chat with a free cloud model
 
-The local model handles every message first. Anything that uses a tool (files) stays on this computer.
-Plain conversation goes to a cloud model when a key is set up; every request is logged in `Documents\Assistant\sent\`.
+Plain conversation goes straight to the cloud model when a key is set up, without waiting for the local model: Groq's
+`openai/gpt-oss-120b` (when its per-minute quota runs out, `llama-3.3-70b-versatile` answers for 2 minutes). A message
+that mentions files, folders, the screen, memory, activity, notes, tasks, reminders or past chats, or that touches a
+saved fact, goes to the local model first, and anything that uses a tool stays on this computer. Both models are told
+the date and time. Every request is logged in `Documents\Assistant\sent\`.
 
 1. **Groq (recommended):** most free volume. Sign up at console.groq.com (needs phone verification), create an API key.
 2. **OpenRouter (alternative):** signs up without a phone or card, but only about 50 free requests a day.
@@ -267,4 +278,5 @@ With both set, Groq is tried first and OpenRouter takes over when Groq's free qu
 | User data (memory, logs, config) | `Documents\Assistant\` |
 | Settings | `Documents\Assistant\config.json` (restart after editing) |
 | Everything sent to a cloud model | `Documents\Assistant\sent\` |
+| Notes about past chats (7 days) | `Documents\Assistant\conversations\` |
 | Developer log (errors, timings, never message text) | `%LocalAppData%\Assistant\logs\` |

@@ -180,7 +180,7 @@ public partial class App : Application
             {
                 // Groq's production chat models, best for conversation first. Used when the configured
                 // model is retired or not allowed for this key.
-                FallbackModels = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.1-8b-instant"],
+                FallbackModels = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant"],
             },
             new("OpenRouter", new Uri("https://openrouter.ai/api/v1/"), config.OpenRouterApiKey, config.OpenRouterModel, "key"),
         ];
@@ -213,6 +213,8 @@ public partial class App : Application
         {
             LocalModelEnabled = profile.LocalModel,
             Organizer = organizer,
+            Conversations = new ConversationLog(data.ConversationsFolder),
+            ShareAboutMeWithCloud = config.CloudKnowsAboutMe,
         };
         service = assistant;
         var resources = new ResourceMonitor(ollama);
@@ -220,6 +222,19 @@ public partial class App : Application
 
         var mood = new CharacterMood();
         var bubble = new ChatBubbleWindow(assistant, dependencies, data, mood);
+
+        // Two minutes after the chat closes (not reopened meanwhile), the local model notes what it was about.
+        var noteChat = new DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
+        noteChat.Tick += async (_, _) =>
+        {
+            noteChat.Stop();
+            await assistant.SummarizeAsync(CancellationToken.None);
+        };
+        bubble.IsVisibleChanged += (_, _) =>
+        {
+            noteChat.Stop();
+            if (!bubble.IsVisible) noteChat.Start();
+        };
         var characters = new CharacterPacks(data.CharactersFolder);
         var character = new CharacterWindow(mood, bubble, characters, Path.Combine(data.Root, "placement.json"), data.Root, Shutdown);
         MainWindow = character;
@@ -284,6 +299,7 @@ public partial class App : Application
                     bubble.ApplyAppearance(edited.Appearance);
                     life?.SettingsChanged();
                     activity.Enabled = edited.ActivityLogging;
+                    assistant.ShareAboutMeWithCloud = edited.CloudKnowsAboutMe;
                     StartWithWindows.Sync(edited.StartWithWindows);
                     voice?.ConfigureVoice(edited.VoiceName, edited.VoiceRate);
                     testSpeaker?.Configure(edited.VoiceName, edited.VoiceRate);

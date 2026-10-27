@@ -28,6 +28,12 @@ public sealed class ChatItem
 
     public Visibility CopyVisibility => CopyText is null ? Visibility.Collapsed : Visibility.Visible;
 
+    /// <summary>On replies to a message: what was asked and who answered, for the 👍/👎 buttons.</summary>
+    public string? Question { get; init; }
+    public string Source { get; init; } = "";
+
+    public Visibility RateVisibility => Question is null ? Visibility.Collapsed : Visibility.Visible;
+
     /// <summary>Buttons under the reply: which app to open, or a confirmation.</summary>
     public IReadOnlyList<ChoiceButton> Choices { get; init; } = [];
 }
