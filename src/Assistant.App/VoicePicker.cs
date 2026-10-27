@@ -28,7 +28,7 @@ public sealed class VoicePicker : StackPanel
     readonly Button download = new() { Padding = new Thickness(10, 2, 10, 2), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
     readonly ProgressBar bar = new() { Height = 12, Width = 300, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0), Visibility = Visibility.Collapsed };
     readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
-    readonly TextBlock credit = new() { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DimGray, Margin = new Thickness(0, 4, 0, 0) };
+    readonly TextBlock credit = ThemeText.Muted(new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
     bool downloading;
 
     /// <summary>A natural voice finished downloading (Settings offers a test then).</summary>

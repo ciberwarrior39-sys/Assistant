@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Assistant.Core;
 using Assistant.Core.Diagnostics;
@@ -32,13 +33,21 @@ public partial class ChatBubbleWindow : Window
     readonly DependencyService dependencies;
     readonly DataFolder data;
     readonly CharacterMood mood;
-    readonly ObservableCollection<object> items = []; // ChatItem, ReviewItem, CloudConfirmItem, TextHelpItem and TodoListItem
+    readonly ObservableCollection<object> items = []; // WelcomeItem, ChatItem, ReviewItem, CloudConfirmItem, TextHelpItem and TodoListItem
+    readonly Storyboard typing = new();  // the three dots while it works
+    string lastSent = "";                // ↑ in an empty box brings it back
     Action<ReviewCandidate, string?>? answerReview;     // kept text, or null for forget
     bool busy;
     int dialogsOpen; // while a dialog is up, losing focus must not hide the bubble
 
     /// <summary>When the bubble last hid itself because focus moved elsewhere.</summary>
     public DateTime LastAutoHide { get; private set; } = DateTime.MinValue;
+
+    /// <summary>⋯ > Settings.</summary>
+    public event Action? SettingsRequested;
+
+    /// <summary>The "Help with selected text" suggestion: the app picks up the marked text, like the character's menu.</summary>
+    public event Action? TextHelpRequested;
 
     public ChatBubbleWindow(AssistantService assistant, DependencyService dependencies, DataFolder data, CharacterMood mood)
     {
@@ -49,7 +58,8 @@ public partial class ChatBubbleWindow : Window
         this.mood = mood;
 
         Messages.ItemsSource = items;
-        items.Add(new ChatItem { Who = "Assistant", Text = "Hi! Ask me anything, or to find a file, for example \"where's my CV?\"" });
+        items.Add(new WelcomeItem());
+        BuildTypingDots();
 
         Deactivated += (_, _) =>
         {
@@ -91,12 +101,15 @@ public partial class ChatBubbleWindow : Window
         double screenRight = screenLeft + SystemParameters.VirtualScreenWidth;
         double screenBottom = screenTop + SystemParameters.VirtualScreenHeight;
 
-        double left = character.Left - Width + 10;
-        if (left < screenLeft) left = character.Right - 10;
+        // The tail's tip is at the window's edge, so the bubble sits right against the character.
+        double left = character.Left - Width + 4;
+        bool onLeft = left >= screenLeft;
+        if (!onLeft) left = character.Right - 4;
         double top = character.Bottom - Height;
 
         Left = Math.Max(screenLeft, Math.Min(left, screenRight - Width));
         Top = Math.Max(screenTop, Math.Min(top, screenBottom - Height));
+        PlaceTail(pointRight: onLeft, characterMiddle: character.Top + character.Height / 2 - Top);
 
         Show();
         if (activate)
@@ -107,29 +120,134 @@ public partial class ChatBubbleWindow : Window
         ScrollToBottom();
     }
 
-    /// <summary>Light or dark theme and text size, applied right away (the Settings window's live preview).</summary>
+    /// <summary>
+    /// The text size, applied right away (the Settings window's live preview). Light or dark and the character's color
+    /// come from Theme, which the app applies to every window.
+    /// </summary>
     public void ApplyAppearance(Appearance settings)
     {
-        bool dark = settings.BubbleTheme == "dark";
-        SetBrush("Surface", dark ? "#1F1F23" : "#FFFFFF");
-        SetBrush("Edge", dark ? "#3A3A42" : "#D0D0D0");
-        SetBrush("Text", dark ? "#ECECEC" : "#1E1E1E");
-        SetBrush("Muted", dark ? "#A0A0AA" : "#6B6B6B");
-        SetBrush("CardEdge", dark ? "#3A3A42" : "#DDDDDD");
-        SetBrush("ReviewSurface", dark ? "#2E2A1F" : "#FFF9EC");
-        SetBrush("ReviewEdge", dark ? "#8A7333" : "#E8C77A");
-        SetBrush("Note", dark ? "#5CC98A" : "#2E8B57");
-        SetBrush("InputSurface", dark ? "#2A2A31" : "#FFFFFF");
-
         double size = settings.BubbleTextSize;
         FontSize = size;
-        Resources["SmallSize"] = size - 2;
-        Resources["LabelSize"] = size - 1;
-        Resources["TitleSize"] = size + 1;
+        Resources["SmallSize"] = size - 1.5;
+        Resources["TitleSize"] = size + 2;
     }
 
-    void SetBrush(string key, string hex) =>
-        Resources[key] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+    // ---- The balloon's tail ------------------------------------------------------------------------------------------
+
+    const double TailBaseHeight = 18;
+
+    /// <summary>The tail on the side facing the character, level with its middle (kept clear of the rounded corners).</summary>
+    void PlaceTail(bool pointRight, double characterMiddle)
+    {
+        double y = Math.Clamp(characterMiddle - TailBaseHeight / 2, Body.Margin.Top + 26, Height - Body.Margin.Bottom - 26 - TailBaseHeight);
+        // The tail's base sits on the middle of the body's 2-pixel outline.
+        Canvas.SetLeft(Tail, pointRight ? Width - Body.Margin.Right - 1 : Body.Margin.Left + 1);
+        Canvas.SetTop(Tail, y);
+        TailFlip.ScaleX = pointRight ? 1 : -1;
+    }
+
+    // ---- Header: status and the ⋯ menu ------------------------------------------------------------------------------
+
+    void OnMore(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = MoreButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        menu.Items.Add(MenuEntry("New chat", StartNewChat));
+        menu.Items.Add(MenuEntry("Check again", () => _ = RefreshStatusAsync()));
+        menu.Items.Add(MenuEntry("Open data folder", () => Shell.OpenFolder(data.Root)));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuEntry("Settings…", () => SettingsRequested?.Invoke()));
+        dialogsOpen++; // the menu takes focus: don't hide the bubble for that
+        menu.Closed += (_, _) => dialogsOpen--;
+        menu.IsOpen = true;
+    }
+
+    static MenuItem MenuEntry(string header, Action action)
+    {
+        var item = new MenuItem { Header = header };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    /// <summary>A clean chat: the conversation so far is noted (kept 7 days) and the assistant starts fresh.</summary>
+    void StartNewChat()
+    {
+        if (busy) return;
+        assistant.StartNewChat();
+        items.Clear();
+        items.Add(new WelcomeItem());
+        lastSent = "";
+        Input.Focus();
+    }
+
+    // ---- Suggestions under the greeting -------------------------------------------------------------------------------
+
+    async void OnSuggestion(object sender, RoutedEventArgs e)
+    {
+        if (busy || sender is not FrameworkElement { Tag: Suggestion suggestion }) return;
+        if (suggestion.Text is null)
+        {
+            TextHelpRequested?.Invoke();
+            return;
+        }
+        if (suggestion.Send)
+        {
+            await SendAsync(suggestion.Text, "You");
+            return;
+        }
+        Input.Text = suggestion.Text;
+        Input.CaretIndex = Input.Text.Length;
+        Input.Focus();
+    }
+
+    // ---- The input ----------------------------------------------------------------------------------------------------
+
+    async void OnInputKey(object sender, KeyEventArgs e)
+    {
+        // Enter sends; Shift+Enter is a new line.
+        if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
+        {
+            e.Handled = true;
+            await SendTypedAsync();
+            return;
+        }
+        // ↑ in an empty box: the last message, to fix and send again.
+        if (e.Key == Key.Up && Input.Text.Length == 0 && lastSent.Length > 0)
+        {
+            e.Handled = true;
+            Input.Text = lastSent;
+            Input.CaretIndex = Input.Text.Length;
+        }
+    }
+
+    void OnInputChanged(object sender, TextChangedEventArgs e)
+    {
+        Placeholder.Visibility = Input.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        SendButton.IsEnabled = !busy && Input.Text.Trim().Length > 0;
+    }
+
+    void OnInputFocus(object sender, KeyboardFocusChangedEventArgs e) =>
+        InputBox.SetResourceReference(Border.BorderBrushProperty, Input.IsKeyboardFocused ? "Accent" : "Line");
+
+    // ---- Working on it: three dots that take turns --------------------------------------------------------------------
+
+    void BuildTypingDots()
+    {
+        System.Windows.Shapes.Ellipse[] dots = [Dot1, Dot2, Dot3];
+        for (int i = 0; i < dots.Length; i++)
+        {
+            var pulse = new DoubleAnimation(0.25, 1, TimeSpan.FromMilliseconds(420))
+            {
+                AutoReverse = true,
+                BeginTime = TimeSpan.FromMilliseconds(i * 160),
+            };
+            Storyboard.SetTarget(pulse, dots[i]);
+            Storyboard.SetTargetProperty(pulse, new PropertyPath(OpacityProperty));
+            typing.Children.Add(pulse);
+        }
+        typing.Duration = TimeSpan.FromMilliseconds(1300);
+        typing.RepeatBehavior = RepeatBehavior.Forever;
+        Timeline.SetDesiredFrameRate(typing, 30);
+    }
 
     public bool HasOpenReview => items.OfType<ReviewItem>().Any(item => item.IsOpen);
 
@@ -190,29 +308,37 @@ public partial class ChatBubbleWindow : Window
         item.Close("Forgotten.");
     }
 
+    /// <summary>
+    /// The dot by the name: green when everything needed works, amber when an optional part (cloud chat, Everything)
+    /// is set up but failing, red when something needed is missing, with a line saying what. Hover for every part.
+    /// </summary>
     async Task RefreshStatusAsync()
     {
-        StatusText.Text = "Checking...";
+        StatusDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Muted");
+        StatusDot.ToolTip = "Checking…";
         IReadOnlyList<DependencyStatus> statuses = await dependencies.CheckAllAsync(CancellationToken.None);
 
-        // Short line in the bubble: problems spelled out, the rest as names. Hover for every detail.
-        StatusText.Text = string.Join("   ", statuses.Select(s =>
-            s.Ready ? $"✓ {s.Name}" : s.Optional ? $"– {s.Name}" : $"✗ {s.Name}: {s.Detail}"));
-        StatusText.ToolTip = string.Join("\n", statuses.Select(s =>
+        var broken = statuses.Where(s => !s.Ready && !s.Optional).ToList();
+        bool optionalFailing = statuses.Any(s => !s.Ready && s.Optional && !s.Detail.StartsWith("not set up", StringComparison.Ordinal));
+        StatusDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, broken.Count > 0 ? "Bad" : optionalFailing ? "Warn" : "Good");
+        StatusDot.ToolTip = string.Join("\n", statuses.Select(s =>
             $"{(s.Ready ? "✓" : s.Optional ? "–" : "✗")} {s.Name}: {s.Detail}"));
+
+        ProblemText.Text = broken.Count == 0 ? "" :
+            string.Join(" ", broken.Select(s => $"{s.Name}: {s.Detail}.")) + " Fix it, then ⋯ > Check again.";
+        ProblemText.Visibility = broken.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
-
-    async void OnRecheck(object sender, RoutedEventArgs e) => await RefreshStatusAsync();
-
-    void OnOpenDataFolder(object sender, RoutedEventArgs e) => Shell.OpenFolder(data.Root);
 
     void OnClose(object sender, RoutedEventArgs e) => Hide();
 
-    async void OnSend(object sender, RoutedEventArgs e)
+    async void OnSend(object sender, RoutedEventArgs e) => await SendTypedAsync();
+
+    async Task SendTypedAsync()
     {
         string text = Input.Text.Trim();
         if (text.Length == 0 || busy) return;
         Input.Clear();
+        lastSent = text;
         await SendAsync(text, "You");
     }
 
@@ -251,7 +377,7 @@ public partial class ChatBubbleWindow : Window
         catch (HttpRequestException ex)
         {
             DiagnosticLog.Error("Ollama unreachable", ex);
-            AddNote("I can't reach Ollama. Make sure it's running, then press Recheck.");
+            AddNote("I can't reach the local model (Ollama). Make sure it's running, then ⋯ > Check again.");
         }
         catch (LlmException ex)
         {
@@ -290,7 +416,7 @@ public partial class ChatBubbleWindow : Window
             return;
         }
 
-        SetBusy(true, "Reading the text on your screen...");
+        SetBusy(true, "Reading the text on your screen…");
         mood.Set(Mood.Thinking);
         try
         {
@@ -326,7 +452,7 @@ public partial class ChatBubbleWindow : Window
         if (question.Length == 0) question = "Solve this.";
 
         item.Close("Sent to the cloud chat.");
-        SetBusy(true, "Asking the cloud chat...");
+        SetBusy(true, "Asking the cloud chat…");
         mood.Set(Mood.Thinking);
         var timer = Stopwatch.StartNew();
         try
@@ -367,7 +493,7 @@ public partial class ChatBubbleWindow : Window
     {
         if (busy) return;
         mood.Touch();
-        SetBusy(true, "Reading the marked text...");
+        SetBusy(true, "Reading the marked text…");
         try
         {
             (PickedText? picked, string problem) = await pick();
@@ -421,7 +547,7 @@ public partial class ChatBubbleWindow : Window
                     ForSelectedText = true,
                 });
             else
-                AddNote("Lite mode has no local model, and cloud chat isn't connected. Settings > Features can connect it.");
+                AddNote("Lite mode has no local model, and cloud chat isn't connected. Settings > Privacy and cloud can connect it.");
             ScrollToBottom();
             return;
         }
@@ -429,7 +555,7 @@ public partial class ChatBubbleWindow : Window
         mood.Touch();
         items.Add(new ChatItem { Who = "You", Text = question ?? TextHelp.Label(task) });
         card.Question = "";
-        SetBusy(true, "Working on the text...");
+        SetBusy(true, "Working on the text…");
         mood.Set(Mood.Thinking);
         var timer = Stopwatch.StartNew();
         try
@@ -451,7 +577,7 @@ public partial class ChatBubbleWindow : Window
         catch (HttpRequestException ex)
         {
             DiagnosticLog.Error("Ollama unreachable", ex);
-            AddNote("I can't reach Ollama. Make sure it's running, then press Recheck.");
+            AddNote("I can't reach the local model (Ollama). Make sure it's running, then ⋯ > Check again.");
         }
         catch (LlmException ex)
         {
@@ -496,31 +622,41 @@ public partial class ChatBubbleWindow : Window
         }
     }
 
-    // 👍 or 👎 under a reply: saved once, on this computer, then both buttons go quiet.
+    // 👍 or 👎 under a reply: saved once, on this computer; the other button goes away and this one stays lit.
     void OnRate(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: ChatItem { Question: { } question } item, Parent: Panel row } button) return;
-        bool good = (string)button.Content == "👍";
-        new FeedbackLog(data.FeedbackFolder).Append(new ReplyRating(DateTime.Now, good ? "good" : "bad", question, item.Text, item.Source));
-        foreach (Button rate in row.Children.OfType<Button>().Where(other => other.Content is "👍" or "👎"))
+        if (sender is not Button { Tag: ChatItem { Question: { } question } item, CommandParameter: string rating, Parent: Panel row } button) return;
+        new FeedbackLog(data.FeedbackFolder).Append(new ReplyRating(DateTime.Now, rating, question, item.Text, item.Source));
+        foreach (Button rate in row.Children.OfType<Button>().Where(other => other.CommandParameter is "good" or "bad"))
         {
             rate.IsEnabled = false;
             if (rate != button) rate.Visibility = Visibility.Collapsed;
         }
-        button.ToolTip = good ? "Thanks!" : "Thanks, saved in the feedback folder.";
+        button.Opacity = 1;
+        button.SetResourceReference(ForegroundProperty, "AccentInk");
+        button.ToolTip = rating == "good" ? "Thanks!" : "Thanks, saved in the feedback folder.";
     }
 
     void OnCopyReply(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: ChatItem { CopyText: { } text } } button) return;
+        if (sender is not Button { Tag: ChatItem item } button) return;
         try
         {
-            Clipboard.SetText(text);
-            button.Content = "Copied ✓";
+            Clipboard.SetText(item.CopyText ?? item.Text);
+            button.Content = "\uE73E"; // ✓ for a moment
+            button.ToolTip = "Copied";
+            var back = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+            back.Tick += (_, _) =>
+            {
+                back.Stop();
+                button.Content = "\uE8C8";
+                button.ToolTip = "Copy the answer";
+            };
+            back.Start();
         }
         catch (System.Runtime.InteropServices.COMException)
         {
-            button.Content = "Clipboard busy, try again";
+            button.ToolTip = "The clipboard is busy. Try again.";
         }
     }
 
@@ -596,12 +732,15 @@ public partial class ChatBubbleWindow : Window
         }
     }
 
-    void SetBusy(bool value, string text = "Thinking...")
+    // The character shows "thinking" already, so plain thinking is just the dots; longer jobs say what they're doing.
+    void SetBusy(bool value, string text = "")
     {
         busy = value;
         BusyText.Text = text;
-        SendButton.IsEnabled = !value;
-        BusyText.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        BusyRow.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        SendButton.IsEnabled = !value && Input.Text.Trim().Length > 0;
+        if (value && SystemParameters.ClientAreaAnimation) typing.Begin(this, isControllable: true);
+        else typing.Stop(this);
     }
 
     // Wait for the new message to be laid out before scrolling to it.

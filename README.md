@@ -57,6 +57,13 @@ A placeholder character in the corner of the screen. Click it to chat in a speec
 finds files on your computer, and optional free cloud chat handles conversation.
 
 - **Click** the character: open or close the chat bubble (Esc or clicking elsewhere also closes it).
+- **The chat bubble** is a speech balloon with a tail pointing at the character, outlined in the character's Normal
+  color. Your messages are tinted notes on the right; replies are plain text at full width (mark any part to copy it).
+  **Enter** sends, **Shift+Enter** starts a new line, **↑** in an empty box brings back your last message. A new chat
+  starts with suggestions to try. The dot by the name is green when everything works, amber when an optional part
+  (cloud chat, Everything) is failing, red when something needed is missing (with a line saying what); hover it for
+  details. **⋯** has New chat, Check again, Open data folder and Settings. Found files are rows with their kind, folder
+  and date; cards that need your decision (sending to the cloud, the weekly review) have an amber edge.
 - **Drag** it anywhere; it snaps to screen edges and remembers its spot (`placement.json` in the data folder).
 - **Right-click** it, or use the **tray icon**: settings, open data folder, hide for 1 hour, quit.
 - **Characters:** Settings > Character picks the Blob (default), the Robot or the Cat, all drawn by the app in your mood
@@ -69,9 +76,14 @@ finds files on your computer, and optional free cloud chat handles conversation.
   with an optional author, description and glow colors). **Import a character file…**, or double-clicking one in the
   installed app, shows a preview first. Only GIF/PNG pictures, `character.json` and `README.txt` are taken from it, into
   a new folder (never over an existing one), with size limits (30 MB a file, 200 MB a character); nothing in it is run.
-- **Settings** (right-click or tray): a color for every mood, size, labels, calm animations, light or dark chat bubble,
-  text size, voice and speed with a test button, push-to-talk keys, features on/off and cloud keys. Changes show up
-  live on the character; Cancel puts everything back. Saved in `config.json` (the `appearance` part holds the look).
+- **Settings** (right-click, tray or ⋯ in the bubble), as pages on the left: **Character** (look, colors, size from 40% to 300% with a slider or typed exactly, life),
+  **Chat bubble** (light or dark, which also applies to menus and Settings; text size), **Voice**, **Features** (web
+  search, activity log, game mode, hand-raise, screensaver), **Performance**, **Privacy and cloud** (cloud keys, what
+  the cloud may know, deleting your data) and **Startup and updates**. Changes show up live; Cancel puts everything
+  back. Saved in `config.json` (the `appearance` part holds the look).
+- **One look everywhere:** the bubble, menus (the character's and the tray's), Settings and the setup wizard share the
+  same colors and controls, follow the light or dark theme, and use the character's Normal color as their accent.
+  The typeface is [Onest](https://github.com/simpals/onest), bundled with the app (Latin and Cyrillic).
 - Its color and label show what it's doing: thinking, found it, hmm? (nothing found), tired (cloud unavailable), zzz (idle 10 minutes), ! (hand raised), ! weekly review (waiting for you), listening…, speaking, time's up!.
 - **Activity log:** which app and window title is in front, and for how long, in `activity\<date>.jsonl`. Idle time,
   the assistant itself and anything in `exclusions.json` are not recorded. Ask "what was I working on today?".
@@ -243,7 +255,7 @@ script near the end of `docs/index.html`:
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE). The bundled Onest font is under the SIL Open Font License 1.1 (`src/Assistant.App/Fonts/OFL.txt`).
 
 ## Requirements (development)
 

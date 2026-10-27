@@ -21,6 +21,10 @@
   <!-- Also inside the app, for the tray icon and the windows' icons. -->
   <ItemGroup>
     <Resource Include="assistant.ico" />
+    <!-- Onest (SIL Open Font License, Fonts\OFL.txt): the app's typeface, with Latin and Cyrillic. -->
+    <Resource Include="Fonts\Onest-Regular.ttf" />
+    <Resource Include="Fonts\Onest-Medium.ttf" />
+    <Resource Include="Fonts\Onest-SemiBold.ttf" />
   </ItemGroup>
 
   <!-- Keep Windows Forms names out of the global usings, or Application, MessageBox, Button

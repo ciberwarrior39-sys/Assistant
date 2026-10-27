@@ -86,29 +86,38 @@ public sealed class SettingsWindow : Window
 
         Title = "Assistant settings";
         Icon = Shell.WindowIcon;
-        Width = 540;
-        Height = 620;
-        MinWidth = 460;
+        Width = 780;
+        Height = 640;
+        MinWidth = 640;
         MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         FontSize = 13;
+        FontFamily = Theme.UiFont;
+        SetResourceReference(BackgroundProperty, "Paper");
+        SetResourceReference(ForegroundProperty, "Ink");
+        restartNote.SetResourceReference(TextBlock.ForegroundProperty, "Warn");
+        colorsHint.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
 
-        var tabs = new TabControl { Margin = new Thickness(10, 10, 10, 0) };
-        tabs.Items.Add(new TabItem { Header = "Character", Content = Scroll(CharacterTab()) });
-        tabs.Items.Add(new TabItem { Header = "Chat bubble", Content = Scroll(BubbleTab()) });
-        tabs.Items.Add(new TabItem { Header = "Voice", Content = Scroll(VoiceTab()) });
-        tabs.Items.Add(new TabItem { Header = "Features", Content = Scroll(FeaturesTab()) });
+        // A list of pages on the left. The chat bubble shows next to the character while its page is open.
+        var tabs = new TabControl { Style = (Style)FindResource("SideNav") };
+        AddPage(tabs, "Character", CharacterTab());
+        AddPage(tabs, "Chat bubble", BubbleTab());
+        AddPage(tabs, "Voice", VoiceTab());
+        AddPage(tabs, "Features", FeaturesSection());
+        AddPage(tabs, "Performance", PerformanceSection());
+        AddPage(tabs, "Privacy and cloud", Stack(CloudSection(), DataSection()));
+        AddPage(tabs, "Startup and updates", Stack(StartupSection(), UpdatesSection()));
         tabs.SelectionChanged += (_, e) =>
         {
             if (e.Source == tabs) host.PreviewBubble(tabs.SelectedIndex == 1);
         };
 
-        var save = new Button { Content = "Save", Padding = new Thickness(16, 4, 16, 4), IsDefault = true, Margin = new Thickness(8, 0, 0, 0) };
+        var save = new Button { Content = "Save", Style = (Style)FindResource("Primary"), Padding = new Thickness(18, 4, 18, 4), IsDefault = true, Margin = new Thickness(8, 0, 0, 0) };
         var cancel = new Button { Content = "Cancel", Padding = new Thickness(16, 4, 16, 4), IsCancel = true, Margin = new Thickness(8, 0, 0, 0) };
         save.Click += (_, _) => Save();
         cancel.Click += (_, _) => Close();
 
-        var buttons = new DockPanel { Margin = new Thickness(10) };
+        var buttons = new DockPanel { Margin = new Thickness(16, 10, 16, 12) };
         DockPanel.SetDock(cancel, Dock.Right);
         DockPanel.SetDock(save, Dock.Right);
         buttons.Children.Add(cancel);
@@ -116,8 +125,10 @@ public sealed class SettingsWindow : Window
         buttons.Children.Add(restartNote);
 
         var root = new DockPanel();
-        DockPanel.SetDock(buttons, Dock.Bottom);
-        root.Children.Add(buttons);
+        var bar = new Border { Child = buttons, BorderThickness = new Thickness(0, 1, 0, 0) };
+        bar.SetResourceReference(Border.BorderBrushProperty, "Line");
+        DockPanel.SetDock(bar, Dock.Bottom);
+        root.Children.Add(bar);
         root.Children.Add(tabs);
         Content = root;
 
@@ -134,8 +145,8 @@ public sealed class SettingsWindow : Window
 
     UIElement CharacterTab()
     {
-        var panel = new StackPanel { Margin = new Thickness(12) };
-        panel.Children.Add(Heading("Character"));
+        var panel = new StackPanel();
+        panel.Children.Add(Heading("Which character"));
         FillLooks(edited.Appearance.Character);
         lookBox.SelectionChanged += (_, _) =>
         {
@@ -214,14 +225,7 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(reset);
 
         panel.Children.Add(Heading("Size and motion"));
-        var size = new ComboBox { Width = 140, HorizontalAlignment = HorizontalAlignment.Left, ItemsSource = new[] { "Small", "Medium", "Large" } };
-        size.SelectedIndex = Array.IndexOf(Appearance.Sizes, edited.Appearance.Size);
-        size.SelectionChanged += (_, _) =>
-        {
-            edited.Appearance.Size = Appearance.Sizes[Math.Max(0, size.SelectedIndex)];
-            Changed();
-        };
-        panel.Children.Add(Labeled("Size", size));
+        panel.Children.Add(Labeled("Size", SizeControl()));
         panel.Children.Add(Check("Show labels under the character (\"thinking…\", \"found it!\")", edited.Appearance.ShowLabels,
             value => edited.Appearance.ShowLabels = value));
         panel.Children.Add(Check("Calm animations (smaller bounces, no wobble)", edited.Appearance.CalmAnimations,
@@ -256,6 +260,81 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(Labeled("Break reminder", breakBox));
         panel.Children.Add(Hint("After this long at the PC it stretches and suggests a break. A 5-minute pause starts the count over; games don't count."));
         return panel;
+    }
+
+    // The character's size: drag the slider (steps of 5%), or type any whole percentage from 40 to 300.
+    UIElement SizeControl()
+    {
+        var slider = new Slider
+        {
+            Minimum = Appearance.MinSizePercent,
+            Maximum = Appearance.MaxSizePercent,
+            Width = 220,
+            SmallChange = 1,
+            LargeChange = 10,
+            Value = edited.Appearance.SizePercent,
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "Drag, or click the box and type an exact size",
+        };
+        var box = new TextBox { Width = 52, Text = edited.Appearance.SizePercent.ToString(), Margin = new Thickness(10, 0, 0, 0),
+                                TextAlignment = TextAlignment.Right };
+        var percent = new TextBlock { Text = "%", Margin = new Thickness(4, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        var reset = new Button { Content = "100%", Style = (Style)FindResource("Ghost"), Margin = new Thickness(6, 0, 0, 0),
+                                 ToolTip = "Back to the normal size" };
+        bool updating = false;
+
+        void Apply(int value, bool fromBox)
+        {
+            value = Math.Clamp(value, Appearance.MinSizePercent, Appearance.MaxSizePercent);
+            updating = true;
+            if (!fromBox) box.Text = value.ToString();
+            // The slider snaps to 5% steps when dragged, but shows a typed value as it is.
+            slider.Value = value;
+            updating = false;
+            if (value == edited.Appearance.SizePercent) return;
+            edited.Appearance.SizePercent = value;
+            Changed();
+        }
+
+        slider.ValueChanged += (_, _) =>
+        {
+            if (updating) return;
+            Apply((int)(Math.Round(slider.Value / 5) * 5), fromBox: false);
+        };
+        // Typed: applied as soon as it's a number in range; anything else is put right when the box is left.
+        box.TextChanged += (_, _) =>
+        {
+            if (updating) return;
+            if (int.TryParse(box.Text.Trim().TrimEnd('%'), out int typed)
+                && typed is >= Appearance.MinSizePercent and <= Appearance.MaxSizePercent)
+            {
+                box.SetResourceReference(ForegroundProperty, "Ink");
+                Apply(typed, fromBox: true);
+            }
+            else box.SetResourceReference(ForegroundProperty, "Bad");
+        };
+        box.LostKeyboardFocus += (_, _) =>
+        {
+            updating = true;
+            box.Text = edited.Appearance.SizePercent.ToString();
+            updating = false;
+            box.SetResourceReference(ForegroundProperty, "Ink");
+        };
+        // Enter just confirms the size (it must not press Save and close Settings).
+        box.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter) return;
+            e.Handled = true;
+            Keyboard.ClearFocus();
+        };
+        reset.Click += (_, _) => Apply(100, fromBox: false);
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(slider);
+        row.Children.Add(box);
+        row.Children.Add(percent);
+        row.Children.Add(reset);
+        return row;
     }
 
     // The built-in characters, then the user's own, with the current one selected.
@@ -318,11 +397,12 @@ public sealed class SettingsWindow : Window
             Width = 40,
             Height = 40,
             Margin = new Thickness(0, 0, 8, 0),
-            BorderBrush = Brushes.LightGray,
             BorderThickness = new Thickness(1),
-            Background = Brushes.WhiteSmoke,
+            CornerRadius = new CornerRadius(8),
             Child = new Image { Source = AnimationFiles.Thumbnail(content, 40), Stretch = Stretch.Uniform },
         };
+        preview.SetResourceReference(Border.BorderBrushProperty, "Line");
+        preview.SetResourceReference(Border.BackgroundProperty, "Field");
 
         var title = new TextBlock { Width = 150, VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Hand, ToolTip = "Show this mood on the character" };
         title.Inlines.Add(new Run(MoodNames.GetValueOrDefault(slot, slot)) { TextDecorations = TextDecorations.Underline });
@@ -334,7 +414,6 @@ public sealed class SettingsWindow : Window
         {
             Width = 110,
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = content.Kind == SlotKind.Empty && required ? Brushes.Firebrick : Brushes.DimGray,
             Text = content.Kind switch
             {
                 SlotKind.Gif => "GIF",
@@ -343,6 +422,7 @@ public sealed class SettingsWindow : Window
                 _ => required ? "empty (needed)" : "uses Normal",
             },
         };
+        status.SetResourceReference(TextBlock.ForegroundProperty, content.Kind == SlotKind.Empty && required ? "Bad" : "Muted");
 
         var choose = new Button { Content = "Choose…", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(0, 0, 6, 0) };
         var clear = new Button { Content = "Clear", Padding = new Thickness(8, 1, 8, 1), IsEnabled = content.Kind != SlotKind.Empty };
@@ -428,7 +508,8 @@ public sealed class SettingsWindow : Window
     UIElement ColorRow(string mood)
     {
         string hex = edited.Appearance.MoodColors[mood];
-        var swatch = new Button { Width = 34, Height = 22, Background = Fill(hex), ToolTip = "Pick a color", Margin = new Thickness(0, 0, 8, 0) };
+        var swatch = new Button { Width = 34, Height = 24, Background = Fill(hex), ToolTip = "Pick a color", Margin = new Thickness(0, 0, 8, 0),
+                                  Style = (Style)FindResource("Swatch") };
         var text = new TextBox { Width = 90, Text = hex, VerticalContentAlignment = VerticalAlignment.Center };
         var name = new TextBlock
         {
@@ -452,7 +533,7 @@ public sealed class SettingsWindow : Window
             string typed = text.Text.Trim().ToUpperInvariant();
             if (!typed.StartsWith('#')) typed = "#" + typed;
             bool valid = Appearance.IsColor(typed);
-            text.Foreground = valid ? SystemColors.ControlTextBrush : Brushes.Red;
+            text.SetResourceReference(ForegroundProperty, valid ? "Ink" : "Bad");
             if (!valid || typed == edited.Appearance.MoodColors[mood]) return;
             edited.Appearance.MoodColors[mood] = typed;
             swatch.Background = Fill(typed);
@@ -479,10 +560,12 @@ public sealed class SettingsWindow : Window
 
     UIElement BubbleTab()
     {
-        var panel = new StackPanel { Margin = new Thickness(12) };
-        panel.Children.Add(Hint("The chat bubble is shown next to the character while this tab is open."));
+        var panel = new StackPanel();
+        panel.Children.Add(Hint("The chat bubble is shown next to the character while this page is open. Its outline and buttons " +
+                                "take the character's Normal color (Character > Colors)."));
 
         panel.Children.Add(Heading("Theme"));
+        panel.Children.Add(Hint("For the chat bubble, the menus and these settings."));
         var light = new RadioButton { Content = "Light", GroupName = "theme", IsChecked = edited.Appearance.BubbleTheme == "light", Margin = new Thickness(0, 2, 0, 2) };
         var dark = new RadioButton { Content = "Dark", GroupName = "theme", IsChecked = edited.Appearance.BubbleTheme == "dark", Margin = new Thickness(0, 2, 0, 2) };
         light.Checked += (_, _) => { edited.Appearance.BubbleTheme = "light"; Changed(); };
@@ -510,11 +593,11 @@ public sealed class SettingsWindow : Window
 
     UIElement VoiceTab()
     {
-        var panel = new StackPanel { Margin = new Thickness(12) };
+        var panel = new StackPanel();
         panel.Children.Add(Check("Voice on (push-to-talk and spoken replies)", edited.VoiceEnabled,
             value => edited.VoiceEnabled = value, needsRestart: true));
 
-        panel.Children.Add(Heading("Voice"));
+        panel.Children.Add(Heading("Which voice"));
         panel.Children.Add(Hint("The natural voices sound much more human. Each is a one-time download and runs on this computer."));
         var voice = new VoicePicker(host.Piper, edited.VoiceName, setting =>
         {
@@ -567,10 +650,9 @@ public sealed class SettingsWindow : Window
 
     // ---- Features --------------------------------------------------------------------------------
 
-    UIElement FeaturesTab()
+    UIElement PerformanceSection()
     {
-        var panel = new StackPanel { Margin = new Thickness(12) };
-        panel.Children.Add(Heading("Performance"));
+        var panel = new StackPanel();
         PerformanceProfile recommended = PerformanceProfile.Recommend(Assistant.Core.Setup.HardwareCheck.Detect());
         panel.Children.Add(Hint($"How heavy the assistant may be on this PC. Recommended here: {recommended.Label}. " +
                                 "Privacy is the same in all three: what's private stays on this computer."));
@@ -600,8 +682,14 @@ public sealed class SettingsWindow : Window
             panel.Children.Add(option);
         }
         panel.Children.Add(Hint("Balanced and Full need the local model; if it isn't set up yet, tray > Run setup again downloads it."));
+        panel.Children.Add(Heading("Right now"));
         panel.Children.Add(ResourceTable());
+        return panel;
+    }
 
+    UIElement StartupSection()
+    {
+        var panel = new StackPanel();
         panel.Children.Add(Heading("Starting"));
         var startup = Check("Start with Windows (also in Task Manager > Startup apps)", edited.StartWithWindows,
             value => edited.StartWithWindows = value);
@@ -613,6 +701,12 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(Hint("So nothing of the assistant runs next to Riot Vanguard. It won't start while one of them is open, " +
                                 "and it doesn't come back by itself: start it from the desktop icon when you're done playing."));
 
+        return panel;
+    }
+
+    UIElement FeaturesSection()
+    {
+        var panel = new StackPanel();
         panel.Children.Add(Heading("Web search"));
         string[] engines = ["google", "duckduckgo", "bing"];
         var engine = new ComboBox { Width = 160, HorizontalAlignment = HorizontalAlignment.Left, ItemsSource = new[] { "Google", "DuckDuckGo", "Bing" } };
@@ -653,6 +747,12 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(tryIt);
         panel.Children.Add(Hint("It starts 2 seconds after the click; keep the mouse still. Any input stops it."));
 
+        return panel;
+    }
+
+    UIElement CloudSection()
+    {
+        var panel = new StackPanel();
         panel.Children.Add(Heading("Smarter chat (optional, free)"));
         var hint = Hint("Plain conversation goes to a free cloud model, which is much smarter than the local one. Files, screenshots, " +
                         "activity, notes and memory never go there (except about-me facts, if you allow it below). Groq is recommended. ");
@@ -672,6 +772,12 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(Hint("Only lines from memory\\about-me.md, picked per message. Places, files, notes, activity and past " +
                                 "conversations never go. Every request, with exactly what was sent, is in the sent folder."));
 
+        return panel;
+    }
+
+    UIElement UpdatesSection()
+    {
+        var panel = new StackPanel();
         panel.Children.Add(Heading("Updates"));
         panel.Children.Add(Check("Check for a new version once a day and install it on the next start", edited.AutoUpdate,
             value => edited.AutoUpdate = value));
@@ -717,10 +823,17 @@ public sealed class SettingsWindow : Window
         updateRow.Children.Add(updateStatus);
         panel.Children.Add(updateRow);
 
+        return panel;
+    }
+
+    UIElement DataSection()
+    {
+        var panel = new StackPanel();
         panel.Children.Add(Heading("Your data"));
         panel.Children.Add(Hint("Uninstalling the app keeps Documents\\Assistant (memory, settings, logs) in case you come back. " +
                                 "To remove it all now, use this button. The assistant closes afterwards and starts fresh next time."));
-        var delete = new Button { Content = "Delete all my data…", Padding = new Thickness(10, 2, 10, 2), HorizontalAlignment = HorizontalAlignment.Left, Foreground = Brushes.DarkRed };
+        var delete = new Button { Content = "Delete all my data…", Padding = new Thickness(12, 4, 12, 4), HorizontalAlignment = HorizontalAlignment.Left };
+        delete.SetResourceReference(ForegroundProperty, "Bad");
         delete.Click += (_, _) =>
         {
             if (MessageBox.Show(this, "Delete everything in Documents\\Assistant: memory, settings, activity and chat logs? This can't be undone.",
@@ -772,10 +885,10 @@ public sealed class SettingsWindow : Window
                 {
                     Text = cells[column],
                     FontWeight = header ? FontWeights.SemiBold : FontWeights.Normal,
-                    Foreground = column == 3 ? Brushes.DimGray : SystemColors.ControlTextBrush,
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 1, 6, 1),
                 };
+                cell.SetResourceReference(TextBlock.ForegroundProperty, column == 3 ? "Muted" : "Ink");
                 Grid.SetRow(cell, row);
                 Grid.SetColumn(cell, column);
                 table.Children.Add(cell);
@@ -836,16 +949,40 @@ public sealed class SettingsWindow : Window
 
     // ---- Small builders --------------------------------------------------------------------------
 
-    static ScrollViewer Scroll(UIElement content) => new() { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    // A page: its name as a title, then the content, scrolling, at a comfortable reading width.
+    void AddPage(TabControl tabs, string title, UIElement content)
+    {
+        var page = new StackPanel { Margin = new Thickness(28, 20, 28, 24), MaxWidth = 560, HorizontalAlignment = HorizontalAlignment.Left };
+        page.Children.Add(new TextBlock { Text = title, FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 2) });
+        page.Children.Add(content);
+        tabs.Items.Add(new TabItem
+        {
+            Header = title,
+            Style = (Style)FindResource("SideNavItem"),
+            Content = new ScrollViewer { Content = page, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+        });
+    }
 
-    static TextBlock Heading(string text) => new() { Text = text, FontWeight = FontWeights.SemiBold, FontSize = 14, Margin = new Thickness(0, 14, 0, 4) };
+    static StackPanel Stack(params UIElement[] parts)
+    {
+        var stack = new StackPanel();
+        foreach (UIElement part in parts) stack.Children.Add(part);
+        return stack;
+    }
 
-    static TextBlock Hint(string text) => new() { Text = text, Foreground = Brushes.DimGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) };
+    static TextBlock Heading(string text) => new() { Text = text, FontWeight = FontWeights.SemiBold, FontSize = 15, Margin = new Thickness(0, 20, 0, 6) };
+
+    static TextBlock Hint(string text)
+    {
+        var hint = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 0, 0, 8) };
+        hint.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        return hint;
+    }
 
     static UIElement Labeled(string label, UIElement control)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
-        row.Children.Add(new TextBlock { Text = label, Width = 110, VerticalAlignment = VerticalAlignment.Center });
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 5) };
+        row.Children.Add(new TextBlock { Text = label, Width = 130, VerticalAlignment = VerticalAlignment.Center });
         row.Children.Add(control);
         return row;
     }

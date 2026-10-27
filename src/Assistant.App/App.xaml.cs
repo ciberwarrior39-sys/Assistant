@@ -91,7 +91,7 @@ public partial class App : Application
     AppConfig? appConfig;
     string configFile = "";
     Updater? updater;
-    System.Windows.Forms.ToolStripItem? updateItem; // "Restart to update", shown once an update is downloaded
+    System.Windows.Controls.MenuItem? updateItem;   // "Restart to update", shown once an update is downloaded
     Func<Task>? checkForUpdates;                     // tray > Check for updates
 
     protected override void OnStartup(StartupEventArgs e)
@@ -126,6 +126,7 @@ public partial class App : Application
         AppConfig config = AppConfig.Load(data.ConfigFile);
         appConfig = config;
         configFile = data.ConfigFile;
+        Theme.Apply(Resources, config.Appearance); // every window's colors, before the first one opens
 
         // Close while I play Riot games: with the Riot Client, League or Valorant open, don't start at all.
         if (config.QuitForRiotGames && RiotGames.RunningProgram() is { } riotProgram)
@@ -133,7 +134,7 @@ public partial class App : Application
             DiagnosticLog.Info($"{riotProgram} is open; not starting (Close while I play Riot games)");
             if (!e.Args.Contains(StartWithWindows.AutostartArgument))
                 MessageBox.Show("A Riot game or the Riot Client is open, so the assistant won't start " +
-                                "(Settings > Features > Close while I play Riot games).\n\nStart it again after you close the Riot Client.",
+                                "(Settings > Startup and updates > Close while I play Riot games).\n\nStart it again after you close the Riot Client.",
                                 "Assistant");
             Shutdown();
             return;
@@ -251,7 +252,7 @@ public partial class App : Application
         updater = updates;
         updater.Ready += version =>
         {
-            if (updateItem is not null) updateItem.Visible = true;
+            if (updateItem is not null) updateItem.Visibility = Visibility.Visible;
             bubble.Say($"Version {version} is downloaded. It installs the next time the assistant starts, " +
                        "or right away from the tray menu: Restart to update.");
         };
@@ -295,6 +296,7 @@ public partial class App : Application
                 data.ConfigFile,
                 ApplyLive: edited =>
                 {
+                    Theme.Apply(Resources, edited.Appearance);
                     character.ApplyAppearance(edited.Appearance);
                     bubble.ApplyAppearance(edited.Appearance);
                     life?.SettingsChanged();
@@ -338,6 +340,7 @@ public partial class App : Application
             settingsWindow.Show();
         };
         character.SettingsRequested += () => openSettings?.Invoke();
+        bubble.SettingsRequested += () => openSettings?.Invoke();
 
         // Doing things on the PC: "open Spotify", "volume to 30", "take a screenshot", "empty the recycle bin" (asks first).
         // For a screenshot, the character and the bubble step out of the picture for a moment.
@@ -365,12 +368,14 @@ public partial class App : Application
 
         // Help with selected text: mark text anywhere, right-click the character. Read through Windows' accessibility
         // interface (or the last copied text), shown on a card; nothing is sent anywhere until the user picks a cloud option.
-        character.TextHelpRequested += async () =>
+        async void OfferTextHelp()
         {
             character.ShowAgain();
             character.OpenChat();
             await bubble.OfferTextHelpAsync(() => SelectedText.PickAsync(windowCapture));
-        };
+        }
+        character.TextHelpRequested += OfferTextHelp;
+        bubble.TextHelpRequested += OfferTextHelp; // the suggestion under the greeting
 
         // A character file was double-clicked: preview it, then import it and switch to it.
         void ImportCharacter(string file)
@@ -396,6 +401,7 @@ public partial class App : Application
             {
                 DiagnosticLog.Error("Could not save config.json", ex);
             }
+            Theme.Apply(Resources, config.Appearance);
             character.ApplyAppearance(config.Appearance);
             mood.Set(Mood.Happy, TimeSpan.FromSeconds(2));
         }
@@ -490,7 +496,7 @@ public partial class App : Application
             if (bubble.IsVisible && profile.LocalModel && !gaming) _ = localModel.WarmUpAsync();
         };
 
-        // What each part uses, in the developer log every 10 minutes (and live in Settings > Features).
+        // What each part uses, in the developer log every 10 minutes (and live in Settings > Performance).
         var logResources = new DispatcherTimer { Interval = TimeSpan.FromMinutes(10) };
         logResources.Tick += async (_, _) =>
             DiagnosticLog.Info(ResourceMonitor.Describe(await resources.SampleAsync(voice?.SpeechModelLoaded == true, CancellationToken.None)));
@@ -533,30 +539,40 @@ public partial class App : Application
     }
 
     // The character and the bubble stay out of the taskbar; the tray icon is how to find, hide or quit the app.
+    // The tray menu is the same styled menu as the character's (Theme), not Windows Forms' own.
     System.Windows.Forms.NotifyIcon CreateTrayIcon(CharacterWindow character, string dataRoot)
     {
-        var menu = new System.Windows.Forms.ContextMenuStrip();
-        menu.Items.Add("Show assistant", null, (_, _) => character.ShowAgain());
-        menu.Items.Add("Settings…", null, (_, _) => openSettings?.Invoke());
-        menu.Items.Add("Hide for 1 hour", null, (_, _) => character.HideFor(TimeSpan.FromHours(1)));
-        menu.Items.Add("Open data folder", null, (_, _) => Shell.OpenFolder(dataRoot));
-        menu.Items.Add("Weekly review now", null, (_, _) => reviewNow?.Invoke());
-        menu.Items.Add("Run setup again", null, (_, _) => RunSetupAgain());
-        menu.Items.Add("Check for updates", null, async (_, _) =>
+        var menu = new System.Windows.Controls.ContextMenu();
+        menu.Items.Add(TrayEntry("Show assistant", () => character.ShowAgain()));
+        menu.Items.Add(TrayEntry("Settings…", () => openSettings?.Invoke()));
+        menu.Items.Add(TrayEntry("Hide for 1 hour", () => character.HideFor(TimeSpan.FromHours(1))));
+        menu.Items.Add(TrayEntry("Open data folder", () => Shell.OpenFolder(dataRoot)));
+        menu.Items.Add(new System.Windows.Controls.Separator());
+        menu.Items.Add(TrayEntry("Weekly review now", () => reviewNow?.Invoke()));
+        menu.Items.Add(TrayEntry("Run setup again", RunSetupAgain));
+        menu.Items.Add(TrayEntry("Check for updates", async () =>
         {
             if (checkForUpdates is not null) await checkForUpdates();
-        });
-        updateItem = menu.Items.Add("Restart to update", null, (_, _) => RestartToUpdate());
-        updateItem.Visible = false;
-        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-        menu.Items.Add("Quit", null, (_, _) => Shutdown());
+        }));
+        updateItem = TrayEntry("Restart to update", RestartToUpdate);
+        updateItem.Visibility = Visibility.Collapsed;
+        menu.Items.Add(updateItem);
+        menu.Items.Add(new System.Windows.Controls.Separator());
+        menu.Items.Add(TrayEntry("Quit", Shutdown));
 
         var icon = new System.Windows.Forms.NotifyIcon
         {
             Icon = Shell.TrayIcon(),
             Text = "Assistant",
-            ContextMenuStrip = menu,
             Visible = true,
+        };
+        icon.MouseUp += (_, e) =>
+        {
+            if (e.Button != System.Windows.Forms.MouseButtons.Right) return;
+            // Brought to the front first, so a click anywhere else closes the menu.
+            SetForegroundWindow(new WindowInteropHelper(character).EnsureHandle());
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            menu.IsOpen = true;
         };
         icon.DoubleClick += (_, _) =>
         {
@@ -565,6 +581,16 @@ public partial class App : Application
         };
         return icon;
     }
+
+    static System.Windows.Controls.MenuItem TrayEntry(string header, Action action)
+    {
+        var item = new System.Windows.Controls.MenuItem { Header = header };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern bool SetForegroundWindow(IntPtr window);
 
     void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {

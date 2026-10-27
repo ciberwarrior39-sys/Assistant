@@ -39,13 +39,30 @@ public sealed class Appearance
         ["TimeUp"] = "#F05A28",
     };
 
-    public static readonly string[] Sizes = ["small", "medium", "large"];
+    /// <summary>The character's size in percent: any whole number in this range (100 = the normal size).</summary>
+    public const int MinSizePercent = 40, MaxSizePercent = 300;
 
     /// <summary>One color per mood, as #RRGGBB.</summary>
     public Dictionary<string, string> MoodColors { get; set; } = new(DefaultColors);
 
-    /// <summary>small, medium or large.</summary>
-    public string Size { get; set; } = "medium";
+    /// <summary>The character's size in percent of the normal size, 40 to 300.</summary>
+    public int SizePercent { get; set; } = 100;
+
+    /// <summary>
+    /// Settings before 0.4.2 stored "small", "medium" or "large": read once and turned into a percentage (75, 100, 130),
+    /// never written again.
+    /// </summary>
+    [JsonPropertyName("size")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OldSize
+    {
+        get => null;
+        set
+        {
+            if (value is "small") SizePercent = 75;
+            else if (value is "large") SizePercent = 130;
+        }
+    }
 
     /// <summary>The little labels under the character ("thinking…", "found it!").</summary>
     public bool ShowLabels { get; set; } = true;
@@ -75,12 +92,7 @@ public sealed class Appearance
     public int BubbleTextSize { get; set; } = 13;
 
     [JsonIgnore]
-    public double Scale => Size switch
-    {
-        "small" => 0.75,
-        "large" => 1.3,
-        _ => 1.0,
-    };
+    public double Scale => Math.Clamp(SizePercent, MinSizePercent, MaxSizePercent) / 100.0;
 
     /// <summary>Fills in anything missing or broken after loading, so a hand edit can't break the app.</summary>
     public void Repair()
@@ -94,7 +106,7 @@ public sealed class Appearance
         Character = (Character ?? "").Trim();
         if (!BuiltInCharacters.Contains(Character) && (CustomCharacter is not { Length: > 0 } name || !Assistant.Core.Characters.CharacterPacks.IsValidName(name)))
             Character = "blob";
-        if (!Sizes.Contains(Size)) Size = "medium";
+        SizePercent = Math.Clamp(SizePercent, MinSizePercent, MaxSizePercent);
         if (BubbleTheme is not ("light" or "dark")) BubbleTheme = "light";
         BubbleTextSize = Math.Clamp(BubbleTextSize, 11, 18);
     }
@@ -103,7 +115,7 @@ public sealed class Appearance
     {
         Character = Character,
         MoodColors = new Dictionary<string, string>(MoodColors),
-        Size = Size,
+        SizePercent = SizePercent,
         ShowLabels = ShowLabels,
         CalmAnimations = CalmAnimations,
         Reactions = Reactions,

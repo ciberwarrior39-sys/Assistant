@@ -23,7 +23,7 @@ public sealed class AppConfig
     public int ContextSize { get; set; } = 4096; // room for the conversation plus the facts picked for each message
 
     // full, balanced or lite (PerformanceProfile): how heavy the assistant may be. The setup wizard picks it from the
-    // hardware; Settings > Features changes it (after a restart).
+    // hardware; Settings > Performance changes it (after a restart).
     public string Performance { get; set; } = "full";
 
     // Optional free cloud models for conversation. Groq is recommended; OpenRouter signs up without a phone.
@@ -35,7 +35,7 @@ public sealed class AppConfig
     public string OpenRouterModel { get; set; } = "openrouter/free";
 
     // Cloud chat may also get the few about-me facts that matter for the message (never places, files, notes,
-    // activity or past conversations). Off unless the user turns it on in Settings > Features.
+    // activity or past conversations). Off unless the user turns it on in Settings > Privacy and cloud.
     public bool CloudKnowsAboutMe { get; set; }
 
     [JsonPropertyName("groqApiKey")]

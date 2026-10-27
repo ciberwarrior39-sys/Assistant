@@ -3,234 +3,356 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Assistant.App"
         xmlns:sys="clr-namespace:System;assembly=System.Runtime"
-        Title="Assistant" Width="400" Height="540"
+        Title="Assistant" Width="416" Height="560"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize" FontSize="13"
-        Foreground="{DynamicResource Text}">
+        Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
+        FontFamily="{DynamicResource UiFont}" FontSize="13" Foreground="{DynamicResource Ink}">
 
-    <!-- Theme: the light defaults. ApplyAppearance swaps these for the dark theme and the chosen text size. -->
+    <!-- Text sizes follow Settings > Chat bubble > Text size (ApplyAppearance). Colors come from Theme. -->
     <Window.Resources>
-        <SolidColorBrush x:Key="Surface" Color="White"/>
-        <SolidColorBrush x:Key="Edge" Color="#D0D0D0"/>
-        <SolidColorBrush x:Key="Text" Color="#1E1E1E"/>
-        <SolidColorBrush x:Key="Muted" Color="#6B6B6B"/>
-        <SolidColorBrush x:Key="CardEdge" Color="#DDDDDD"/>
-        <SolidColorBrush x:Key="ReviewSurface" Color="#FFF9EC"/>
-        <SolidColorBrush x:Key="ReviewEdge" Color="#E8C77A"/>
-        <SolidColorBrush x:Key="Note" Color="#2E8B57"/>
-        <SolidColorBrush x:Key="InputSurface" Color="White"/>
-        <sys:Double x:Key="SmallSize">11</sys:Double>
-        <sys:Double x:Key="LabelSize">12</sys:Double>
-        <sys:Double x:Key="TitleSize">14</sys:Double>
+        <sys:Double x:Key="SmallSize">11.5</sys:Double>
+        <sys:Double x:Key="TitleSize">15</sys:Double>
+
+        <!-- The input: no box of its own (the rounded field around it is the box). -->
+        <Style x:Key="BareInput" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0,5"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" Focusable="False"
+                                      HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Small buttons inside messages. -->
+        <Style x:Key="SmallPrimary" TargetType="Button" BasedOn="{StaticResource Primary}">
+            <Setter Property="Padding" Value="11,2"/>
+            <Setter Property="MinHeight" Value="25"/>
+            <Setter Property="FontSize" Value="{DynamicResource SmallSize}"/>
+        </Style>
+        <Style x:Key="SmallButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="11,2"/>
+            <Setter Property="MinHeight" Value="25"/>
+            <Setter Property="FontSize" Value="{DynamicResource SmallSize}"/>
+        </Style>
+        <Style x:Key="SmallGhost" TargetType="Button" BasedOn="{StaticResource Ghost}">
+            <Setter Property="Padding" Value="8,2"/>
+            <Setter Property="MinHeight" Value="25"/>
+            <Setter Property="FontSize" Value="{DynamicResource SmallSize}"/>
+        </Style>
+        <Style x:Key="MetaIcon" TargetType="Button" BasedOn="{StaticResource IconButton}">
+            <Setter Property="Width" Value="24"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <!-- A card that waits for the user's decision: an amber rule down its left side. -->
+        <Style x:Key="DecisionCard" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource WarnTint}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Warn}"/>
+            <Setter Property="BorderThickness" Value="3,0,0,0"/>
+            <Setter Property="CornerRadius" Value="4,10,10,4"/>
+            <Setter Property="Padding" Value="12,9"/>
+            <Setter Property="Margin" Value="0,0,0,14"/>
+        </Style>
+
+        <Style x:Key="SmallMuted" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+            <Setter Property="FontSize" Value="{DynamicResource SmallSize}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
     </Window.Resources>
 
-    <!-- The speech bubble: anchored next to the character, hides when you click elsewhere or press Esc -->
-    <Border Margin="10" Background="{DynamicResource Surface}" CornerRadius="12" BorderBrush="{DynamicResource Edge}" BorderThickness="1">
-        <Border.Effect>
-            <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.25"/>
-        </Border.Effect>
-        <Grid Margin="12">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+    <!-- The balloon: a rounded body outlined in the character's color, and a tail pointing at the character. -->
+    <Grid>
+        <Grid.Effect>
+            <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.22"/>
+        </Grid.Effect>
 
-            <DockPanel Grid.Row="0">
-                <Button DockPanel.Dock="Right" Content="✕" ToolTip="Close (Esc)" Padding="6,0"
-                        Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Text}" Click="OnClose"/>
-                <Button DockPanel.Dock="Right" Content="Data folder" ToolTip="Everything the assistant stores"
-                        Padding="6,1" Margin="0,0,6,0" Click="OnOpenDataFolder"/>
-                <Button DockPanel.Dock="Right" Content="Recheck" Padding="6,1" Margin="0,0,6,0" Click="OnRecheck"/>
-                <TextBlock Text="Assistant" FontWeight="SemiBold" FontSize="{DynamicResource TitleSize}" VerticalAlignment="Center"/>
-            </DockPanel>
+        <Border x:Name="Body" Margin="14,10,14,12" Background="{DynamicResource Paper}" BorderBrush="{DynamicResource Accent}"
+                BorderThickness="2" CornerRadius="18">
+            <Grid Margin="16,10,12,12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-            <!-- Dependency status; hover for details -->
-            <TextBlock x:Name="StatusText" Grid.Row="1" Text="Checking..." Foreground="{DynamicResource Muted}"
-                       FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap" Margin="0,6,0,8"/>
+                <!-- Name, the status dot (hover for details), the ⋯ menu and close -->
+                <DockPanel Grid.Row="0" Margin="0,0,0,6">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE711;" ToolTip="Close (Esc)" Click="OnClose"/>
+                    <Button x:Name="MoreButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE712;" ToolTip="More"
+                            Margin="0,0,2,0" Click="OnMore"/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Assistant" FontWeight="SemiBold" FontSize="{DynamicResource TitleSize}" VerticalAlignment="Center"/>
+                        <Ellipse x:Name="StatusDot" Width="8" Height="8" Margin="8,1,0,0" VerticalAlignment="Center"
+                                 Fill="{DynamicResource Muted}" ToolTip="Checking…" ToolTipService.InitialShowDelay="150"/>
+                    </StackPanel>
+                </DockPanel>
 
-            <ScrollViewer x:Name="Scroller" Grid.Row="2" VerticalScrollBarVisibility="Auto">
-                <ItemsControl x:Name="Messages">
-                    <!-- One template per kind of item: chat messages and weekly-review cards -->
-                    <ItemsControl.Resources>
-                        <DataTemplate DataType="{x:Type local:ChatItem}">
-                            <StackPanel Margin="0,0,0,12">
-                                <TextBlock Text="{Binding Who}" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource LabelSize}"/>
-                                <!-- Read-only text box styled as plain text: mark any part of a message and copy it (Ctrl+C or right-click) -->
-                                <TextBox Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" Margin="-2,2,0,0" Padding="0"
-                                         Background="Transparent" BorderThickness="0" IsTabStop="False"
-                                         Foreground="{DynamicResource Text}" CaretBrush="Transparent"/>
+                <!-- Only when something needed is missing: what, and how to fix it -->
+                <TextBlock x:Name="ProblemText" Grid.Row="1" Visibility="Collapsed" Foreground="{DynamicResource Bad}"
+                           FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap" Margin="0,0,4,8"/>
 
-                                <!-- Copy (answers worth pasting), and after a screen or selected-text answer: the cloud, text only (asks first) -->
-                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                    <Button Content="Copy" Visibility="{Binding CopyVisibility}" Tag="{Binding}" Click="OnCopyReply"
-                                            Padding="10,2" Margin="0,0,6,0" ToolTip="Copy the answer, to paste it anywhere"/>
-                                    <Button Content="{Binding CloudButtonLabel}" Visibility="{Binding CloudButtonVisibility}" Tag="{Binding}"
-                                            Click="OnCloudFollowUp" Padding="10,2" Margin="0,0,6,0"
-                                            ToolTip="Shows you exactly what would be sent first. Nothing leaves this computer until you press Send."/>
-                                    <!-- 👍/👎: saved with the question and answer in feedback\ on this computer (kept 7 days) -->
-                                    <Button Content="👍" Visibility="{Binding RateVisibility}" Tag="{Binding}" Click="OnRate" Padding="5,0" Margin="0,0,2,0"
-                                            Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Muted}"
-                                            ToolTip="Good answer"/>
-                                    <Button Content="👎" Visibility="{Binding RateVisibility}" Tag="{Binding}" Click="OnRate" Padding="5,0"
-                                            Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Muted}"
-                                            ToolTip="Bad answer. The question and the answer are saved in the feedback folder on this computer (kept 7 days), so they can be looked at."/>
+                <ScrollViewer x:Name="Scroller" Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                    <ItemsControl x:Name="Messages">
+                        <ItemsControl.Resources>
+
+                            <!-- The greeting, with things to try -->
+                            <DataTemplate DataType="{x:Type local:WelcomeItem}">
+                                <StackPanel Margin="0,6,0,16">
+                                    <TextBlock Text="Hi! What can I do?" FontWeight="SemiBold" FontSize="{DynamicResource TitleSize}"/>
+                                    <TextBlock Text="Ask anything, or try one of these." Foreground="{DynamicResource Muted}" Margin="0,2,0,10"/>
+                                    <ItemsControl ItemsSource="{Binding Suggestions}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Button Style="{StaticResource Chip}" Content="{Binding Label}" Tag="{Binding}" Click="OnSuggestion"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
+                            </DataTemplate>
 
-                                <!-- What a tool did, word for word (saved or forgotten memory lines) -->
-                                <ItemsControl ItemsSource="{Binding Notes}" Margin="0,4,0,0">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding}" Foreground="{DynamicResource Note}" FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap"/>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                            <!-- A message: yours as a tinted note on the right, the assistant's as plain text -->
+                            <DataTemplate DataType="{x:Type local:ChatItem}">
+                                <StackPanel Margin="0,0,0,14">
+                                    <Border Visibility="{Binding UserVisibility}" HorizontalAlignment="Right" MaxWidth="290"
+                                            Background="{DynamicResource AccentTint}" CornerRadius="12,12,4,12" Padding="11,6">
+                                        <TextBox Style="{StaticResource SelectableText}" Text="{Binding Text, Mode=OneWay}"/>
+                                    </Border>
 
-                                <!-- Choices and confirmations from actions ("Which app?", "Empty the Recycle Bin?") -->
-                                <ItemsControl ItemsSource="{Binding Choices}" Margin="0,6,0,0">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <WrapPanel/>
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Button Content="{Binding Label}" IsEnabled="{Binding IsEnabled}" Tag="{Binding}" Click="OnChoice"
-                                                    Padding="10,2" Margin="0,0,6,6"/>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                    <StackPanel Visibility="{Binding ReplyVisibility}">
+                                        <!-- Read-only text box styled as text: mark any part and copy it (Ctrl+C or right-click) -->
+                                        <TextBox Style="{StaticResource SelectableText}" Text="{Binding Text, Mode=OneWay}"/>
 
-                                <!-- Files found by search_files, with real paths from the index -->
-                                <ItemsControl ItemsSource="{Binding Files}" Margin="0,6,0,0">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border BorderBrush="{DynamicResource CardEdge}" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,4,6">
-                                                <StackPanel>
-                                                    <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding FullPath}" ToolTip="{Binding FullPath}"
-                                                               Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding Modified, StringFormat='Modified {0:yyyy-MM-dd HH:mm}'}"
-                                                               Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}"/>
-                                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                                        <Button Content="Open" Padding="10,2" Tag="{Binding FullPath}" Click="OnOpenFile"/>
-                                                        <Button Content="Show in Explorer" Padding="10,2" Margin="6,0,0,0"
-                                                                Tag="{Binding FullPath}" Click="OnRevealFile"/>
-                                                    </StackPanel>
-                                                </StackPanel>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                        </DataTemplate>
+                                        <!-- What a tool did, word for word (saved or forgotten memory lines) -->
+                                        <ItemsControl ItemsSource="{Binding Notes}" Margin="0,4,0,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Foreground="{DynamicResource Good}" FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap">
+                                                        <Run Text="✓ "/><Run Text="{Binding Mode=OneWay}"/>
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
 
-                        <!-- Weekly review: edit the fact if needed, then Keep or Forget -->
-                        <DataTemplate DataType="{x:Type local:ReviewItem}">
-                            <Border BorderBrush="{DynamicResource ReviewEdge}" Background="{DynamicResource ReviewSurface}" BorderThickness="1" CornerRadius="6"
-                                    Padding="8" Margin="0,0,4,8">
-                                <StackPanel>
-                                    <TextBox Text="{Binding Fact, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsOpen}"
-                                             TextWrapping="Wrap" Background="Transparent" BorderThickness="0,0,0,1"
-                                             Foreground="{DynamicResource Text}" CaretBrush="{DynamicResource Text}"
-                                             ToolTip="Edit it first if it's not quite right"/>
-                                    <TextBlock Text="{Binding Evidence}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" Margin="0,3,0,0"/>
-                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0" Visibility="{Binding ButtonsVisibility}">
-                                        <Button Content="Keep" Padding="10,2" Tag="{Binding}" Click="OnKeepFact"/>
-                                        <Button Content="Forget" Padding="10,2" Margin="6,0,0,0" Tag="{Binding}" Click="OnForgetFact"/>
+                                        <!-- Choices and confirmations from actions ("Which app?", "Empty the Recycle Bin?") -->
+                                        <ItemsControl ItemsSource="{Binding Choices}" Margin="0,8,0,0">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Style="{StaticResource SmallButton}" Content="{Binding Label}" IsEnabled="{Binding IsEnabled}"
+                                                            Tag="{Binding}" Click="OnChoice" Margin="0,0,6,6"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                        <!-- Files and folders, one row each: the kind, the name, where it is, when it changed -->
+                                        <ItemsControl ItemsSource="{Binding FileRows}" Margin="0,4,0,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="0,8,0,6">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="38"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+                                                            <Border Grid.RowSpan="2" Width="38" Height="38" CornerRadius="9" Background="{Binding Badge}" VerticalAlignment="Top">
+                                                                <TextBlock Text="{Binding Kind}" Foreground="White" FontSize="10.5" FontWeight="SemiBold"
+                                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            </Border>
+                                                            <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="Medium" TextTrimming="CharacterEllipsis"
+                                                                       Margin="10,0,8,0" ToolTip="{Binding Name}"/>
+                                                            <TextBlock Grid.Column="2" Text="{Binding When}" Style="{StaticResource SmallMuted}" TextWrapping="NoWrap"/>
+                                                            <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Folder}" Style="{StaticResource SmallMuted}"
+                                                                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="10,0,0,0" ToolTip="{Binding Path}"/>
+                                                            <StackPanel Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="10,6,0,0">
+                                                                <Button Style="{StaticResource SmallPrimary}" Content="Open" Tag="{Binding Path}" Click="OnOpenFile"/>
+                                                                <Button Style="{StaticResource SmallGhost}" Content="Show in folder" Tag="{Binding Path}" Click="OnRevealFile"
+                                                                        Margin="4,0,0,0" Visibility="{Binding RevealVisibility}"/>
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                        <!-- Follow-ups: the cloud for a screen or selected-text answer (asks first) -->
+                                        <Button Style="{StaticResource SmallButton}" Content="{Binding CloudButtonLabel}" Visibility="{Binding CloudButtonVisibility}"
+                                                Tag="{Binding}" Click="OnCloudFollowUp" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                                ToolTip="Shows you exactly what would be sent first. Nothing leaves this computer until you press Send."/>
+
+                                        <!-- Who answered (only when it was the cloud), and Copy, 👍, 👎 -->
+                                        <DockPanel Visibility="{Binding MetaVisibility}" Margin="0,4,0,0">
+                                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                                <Button Style="{StaticResource MetaIcon}" Content="&#xE8C8;" ToolTip="Copy the answer" Tag="{Binding}" Click="OnCopyReply"/>
+                                                <Button Style="{StaticResource MetaIcon}" Content="&#xE8E1;" ToolTip="Good answer" Tag="{Binding}" CommandParameter="good"
+                                                        Click="OnRate" Visibility="{Binding RateVisibility}"/>
+                                                <Button Style="{StaticResource MetaIcon}" Content="&#xE8E0;" Tag="{Binding}" CommandParameter="bad" Click="OnRate"
+                                                        Visibility="{Binding RateVisibility}"
+                                                        ToolTip="Bad answer. The question and the answer are saved in the feedback folder on this computer (kept 7 days)."/>
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding SourceLabel}" Style="{StaticResource SmallMuted}" VerticalAlignment="Center"/>
+                                        </DockPanel>
                                     </StackPanel>
-                                    <TextBlock Text="{Binding Outcome}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" Margin="0,4,0,0"/>
                                 </StackPanel>
-                            </Border>
-                        </DataTemplate>
+                            </DataTemplate>
 
-                        <!-- Solve with cloud chat: the text read off the screen, editable, sent only on Send -->
-                        <DataTemplate DataType="{x:Type local:CloudConfirmItem}">
-                            <Border BorderBrush="{DynamicResource ReviewEdge}" Background="{DynamicResource ReviewSurface}" BorderThickness="1" CornerRadius="6"
-                                    Padding="8" Margin="0,0,4,8">
-                                <StackPanel>
-                                    <TextBlock Text="Send this to the cloud chat?" FontWeight="SemiBold"/>
-                                    <TextBlock Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap" Margin="0,2,0,6"
-                                               Text="{Binding Explanation}"/>
-                                    <TextBlock Text="{Binding QuestionLabel}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}"/>
-                                    <TextBox Text="{Binding Question, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsOpen}"
-                                             TextWrapping="Wrap" Background="Transparent" BorderThickness="0,0,0,1" Margin="0,0,0,6"
-                                             Foreground="{DynamicResource Text}" CaretBrush="{DynamicResource Text}"/>
-                                    <TextBlock Text="{Binding TextLabel}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}"/>
-                                    <TextBox Text="{Binding ScreenText, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsOpen}"
-                                             TextWrapping="Wrap" AcceptsReturn="True" MaxHeight="220" VerticalScrollBarVisibility="Auto"
-                                             Background="Transparent" BorderThickness="0,0,0,1"
-                                             Foreground="{DynamicResource Text}" CaretBrush="{DynamicResource Text}"/>
-                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0" Visibility="{Binding ButtonsVisibility}">
-                                        <Button Content="Send" Padding="10,2" Tag="{Binding}" Click="OnSendToCloud"/>
-                                        <Button Content="Cancel" Padding="10,2" Margin="6,0,0,0" Tag="{Binding}" Click="OnCancelCloud"/>
+                            <!-- Weekly review: edit the fact if needed, then Keep or Forget -->
+                            <DataTemplate DataType="{x:Type local:ReviewItem}">
+                                <Border Style="{StaticResource DecisionCard}">
+                                    <StackPanel>
+                                        <TextBox Style="{StaticResource InlineField}" Text="{Binding Fact, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsOpen}"
+                                                 ToolTip="Edit it first if it's not quite right"/>
+                                        <TextBlock Text="{Binding Evidence}" Style="{StaticResource SmallMuted}" Margin="0,4,0,0"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0" Visibility="{Binding ButtonsVisibility}">
+                                            <Button Style="{StaticResource SmallPrimary}" Content="Keep" Tag="{Binding}" Click="OnKeepFact"/>
+                                            <Button Style="{StaticResource SmallGhost}" Content="Forget" Margin="4,0,0,0" Tag="{Binding}" Click="OnForgetFact"/>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Outcome}" Style="{StaticResource SmallMuted}" Margin="0,4,0,0"/>
                                     </StackPanel>
-                                    <TextBlock Text="{Binding Outcome}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" Margin="0,4,0,0"/>
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
+                                </Border>
+                            </DataTemplate>
 
-                        <!-- The to-do list: ticking a box saves todo.md at once -->
-                        <DataTemplate DataType="{x:Type local:TodoListItem}">
-                            <Border BorderBrush="{DynamicResource CardEdge}" BorderThickness="1" CornerRadius="6" Padding="8,6" Margin="0,0,4,8">
-                                <ItemsControl ItemsSource="{Binding Rows}">
+                            <!-- Solve with cloud chat: the text read off the screen, editable, sent only on Send -->
+                            <DataTemplate DataType="{x:Type local:CloudConfirmItem}">
+                                <Border Style="{StaticResource DecisionCard}">
+                                    <StackPanel>
+                                        <TextBlock Text="Send this to the cloud chat?" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Explanation}" Style="{StaticResource SmallMuted}" Margin="0,2,0,8"/>
+                                        <TextBlock Text="{Binding QuestionLabel}" Style="{StaticResource SmallMuted}"/>
+                                        <TextBox Style="{StaticResource InlineField}" Text="{Binding Question, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsOpen}"
+                                                 Margin="0,0,0,8"/>
+                                        <TextBlock Text="{Binding TextLabel}" Style="{StaticResource SmallMuted}"/>
+                                        <TextBox Style="{StaticResource InlineField}" Text="{Binding ScreenText, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsOpen}"
+                                                 AcceptsReturn="True" MaxHeight="220" VerticalScrollBarVisibility="Auto"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0" Visibility="{Binding ButtonsVisibility}">
+                                            <Button Style="{StaticResource SmallPrimary}" Content="Send" Tag="{Binding}" Click="OnSendToCloud"/>
+                                            <Button Style="{StaticResource SmallGhost}" Content="Cancel" Margin="4,0,0,0" Tag="{Binding}" Click="OnCancelCloud"/>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Outcome}" Style="{StaticResource SmallMuted}" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+
+                            <!-- The to-do list: ticking a box saves todo.md at once -->
+                            <DataTemplate DataType="{x:Type local:TodoListItem}">
+                                <ItemsControl ItemsSource="{Binding Rows}" Margin="0,-6,0,14">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <CheckBox IsChecked="{Binding Done, Mode=TwoWay}" Margin="0,3" Foreground="{DynamicResource Text}">
+                                            <CheckBox IsChecked="{Binding Done, Mode=TwoWay}" Margin="0,4">
                                                 <TextBlock Text="{Binding Text}" TextWrapping="Wrap"/>
                                             </CheckBox>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                            </Border>
-                        </DataTemplate>
+                            </DataTemplate>
 
-                        <!-- Help with selected text: what was picked up, and what to do with it -->
-                        <DataTemplate DataType="{x:Type local:TextHelpItem}">
-                            <Border BorderBrush="{DynamicResource CardEdge}" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,4,8">
-                                <StackPanel>
-                                    <TextBlock Text="Help with this text" FontWeight="SemiBold"/>
-                                    <TextBlock Text="{Binding Source}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap"/>
-                                    <Border BorderBrush="{DynamicResource CardEdge}" BorderThickness="3,0,0,0" Padding="8,2,2,2" Margin="0,6,0,4">
-                                        <TextBlock Text="{Binding Preview}" TextWrapping="Wrap" MaxHeight="96" TextTrimming="CharacterEllipsis" FontStyle="Italic"/>
-                                    </Border>
-                                    <TextBlock Text="{Binding Size}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" TextWrapping="Wrap"/>
-                                    <WrapPanel Margin="0,8,0,0" Visibility="{Binding ButtonsVisibility}">
-                                        <Button Content="Explain" CommandParameter="Explain" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
-                                        <Button Content="Summarise" CommandParameter="Summarise" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
-                                        <Button Content="Translate to English" CommandParameter="ToEnglish" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
-                                        <Button Content="Translate to Bulgarian" CommandParameter="ToBulgarian" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
-                                        <Button Content="Fix grammar" CommandParameter="FixGrammar" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
-                                        <Button Content="Make shorter" CommandParameter="Shorter" Tag="{Binding}" Click="OnTextTask" Padding="8,2" Margin="0,0,6,6"/>
-                                    </WrapPanel>
-                                    <TextBlock Text="Or ask your own question about it:" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}"
-                                               Visibility="{Binding ButtonsVisibility}"/>
-                                    <DockPanel Margin="0,2,0,0" Visibility="{Binding ButtonsVisibility}">
-                                        <Button DockPanel.Dock="Right" Content="Ask" CommandParameter="Ask" Tag="{Binding}" Click="OnTextTask" Padding="10,2" Margin="6,0,0,0"/>
-                                        <TextBox Text="{Binding Question, UpdateSourceTrigger=PropertyChanged}" Tag="{Binding}" PreviewKeyDown="OnTextQuestionKey"
-                                                 TextWrapping="Wrap" Background="Transparent" BorderThickness="0,0,0,1"
-                                                 Foreground="{DynamicResource Text}" CaretBrush="{DynamicResource Text}"/>
-                                    </DockPanel>
-                                    <TextBlock Text="{Binding Outcome}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource SmallSize}" Margin="0,4,0,0"/>
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.Resources>
-                </ItemsControl>
-            </ScrollViewer>
+                            <!-- Help with selected text: what was picked up, and what to do with it -->
+                            <DataTemplate DataType="{x:Type local:TextHelpItem}">
+                                <Border BorderBrush="{DynamicResource Line}" BorderThickness="1.5" CornerRadius="12" Padding="12,10" Margin="0,0,0,14">
+                                    <StackPanel>
+                                        <TextBlock Text="Help with this text" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Source}" Style="{StaticResource SmallMuted}"/>
+                                        <Border BorderBrush="{DynamicResource Accent}" BorderThickness="3,0,0,0" Padding="9,1,2,1" Margin="0,8,0,4">
+                                            <TextBlock Text="{Binding Preview}" TextWrapping="Wrap" MaxHeight="96" TextTrimming="CharacterEllipsis"
+                                                       Foreground="{DynamicResource Muted}"/>
+                                        </Border>
+                                        <TextBlock Text="{Binding Size}" Style="{StaticResource SmallMuted}"/>
+                                        <WrapPanel Margin="0,10,0,0" Visibility="{Binding ButtonsVisibility}">
+                                            <Button Style="{StaticResource Chip}" Content="Explain" CommandParameter="Explain" Tag="{Binding}" Click="OnTextTask"/>
+                                            <Button Style="{StaticResource Chip}" Content="Summarise" CommandParameter="Summarise" Tag="{Binding}" Click="OnTextTask"/>
+                                            <Button Style="{StaticResource Chip}" Content="Translate to English" CommandParameter="ToEnglish" Tag="{Binding}" Click="OnTextTask"/>
+                                            <Button Style="{StaticResource Chip}" Content="Translate to Bulgarian" CommandParameter="ToBulgarian" Tag="{Binding}" Click="OnTextTask"/>
+                                            <Button Style="{StaticResource Chip}" Content="Fix grammar" CommandParameter="FixGrammar" Tag="{Binding}" Click="OnTextTask"/>
+                                            <Button Style="{StaticResource Chip}" Content="Make shorter" CommandParameter="Shorter" Tag="{Binding}" Click="OnTextTask"/>
+                                        </WrapPanel>
+                                        <DockPanel Margin="0,4,0,0" Visibility="{Binding ButtonsVisibility}">
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource SmallButton}" Content="Ask" CommandParameter="Ask" Tag="{Binding}"
+                                                    Click="OnTextTask" Margin="8,0,0,0"/>
+                                            <Grid>
+                                                <TextBox Style="{StaticResource InlineField}" Text="{Binding Question, UpdateSourceTrigger=PropertyChanged}" Tag="{Binding}"
+                                                         PreviewKeyDown="OnTextQuestionKey"/>
+                                                <!-- The hint shows while the question is empty -->
+                                                <TextBlock Text="Or ask your own question about it" IsHitTestVisible="False" VerticalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock" BasedOn="{StaticResource SmallMuted}">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Question}" Value="">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Grid>
+                                        </DockPanel>
+                                        <TextBlock Text="{Binding Outcome}" Style="{StaticResource SmallMuted}" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.Resources>
+                    </ItemsControl>
+                </ScrollViewer>
 
-            <TextBlock x:Name="BusyText" Grid.Row="3" Text="Thinking..." Foreground="{DynamicResource Muted}"
-                       Margin="2,6,0,0" Visibility="Collapsed"/>
+                <!-- Working on it: three dots, and what it's doing when that takes a while -->
+                <StackPanel x:Name="BusyRow" Grid.Row="3" Orientation="Horizontal" Margin="0,2,0,0" Visibility="Collapsed">
+                    <Ellipse x:Name="Dot1" Width="7" Height="7" Fill="{DynamicResource Accent}" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                    <Ellipse x:Name="Dot2" Width="7" Height="7" Fill="{DynamicResource Accent}" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                    <Ellipse x:Name="Dot3" Width="7" Height="7" Fill="{DynamicResource Accent}" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="BusyText" Style="{StaticResource SmallMuted}" VerticalAlignment="Center"/>
+                </StackPanel>
 
-            <DockPanel Grid.Row="4" Margin="0,8,0,0">
-                <Button x:Name="SendButton" DockPanel.Dock="Right" Content="Send" Padding="12,3"
-                        Margin="6,0,0,0" IsDefault="True" Click="OnSend"/>
-                <TextBox x:Name="Input" Padding="6,4" VerticalContentAlignment="Center"
-                         Background="{DynamicResource InputSurface}" Foreground="{DynamicResource Text}"
-                         BorderBrush="{DynamicResource Edge}" CaretBrush="{DynamicResource Text}"/>
-            </DockPanel>
-        </Grid>
-    </Border>
+                <!-- Enter sends, Shift+Enter adds a line, ↑ in an empty box brings back the last message -->
+                <Border x:Name="InputBox" Grid.Row="4" Margin="0,10,0,0" Background="{DynamicResource Field}" BorderBrush="{DynamicResource Line}"
+                        BorderThickness="1.5" CornerRadius="14" Padding="12,3,4,3">
+                    <DockPanel>
+                        <Button x:Name="SendButton" DockPanel.Dock="Right" Style="{StaticResource SendButton}" Content="&#xE74A;" ToolTip="Send (Enter)"
+                                VerticalAlignment="Bottom" Margin="6,0,0,0" IsEnabled="False" Click="OnSend"/>
+                        <Grid>
+                            <TextBox x:Name="Input" Style="{StaticResource BareInput}" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"
+                                     VerticalAlignment="Center" PreviewKeyDown="OnInputKey" TextChanged="OnInputChanged"
+                                     GotKeyboardFocus="OnInputFocus" LostKeyboardFocus="OnInputFocus"/>
+                            <TextBlock x:Name="Placeholder" Text="Ask anything, or “find my CV”" Foreground="{DynamicResource Muted}"
+                                       VerticalAlignment="Center" IsHitTestVisible="False"/>
+                        </Grid>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- The tail, drawn over the body's outline where they meet. Placed by PlaceTail. -->
+        <Canvas IsHitTestVisible="False">
+            <Canvas x:Name="Tail" Canvas.Left="401" Canvas.Top="460">
+                <Canvas.RenderTransform>
+                    <ScaleTransform x:Name="TailFlip" ScaleX="1"/>
+                </Canvas.RenderTransform>
+                <Path Data="M 0,0 C 5,6 10,13 14,23 C 8,19.5 4,18.5 0,18 Z" Fill="{DynamicResource Paper}" Stroke="{DynamicResource Accent}"
+                      StrokeThickness="2" StrokeLineJoin="Round"/>
+                <Line X1="0" Y1="1.6" X2="0" Y2="16.4" Stroke="{DynamicResource Paper}" StrokeThickness="3.2"/>
+            </Canvas>
+        </Canvas>
+    </Grid>
 </Window>

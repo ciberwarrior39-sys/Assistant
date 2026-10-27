@@ -147,7 +147,7 @@ public sealed partial class AssistantService
     public ConversationLog? Conversations { get; init; }
 
     /// <summary>
-    /// Settings > Features: cloud chat also gets the about-me facts that matter for the message (and the user's name).
+    /// Settings > Privacy and cloud: cloud chat also gets the about-me facts that matter for the message (and the user's name).
     /// Never places, files, notes, activity or conversation notes.
     /// </summary>
     public bool ShareAboutMeWithCloud { get; set; }
@@ -160,7 +160,7 @@ public sealed partial class AssistantService
     const string LiteHelp = """
         In Lite mode I answer direct requests: "find my CV", "documents I edited today", "what did I do today?",
         "what's my name?", "remember that ...", "flip a coin" or "set a timer for 5 minutes".
-        For conversation, connect the free cloud chat in Settings > Features.
+        For conversation, connect the free cloud chat in Settings > Privacy and cloud.
         """;
 
     public AssistantService(ILlmProvider llm, IEnumerable<ITool> tools, CloudChat? cloud = null, MemoryStore? memory = null,
@@ -242,7 +242,7 @@ public sealed partial class AssistantService
         // No model also means these work in game mode; only screen reading needs the GPU.
         RoutedCall? routed = IntentRouter.Route(userText, memory);
         if (routed is { Tool: "look_at_screen" } && !tools.ContainsKey("look_at_screen"))
-            return Finish("Screen reading is off in Lite mode. Settings > Features > Performance can turn it on.", files, notes, 0, "local");
+            return Finish("Screen reading is off in Lite mode. Settings > Performance can turn it on.", files, notes, 0, "local");
         if (routed is { Tool: "look_at_screen" } && CloudOnly)
             return Finish("Game mode is on, so I don't look at the screen until the game is closed.", files, notes, 0, "local");
 
@@ -534,7 +534,7 @@ public sealed partial class AssistantService
     public async Task<AssistantReply> AskCloudAboutTextAsync(string instruction, string text, CancellationToken ct)
     {
         if (cloud is not { IsConfigured: true })
-            return new AssistantReply("Cloud chat isn't connected. Settings > Features can connect it.", [], 0, "local");
+            return new AssistantReply("Cloud chat isn't connected. Settings > Privacy and cloud can connect it.", [], 0, "local");
 
         var messages = new List<ChatMessage>
         {
@@ -570,7 +570,7 @@ public sealed partial class AssistantService
     public async Task<AssistantReply> AskCloudAboutScreenAsync(string question, string screenText, CancellationToken ct)
     {
         if (cloud is not { IsConfigured: true })
-            return new AssistantReply("Cloud chat isn't connected. Settings > Features can connect it.", [], 0, "local");
+            return new AssistantReply("Cloud chat isn't connected. Settings > Privacy and cloud can connect it.", [], 0, "local");
 
         var messages = new List<ChatMessage>
         {
@@ -711,6 +711,17 @@ public sealed partial class AssistantService
         }
 
         static string Short(string text) => text.Length > MaxSummaryTurnChars ? text[..MaxSummaryTurnChars] + "…" : text;
+    }
+
+    /// <summary>
+    /// "New chat": the conversation so far goes into the notes (read before the history is cleared, so nothing is lost),
+    /// then the assistant starts with an empty history.
+    /// </summary>
+    public void StartNewChat()
+    {
+        _ = SummarizeAsync(CancellationToken.None); // takes its copy of the chat before its first await
+        history.Clear();
+        notedUpTo = 0;
     }
 
     // The history in turns, each starting at a user message (the first may not, if the slice starts mid-turn).

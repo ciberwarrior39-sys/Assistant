@@ -25,6 +25,9 @@ public sealed class ExportCharacterWindow : Window
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         FontSize = 13;
+        FontFamily = Theme.UiFont;
+        SetResourceReference(BackgroundProperty, "Paper");
+        SetResourceReference(ForegroundProperty, "Ink");
 
         CharacterInfo info = packs.ReadInfo(name);
         var author = new TextBox { Text = info.Author, MaxLength = 60, Margin = new Thickness(0, 2, 0, 8) };
@@ -84,6 +87,9 @@ public sealed class ImportCharacterWindow : Window
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         FontSize = 13;
+        FontFamily = Theme.UiFont;
+        SetResourceReference(BackgroundProperty, "Paper");
+        SetResourceReference(ForegroundProperty, "Ink");
 
         var preview = new Border
         {
@@ -97,7 +103,7 @@ public sealed class ImportCharacterWindow : Window
 
         var details = new StackPanel { Width = 260 };
         details.Children.Add(new TextBlock { Text = shared.Name, FontSize = 17, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        if (shared.Info.Author.Length > 0) details.Children.Add(new TextBlock { Text = "by " + shared.Info.Author, Foreground = Brushes.DimGray });
+        if (shared.Info.Author.Length > 0) details.Children.Add(ThemeText.Muted(new TextBlock { Text = "by " + shared.Info.Author }));
         if (shared.Info.Description.Length > 0)
             details.Children.Add(new TextBlock { Text = shared.Info.Description, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
         details.Children.Add(new TextBlock
@@ -107,9 +113,9 @@ public sealed class ImportCharacterWindow : Window
             TextWrapping = TextWrapping.Wrap,
         });
         if (shared.Idle is null)
-            details.Children.Add(new TextBlock { Text = "It has no Normal animation, so you'll see a placeholder until you add one.", Foreground = Brushes.DarkOrange, TextWrapping = TextWrapping.Wrap });
+            details.Children.Add(ThemeText.Muted(new TextBlock { Text = "It has no Normal animation, so you'll see a placeholder until you add one.", TextWrapping = TextWrapping.Wrap }, "Warn"));
         if (shared.Skipped > 0)
-            details.Children.Add(new TextBlock { Text = $"{shared.Skipped} file(s) in it aren't animations and will be left out.", Foreground = Brushes.DimGray, TextWrapping = TextWrapping.Wrap });
+            details.Children.Add(ThemeText.Muted(new TextBlock { Text = $"{shared.Skipped} file(s) in it aren't animations and will be left out.", TextWrapping = TextWrapping.Wrap }));
 
         var top = new StackPanel { Orientation = Orientation.Horizontal };
         top.Children.Add(preview);
@@ -300,4 +306,14 @@ static class CharacterFileType
 
     [DllImport("shell32.dll")]
     static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);
+}
+
+static class ThemeText
+{
+    /// <summary>Gives a text the theme's muted (or another) color, which follows light and dark.</summary>
+    public static TextBlock Muted(TextBlock text, string key = "Muted")
+    {
+        text.SetResourceReference(TextBlock.ForegroundProperty, key);
+        return text;
+    }
 }

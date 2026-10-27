@@ -11,7 +11,7 @@ public sealed record ResourceUsage(string Part, double MemoryMb, double CpuPerce
 }
 
 /// <summary>
-/// How much the assistant and the programs it starts are using, for Settings > Features and the developer log.
+/// How much the assistant and the programs it starts are using, for Settings > Performance and the developer log.
 /// Memory is each process's private memory; CPU is measured between two calls (the first call shows 0).
 /// Only these processes are looked at, and only their numbers are kept: nothing about other programs.
 /// </summary>

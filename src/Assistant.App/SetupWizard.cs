@@ -33,7 +33,8 @@ public sealed class SetupWizard : Window
     readonly HardwarePlan plan = HardwareCheck.Detect();
 
     readonly ContentControl page = new();
-    readonly TextBlock stepLabel = new() { Foreground = Brushes.DimGray, VerticalAlignment = VerticalAlignment.Center };
+    readonly StackPanel steps = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(24, 18, 24, 4) };
+    static readonly string[] StepNames = ["Welcome", "Brain", "Files and voice", "Cloud chat", "Done"];
     readonly Button back = new() { Content = "Back", Padding = new Thickness(14, 4, 14, 4), Margin = new Thickness(0, 0, 8, 0) };
     readonly Button next = new() { Content = "Next", Padding = new Thickness(14, 4, 14, 4), IsDefault = true };
     readonly List<Func<UIElement>> pages;
@@ -51,11 +52,16 @@ public sealed class SetupWizard : Window
 
         Title = "Set up your assistant";
         Icon = Shell.WindowIcon;
-        Width = 600;
-        Height = 560;
+        Width = 660;
+        Height = 600;
         ResizeMode = ResizeMode.CanMinimize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         FontSize = 13;
+        FontFamily = Theme.UiFont;
+        SetResourceReference(BackgroundProperty, "Paper");
+        SetResourceReference(ForegroundProperty, "Ink");
+        next.Style = (Style)FindResource("Primary");
+        next.Padding = new Thickness(18, 4, 18, 4);
         Topmost = false;
 
         pages = [Welcome, Brain, Extras, Cloud, Done];
@@ -67,18 +73,18 @@ public sealed class SetupWizard : Window
             else Go(index + 1);
         };
 
-        var buttons = new DockPanel { Margin = new Thickness(16, 8, 16, 16) };
-        var right = new StackPanel { Orientation = Orientation.Horizontal };
-        right.Children.Add(back);
-        right.Children.Add(next);
-        DockPanel.SetDock(right, Dock.Right);
-        buttons.Children.Add(right);
-        buttons.Children.Add(stepLabel);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(24, 10, 24, 14) };
+        buttons.Children.Add(back);
+        buttons.Children.Add(next);
+        var bar = new Border { Child = buttons, BorderThickness = new Thickness(0, 1, 0, 0) };
+        bar.SetResourceReference(Border.BorderBrushProperty, "Line");
 
         var root = new DockPanel();
-        DockPanel.SetDock(buttons, Dock.Bottom);
-        root.Children.Add(buttons);
-        root.Children.Add(new ScrollViewer { Content = page, Padding = new Thickness(24, 20, 24, 8), VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        DockPanel.SetDock(steps, Dock.Top);
+        DockPanel.SetDock(bar, Dock.Bottom);
+        root.Children.Add(steps);
+        root.Children.Add(bar);
+        root.Children.Add(new ScrollViewer { Content = page, Padding = new Thickness(24, 16, 24, 8), VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         Content = root;
 
         Closing += (_, e) =>
@@ -100,7 +106,7 @@ public sealed class SetupWizard : Window
     {
         index = Math.Clamp(target, 0, pages.Count - 1);
         page.Content = pages[index]();
-        stepLabel.Text = $"Step {index + 1} of {pages.Count}";
+        ShowSteps();
         back.IsEnabled = index > 0 && !busy;
         next.Content = index == pages.Count - 1 ? "Start the assistant" : "Next";
         next.IsEnabled = !busy && (index != 1 || brainReady);
@@ -175,7 +181,7 @@ public sealed class SetupWizard : Window
         modelPart.Children.Add(useExisting);
 
         var status = Text("");
-        var bar = new ProgressBar { Height = 14, Margin = new Thickness(0, 8, 0, 4), Visibility = Visibility.Collapsed };
+        var bar = new ProgressBar { Height = 8, Margin = new Thickness(0, 8, 0, 4), Visibility = Visibility.Collapsed };
         var setUp = new Button { Content = "Download and set up", Padding = new Thickness(14, 4, 14, 4), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0) };
         modelPart.Children.Add(setUp);
         modelPart.Children.Add(bar);
@@ -308,7 +314,7 @@ public sealed class SetupWizard : Window
             panel.Children.Add(Text("Everything (free, from voidtools) finds any file on your drives instantly. Without it, " +
                                     "Windows Search is used, which only knows your own folders (Desktop, Documents, Downloads...)."));
             var status = Text("");
-            var bar = new ProgressBar { Height = 14, Margin = new Thickness(0, 6, 0, 4), Visibility = Visibility.Collapsed };
+            var bar = new ProgressBar { Height = 8, Margin = new Thickness(0, 6, 0, 4), Visibility = Visibility.Collapsed };
             var install = new Button { Content = "Install Everything (recommended)", Padding = new Thickness(14, 4, 14, 4), HorizontalAlignment = HorizontalAlignment.Left };
             install.Click += async (_, _) =>
             {
@@ -349,7 +355,7 @@ public sealed class SetupWizard : Window
         {
             var voiceStatus = Text($"The speech model (about {speech.DownloadMegabytes} MB) downloads the first time you talk, or now:");
             var download = new Button { Content = "Download it now", Padding = new Thickness(14, 4, 14, 4), HorizontalAlignment = HorizontalAlignment.Left };
-            var bar = new ProgressBar { Height = 14, IsIndeterminate = true, Margin = new Thickness(0, 6, 0, 4), Visibility = Visibility.Collapsed };
+            var bar = new ProgressBar { Height = 8, IsIndeterminate = true, Margin = new Thickness(0, 6, 0, 4), Visibility = Visibility.Collapsed };
             download.Click += async (_, _) =>
             {
                 SetBusy(true);
@@ -454,7 +460,7 @@ public sealed class SetupWizard : Window
         bool cloudConnected = config.GroqApiKey.Length > 0 || config.OpenRouterApiKey.Length > 0;
         panel.Children.Add(Text(!PerformanceProfile.For(config.Performance).LocalModel
             ? "The assistant runs in Lite mode: no local model. It answers direct requests itself" +
-              (cloudConnected ? ", and the free cloud chat handles conversation." : ". Connect the free cloud chat (Settings > Features) for conversation.")
+              (cloudConnected ? ", and the free cloud chat handles conversation." : ". Connect the free cloud chat (Settings > Privacy and cloud) for conversation.")
             : brainReady
                 ? $"The assistant runs on {config.Model}" + (cloudConnected ? ", with free cloud chat connected." : ", fully on this computer.")
                 : "The brain isn't set up yet, so chat won't work until it is. You can run setup again from the tray menu."));
@@ -513,6 +519,45 @@ public sealed class SetupWizard : Window
 
     static string Megabytes(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.0} GB" : $"{bytes / (1 << 20)} MB";
 
+    // The five steps across the top: done ones ticked, the current one in the accent color.
+    void ShowSteps()
+    {
+        steps.Children.Clear();
+        for (int i = 0; i < StepNames.Length; i++)
+        {
+            bool done = i < index, current = i == index;
+            var dot = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(11), BorderThickness = new Thickness(1.5) };
+            dot.SetResourceReference(Border.BorderBrushProperty, done || current ? "Accent" : "Line");
+            dot.SetResourceReference(Border.BackgroundProperty, done ? "Accent" : current ? "AccentTint" : "Paper");
+            var mark = new TextBlock
+            {
+                Text = done ? "\uE73E" : (i + 1).ToString(),
+                FontFamily = done ? (System.Windows.Media.FontFamily)FindResource("IconFont") : this.FontFamily,
+                FontSize = done ? 10 : 11.5,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            mark.SetResourceReference(TextBlock.ForegroundProperty, done ? "OnAccent" : current ? "AccentInk" : "Muted");
+            dot.Child = mark;
+
+            var name = new TextBlock { Text = StepNames[i], Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                                       FontWeight = current ? FontWeights.SemiBold : FontWeights.Normal };
+            name.SetResourceReference(TextBlock.ForegroundProperty, current ? "Ink" : "Muted");
+
+            var step = new StackPanel { Orientation = Orientation.Horizontal };
+            step.Children.Add(dot);
+            step.Children.Add(name);
+            steps.Children.Add(step);
+            if (i < StepNames.Length - 1)
+            {
+                var line = new Border { Width = 14, Height = 1.5, Margin = new Thickness(6, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+                line.SetResourceReference(Border.BackgroundProperty, done ? "Accent" : "Line");
+                steps.Children.Add(line);
+            }
+        }
+    }
+
     static StackPanel NewPage() => new();
 
     static TextBlock PageTitle(string text) => new() { Text = text, FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 10), TextWrapping = TextWrapping.Wrap };
@@ -521,7 +566,12 @@ public sealed class SetupWizard : Window
 
     static TextBlock Text(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) };
 
-    static TextBlock Hint(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DimGray, Margin = new Thickness(0, 12, 0, 0) };
+    static TextBlock Hint(string text)
+    {
+        var hint = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 12, 0, 0) };
+        hint.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        return hint;
+    }
 
     static TextBlock Bullet(string text) => new() { Text = "•  " + text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8, 2, 0, 4) };
 
