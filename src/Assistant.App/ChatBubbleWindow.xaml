@@ -60,6 +60,21 @@
             <Setter Property="Margin" Value="0,0,0,14"/>
         </Style>
 
+        <!-- Code: monospace, exact layout, scrolls sideways instead of wrapping. -->
+        <Style x:Key="CodeText" TargetType="TextBox" BasedOn="{StaticResource SelectableText}">
+            <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New"/>
+            <Setter Property="FontSize" Value="{DynamicResource SmallSize}"/>
+            <Setter Property="TextWrapping" Value="NoWrap"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
+                                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="SmallMuted" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
             <Setter Property="FontSize" Value="{DynamicResource SmallSize}"/>
@@ -124,6 +139,27 @@
                                 </StackPanel>
                             </DataTemplate>
 
+                            <!-- After an update: what's new, in three lines -->
+                            <DataTemplate DataType="{x:Type local:UpdateItem}">
+                                <Border Background="{DynamicResource AccentTint}" CornerRadius="12" Padding="14,10" Margin="0,0,0,14">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="{DynamicResource TitleSize}"/>
+                                        <ItemsControl ItemsSource="{Binding Highlights}" Margin="0,6,0,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,6">
+                                                        <Run Text="{Binding Title, Mode=OneWay}" FontWeight="SemiBold"/>
+                                                        <Run Text="{Binding Text, Mode=OneWay}"/>
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Button Style="{StaticResource SmallPrimary}" Content="See everything new" HorizontalAlignment="Left"
+                                                Margin="0,2,0,0" Click="OnWhatsNew"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+
                             <!-- A message: yours as a tinted note on the right, the assistant's as plain text -->
                             <DataTemplate DataType="{x:Type local:ChatItem}">
                                 <StackPanel Margin="0,0,0,14">
@@ -133,8 +169,46 @@
                                     </Border>
 
                                     <StackPanel Visibility="{Binding ReplyVisibility}">
-                                        <!-- Read-only text box styled as text: mark any part and copy it (Ctrl+C or right-click) -->
-                                        <TextBox Style="{StaticResource SelectableText}" Text="{Binding Text, Mode=OneWay}"/>
+                                        <!-- Prose as selectable text (mark any part and copy it), code in its own monospace box with Copy -->
+                                        <ItemsControl ItemsSource="{Binding Parts}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid>
+                                                        <TextBox Style="{StaticResource SelectableText}" Text="{Binding Text, Mode=OneWay}"
+                                                                 Visibility="{Binding ProseVisibility}" Margin="0,2"/>
+                                                        <Border Visibility="{Binding CodeVisibility}" Background="{DynamicResource Field}"
+                                                                BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10" Margin="0,6">
+                                                            <DockPanel>
+                                                                <DockPanel DockPanel.Dock="Top" Margin="10,3,4,0">
+                                                                    <Button DockPanel.Dock="Right" Style="{StaticResource MetaIcon}" Content="&#xE8C8;"
+                                                                            ToolTip="Copy the code" Tag="{Binding}" Click="OnCopyCode"/>
+                                                                    <TextBlock Text="{Binding LanguageLabel}" Style="{StaticResource SmallMuted}" VerticalAlignment="Center"/>
+                                                                </DockPanel>
+                                                                <TextBox Style="{StaticResource CodeText}" Text="{Binding Text, Mode=OneWay}" Margin="10,0,10,8"/>
+                                                            </DockPanel>
+                                                        </Border>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                        <!-- The web pages the answer was based on -->
+                                        <StackPanel Visibility="{Binding SourcesVisibility}" Margin="0,6,0,0">
+                                            <TextBlock Text="Sources" Style="{StaticResource SmallMuted}" FontWeight="Medium"/>
+                                            <ItemsControl ItemsSource="{Binding SourceLinks}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Button Style="{StaticResource SmallGhost}" Padding="0,1" MinHeight="0" HorizontalAlignment="Left"
+                                                                HorizontalContentAlignment="Left" Tag="{Binding Url}" ToolTip="{Binding Url}" Click="OnOpenLink">
+                                                            <TextBlock TextTrimming="CharacterEllipsis" MaxWidth="330">
+                                                                <Run Text="{Binding Title, Mode=OneWay}"/>
+                                                                <Run Text="{Binding Site, Mode=OneWay}" Foreground="{DynamicResource Muted}"/>
+                                                            </TextBlock>
+                                                        </Button>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
 
                                         <!-- What a tool did, word for word (saved or forgotten memory lines) -->
                                         <ItemsControl ItemsSource="{Binding Notes}" Margin="0,4,0,0">
@@ -197,6 +271,15 @@
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
+
+                                        <!-- A factual answer: look further on the web (costly, so only when asked); or ask again after a failure -->
+                                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                            <Button Style="{StaticResource SmallButton}" Content="Search the web" Visibility="{Binding WebSearchVisibility}"
+                                                    Tag="{Binding}" Click="OnSearchWeb" Margin="0,0,6,0"
+                                                    ToolTip="Groq's model searches the web and answers from what it finds. Slower, and it uses much more of the free limit."/>
+                                            <Button Style="{StaticResource SmallPrimary}" Content="Try again" Visibility="{Binding RetryVisibility}"
+                                                    Tag="{Binding}" Click="OnRetry"/>
+                                        </StackPanel>
 
                                         <!-- Follow-ups: the cloud for a screen or selected-text answer (asks first) -->
                                         <Button Style="{StaticResource SmallButton}" Content="{Binding CloudButtonLabel}" Visibility="{Binding CloudButtonVisibility}"

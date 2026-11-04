@@ -38,6 +38,15 @@ public sealed class AppConfig
     // activity or past conversations). Off unless the user turns it on in Settings > Privacy and cloud.
     public bool CloudKnowsAboutMe { get; set; }
 
+    // Custom shortcuts: a key combination runs a command, as if it were typed to the assistant ("Alt+S" → "open spotify").
+    // Settings > Shortcuts, or "make Alt+S open Spotify" in the chat. Paused while a game runs, so games get the keys.
+    public List<Shortcut> Shortcuts { get; set; } = [];
+    public bool ShortcutsPauseInGames { get; set; } = true;
+
+    // Groq's cloud model may search the web (for facts it isn't sure of) and run Python (for exact sums) while it answers.
+    // The searches go through Groq's search partner; everything sent is still logged in the sent folder.
+    public bool CloudWebSearch { get; set; } = true;
+
     [JsonPropertyName("groqApiKey")]
     public string GroqApiKeyStored
     {
@@ -85,9 +94,25 @@ public sealed class AppConfig
     public int ScreensaverMinutesBeforeScreenOff { get; set; } = 3;
     public int ScreensaverFallbackMinutes { get; set; } = 10;
 
-    // Updates: once a day the installed app looks for a new version on the project's GitHub Releases,
-    // downloads it quietly and installs it on the next start.
-    public bool AutoUpdate { get; set; } = true;
+    // Updates from the project's GitHub Releases, looked for once a day by the installed app:
+    // "auto" downloads a new version quietly and installs it on the next start; "notify" only says one is out and
+    // installs it when asked; "off" doesn't look (Settings > Startup and updates > Check now still works).
+    public string UpdateMode { get; set; } = "auto";
+
+    /// <summary>Settings before 0.6.0 had a yes/no "autoUpdate": no becomes "off". Read once, never written again.</summary>
+    [JsonPropertyName("autoUpdate")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? OldAutoUpdate
+    {
+        get => null;
+        set
+        {
+            if (value == false) UpdateMode = "off";
+        }
+    }
+
+    // The version that last ran, so the first start after an update can say what's new (Settings > What's new).
+    public string LastSeenVersion { get; set; } = "";
 
     // A gentle "time for a break?" after this many minutes of using the PC without a 5-minute pause; 0 turns it off.
     public int BreakReminderMinutes { get; set; } = 60;
@@ -139,6 +164,9 @@ public sealed class AppConfig
     {
         if (GroqModel == "llama-3.3-70b-versatile") GroqModel = "openai/gpt-oss-120b"; // 0.4.1: a much stronger model
         if (ContextSize == 2048) ContextSize = 4096;                                      // 0.4.1: room for picked facts
+        if (UpdateMode is not ("auto" or "notify" or "off")) UpdateMode = "auto";
+        Shortcuts ??= [];
+        Shortcuts.RemoveAll(shortcut => shortcut is null || string.IsNullOrWhiteSpace(shortcut.Keys));
     }
 
     public void Save(string path) => File.WriteAllText(path, JsonSerializer.Serialize(this, Options));

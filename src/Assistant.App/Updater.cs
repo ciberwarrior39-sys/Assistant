@@ -7,9 +7,10 @@ using Velopack.Sources;
 namespace Assistant.App;
 
 /// <summary>
-/// Automatic updates from the project's GitHub Releases (Velopack). Once a day it looks for a newer version
-/// and downloads it quietly; the update is installed the next time the app starts, or right away from the
-/// tray's "Restart to update". Does nothing when running from source or when no repository is configured.
+/// Updates from the project's GitHub Releases (Velopack). Once a day it looks for a newer version. In "auto" mode it
+/// downloads it quietly, and the update is installed the next time the app starts (or right away from the tray's
+/// "Restart to update"); in "notify" mode it only says a version is out, and installs it when the user asks; "off"
+/// doesn't look. Does nothing when running from source or when no repository is configured.
 /// </summary>
 public sealed class Updater
 {
@@ -22,6 +23,12 @@ public sealed class Updater
 
     /// <summary>Raised on the UI thread when an update has been downloaded, with its version.</summary>
     public event Action<string>? Ready;
+
+    /// <summary>"notify" mode: a newer version is out (not downloaded yet), with its version.</summary>
+    public event Action<string>? Available;
+
+    /// <summary>A newer version found in "notify" mode, until it's installed.</summary>
+    public string? AvailableVersion { get; private set; }
 
     public Updater()
     {
@@ -49,16 +56,54 @@ public sealed class Updater
     /// <summary>The downloaded version waiting for a restart, or null.</summary>
     public string? PendingVersion => manager?.UpdatePendingRestart?.Version?.ToString();
 
-    public void Start(Func<bool> enabled)
+    /// <param name="mode">The current setting, read at each daily check: auto, notify or off.</param>
+    public void Start(Func<string> mode)
     {
         if (manager is null) return;
         timer.Interval = FirstCheckAfter;
         timer.Tick += async (_, _) =>
         {
             timer.Interval = CheckEvery;
-            if (enabled()) await CheckAsync();
+            switch (mode())
+            {
+                case "auto": await CheckAsync(); break;
+                case "notify": await LookAsync(); break;
+            }
         };
         timer.Start();
+    }
+
+    // "notify": only looks; nothing is downloaded until the user says Install.
+    async Task LookAsync()
+    {
+        if (manager is null || checking || HasPendingUpdate) return;
+        checking = true;
+        try
+        {
+            var update = await manager.CheckForUpdatesAsync();
+            if (update is null) return;
+            string version = update.TargetFullRelease.Version.ToString();
+            if (version == AvailableVersion) return; // already said
+            AvailableVersion = version;
+            Available?.Invoke(version);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            DiagnosticLog.Error("Update check failed", ex);
+        }
+        finally
+        {
+            checking = false;
+        }
+    }
+
+    /// <summary>"Install version …" (tray, notify mode): downloads it and restarts into it. Returns a problem, or null.</summary>
+    public async Task<string?> InstallNowAsync()
+    {
+        string result = await CheckNowAsync();
+        if (!HasPendingUpdate) return result;
+        RestartToUpdate();
+        return null;
     }
 
     /// <summary>

@@ -69,6 +69,14 @@ public static partial class MathText
     public static string Readable(string text)
     {
         if (text.Length == 0) return text;
+        // Code blocks are kept exactly as they are: only the prose around them is cleaned up.
+        if (!CodeBlocks.HasCode(text)) return ReadableProse(text);
+        return CodeBlocks.Join(CodeBlocks.Split(text).Select(part => part.IsCode ? part : part with { Text = ReadableProse(part.Text) }));
+    }
+
+    static string ReadableProse(string text)
+    {
+        if (text.Length == 0) return text;
 
         // Paths are kept out of every change below ("D:\notes\pi" must stay as it is).
         var result = new StringBuilder();

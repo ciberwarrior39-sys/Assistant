@@ -85,6 +85,9 @@ public partial class App : Application
     Action? reviewNow; // set once the review is wired up, used by the tray menu
     VoiceController? voice;
     Action? openSettings;    // set once everything exists, used by the tray menu
+    Action<string>? openSettingsAt;                  // Settings at a page ("What's new")
+    System.Windows.Controls.MenuItem? installItem;   // "Install version …", shown when an update is out (notify mode)
+    Func<Task>? installUpdate;                       // tray > Install version …
     SettingsWindow? settingsWindow;
     Speaker? testSpeaker;    // for "Test voice" while voice is turned off
     OllamaRuntime? ollamaRuntime; // the app's own Ollama, when setup chose it
@@ -147,6 +150,7 @@ public partial class App : Application
         var piper = new PiperInstall(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Assistant", "piper"));
         var runtimeHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         ollamaRuntime = new OllamaRuntime(runtimeHttp);
+        bool wasSetUp = config.SetupDone; // a first install isn't an update: no "what's new" then
         if (!config.SetupDone) new SetupWizard(config, data.ConfigFile, ollamaRuntime, speechModels, piper).ShowDialog();
 
         // Full, Balanced or Lite: how heavy the assistant may be on this PC (chosen in setup, changed in Settings).
@@ -185,7 +189,10 @@ public partial class App : Application
             },
             new("OpenRouter", new Uri("https://openrouter.ai/api/v1/"), config.OpenRouterApiKey, config.OpenRouterModel, "key"),
         ];
-        var cloudHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        var cloudHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(75) }; // a web search inside an answer takes a while
+        // Wikipedia, for factual questions going to cloud chat: Wikimedia asks every program to say who it is.
+        var wikiHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+        wikiHttp.DefaultRequestHeaders.UserAgent.ParseAdd("Assistant/0.6 (+https://github.com/ciberwarrior39-sys/Assistant)");
         var cloud = new CloudChat(
             cloudEndpoints.Where(endpoint => endpoint.HasKey)
                 .Select(endpoint => new OpenAiCompatibleProvider(endpoint, cloudHttp))
@@ -216,6 +223,8 @@ public partial class App : Application
             Organizer = organizer,
             Conversations = new ConversationLog(data.ConversationsFolder),
             ShareAboutMeWithCloud = config.CloudKnowsAboutMe,
+            CloudWebTools = config.CloudWebSearch,
+            Knowledge = new Assistant.Core.Knowledge.WikipediaLookup(wikiHttp),
         };
         service = assistant;
         var resources = new ResourceMonitor(ollama);
@@ -256,7 +265,27 @@ public partial class App : Application
             bubble.Say($"Version {version} is downloaded. It installs the next time the assistant starts, " +
                        "or right away from the tray menu: Restart to update.");
         };
-        updater.Start(() => config.AutoUpdate);
+        // "Tell me first": a version is out; nothing is downloaded until the user says Install.
+        updater.Available += version =>
+        {
+            if (installItem is not null)
+            {
+                installItem.Header = $"Install version {version}";
+                installItem.Visibility = Visibility.Visible;
+            }
+            bubble.Say($"Version {version} is out. Tray menu > Install version {version} downloads and installs it " +
+                       "(the assistant restarts). Settings > What's new says what's in it once it's installed.");
+            if (character.IsVisible) character.ShowNote($"version {version} is out", TimeSpan.FromSeconds(12), character.OpenChat);
+        };
+        installUpdate = async () =>
+        {
+            if (await updates.InstallNowAsync() is { } problem)
+            {
+                character.ShowAgain();
+                bubble.Say(problem);
+            }
+        };
+        updater.Start(() => config.UpdateMode);
         StartWithWindows.Sync(config.StartWithWindows);
         CharacterFileType.Register();
         checkForUpdates = async () =>
@@ -280,6 +309,25 @@ public partial class App : Application
                                         bubble, character, mood);
         }
 
+        // Custom shortcuts: a key combination runs a command as if typed ("Alt+S" → "open spotify"). Quick results show
+        // as a note on the character; answers open the chat. Paused in game mode (gameMode.Changed below).
+        var shortcutKeys = new ShortcutKeys(character, config, data.ConfigFile, config.VoiceEnabled ? config.PushToTalkKey : "");
+        assistant.Shortcuts = shortcutKeys;
+        shortcutKeys.Triggered += async shortcut =>
+        {
+            mood.Touch();
+            await bubble.RunShortcutAsync(Assistant.Core.Actions.HotkeyText.Normalize(shortcut.Keys) ?? shortcut.Keys, shortcut.Command,
+                showNote: note =>
+                {
+                    if (character.IsVisible) character.ShowNote(note, TimeSpan.FromSeconds(4)); // hidden on purpose: stay hidden
+                },
+                openChat: () =>
+                {
+                    character.ShowAgain();
+                    character.OpenChat();
+                });
+        };
+
         // Screensaver: bounces around a few minutes before Windows turns the screen off.
         var screensaver = new Screensaver(character, mood, bubble, config);
 
@@ -302,9 +350,12 @@ public partial class App : Application
                     life?.SettingsChanged();
                     activity.Enabled = edited.ActivityLogging;
                     assistant.ShareAboutMeWithCloud = edited.CloudKnowsAboutMe;
+                    assistant.CloudWebTools = edited.CloudWebSearch;
                     StartWithWindows.Sync(edited.StartWithWindows);
                     voice?.ConfigureVoice(edited.VoiceName, edited.VoiceRate);
                     testSpeaker?.Configure(edited.VoiceName, edited.VoiceRate);
+                    shortcutKeys.Paused = assistant.CloudOnly && edited.ShortcutsPauseInGames; // CloudOnly: game mode is on
+                    shortcutKeys.Apply();
                 },
                 PreviewMood: shown =>
                 {
@@ -336,11 +387,44 @@ public partial class App : Application
                 Installed: StartWithWindows.IsInstalled,
                 Resources: () => resources.SampleAsync(voice?.SpeechModelLoaded == true, CancellationToken.None),
                 Piper: piper,
-                Version: updater?.CurrentVersion ?? "development build"));
+                Version: updater?.CurrentVersion ?? "development build",
+                ShortcutProblem: shortcutKeys.Problem,
+                TestShortcut: shortcut => shortcutKeys.Run(shortcut)));
             settingsWindow.Show();
+        };
+        openSettingsAt = page =>
+        {
+            openSettings?.Invoke();
+            settingsWindow?.ShowPage(page);
         };
         character.SettingsRequested += () => openSettings?.Invoke();
         bubble.SettingsRequested += () => openSettings?.Invoke();
+        bubble.WhatsNewRequested += () => openSettingsAt?.Invoke(SettingsWindow.WhatsNewPage);
+
+        // The first start after an update: a note on the character, and a card with the highlights the next time the
+        // chat opens (it doesn't pop open by itself). Installed copies only; a first install stays quiet.
+        string? runningVersion = updates.CurrentVersion;
+        if (runningVersion is not null && runningVersion != config.LastSeenVersion)
+        {
+            config.LastSeenVersion = runningVersion;
+            try
+            {
+                config.Save(data.ConfigFile);
+            }
+            catch (IOException ex)
+            {
+                DiagnosticLog.Error("Could not save config.json", ex);
+            }
+            if (wasSetUp && Changelog.For(Changelog.BuiltIn(typeof(App).Assembly), runningVersion) is { } notes)
+            {
+                bubble.ShowUpdateCard(notes);
+                _ = Dispatcher.InvokeAsync(() =>
+                {
+                    mood.Set(Mood.Happy, TimeSpan.FromSeconds(3));
+                    character.ShowNote($"updated to {notes.Version}!", TimeSpan.FromSeconds(20), character.OpenChat);
+                }, DispatcherPriority.ApplicationIdle);
+            }
+        }
 
         // Doing things on the PC: "open Spotify", "volume to 30", "take a screenshot", "empty the recycle bin" (asks first).
         // For a screenshot, the character and the bubble step out of the picture for a moment.
@@ -368,14 +452,15 @@ public partial class App : Application
 
         // Help with selected text: mark text anywhere, right-click the character. Read through Windows' accessibility
         // interface (or the last copied text), shown on a card; nothing is sent anywhere until the user picks a cloud option.
-        async void OfferTextHelp()
+        async void OfferTextHelp(TextHelpRequest? request)
         {
             character.ShowAgain();
             character.OpenChat();
-            await bubble.OfferTextHelpAsync(() => SelectedText.PickAsync(windowCapture));
+            await bubble.OfferTextHelpAsync(() => SelectedText.PickAsync(windowCapture), request);
         }
-        character.TextHelpRequested += OfferTextHelp;
-        bubble.TextHelpRequested += OfferTextHelp; // the suggestion under the greeting
+        character.TextHelpRequested += () => OfferTextHelp(null);
+        bubble.TextHelpRequested += OfferTextHelp; // the suggestion under the greeting, or a typed "translate this"
+        ClipboardWatch.Start(character); // when the clipboard last changed (never what's in it), for fresh copied text
 
         // A character file was double-clicked: preview it, then import it and switch to it.
         void ImportCharacter(string file)
@@ -455,6 +540,7 @@ public partial class App : Application
             handRaiser.Paused = on;
             if (on) screensaver.Stop();
             if (voice is not null) voice.Paused = on;
+            shortcutKeys.Paused = on && config.ShortcutsPauseInGames; // the game gets every key
             if (on) handRaiser.LowerNow();
             if (on) await localModel.UnloadAsync(CancellationToken.None);
         };
@@ -554,6 +640,13 @@ public partial class App : Application
         {
             if (checkForUpdates is not null) await checkForUpdates();
         }));
+        installItem = TrayEntry("Install update", async () =>
+        {
+            if (installUpdate is not null) await installUpdate();
+        });
+        installItem.Visibility = Visibility.Collapsed;
+        menu.Items.Add(installItem);
+        menu.Items.Add(TrayEntry("What's new", () => openSettingsAt?.Invoke(SettingsWindow.WhatsNewPage)));
         updateItem = TrayEntry("Restart to update", RestartToUpdate);
         updateItem.Visibility = Visibility.Collapsed;
         menu.Items.Add(updateItem);

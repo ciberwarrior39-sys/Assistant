@@ -29,7 +29,9 @@ public sealed record SettingsHost(
     bool Installed,                    // installed with the setup file (not run from source)
     Func<Task<IReadOnlyList<Assistant.Core.Diagnostics.ResourceUsage>>> Resources, // what each part uses now
     Assistant.Core.Voice.PiperInstall Piper, // the natural voices, downloaded on request
-    string Version);
+    string Version,
+    Func<string, string?> ShortcutProblem,   // why a shortcut's keys don't work right now, or null
+    Action<Shortcut> TestShortcut);         // run a shortcut's command now
 
 /// <summary>
 /// Settings, saved to config.json. Most changes show up immediately on the character and the bubble;
@@ -57,6 +59,11 @@ public sealed class SettingsWindow : Window
     readonly SettingsHost host;
     readonly AppConfig original;  // what to go back to on Cancel
     readonly AppConfig edited;    // the shared config, changed live
+    /// <summary>The name of the What's new page, for opening Settings there.</summary>
+    public const string WhatsNewPage = "What's new";
+
+    TabControl? tabs;
+
     readonly TextBlock restartNote = new()
     {
         Text = "Some changes apply after a restart.",
@@ -104,9 +111,12 @@ public sealed class SettingsWindow : Window
         AddPage(tabs, "Chat bubble", BubbleTab());
         AddPage(tabs, "Voice", VoiceTab());
         AddPage(tabs, "Features", FeaturesSection());
+        AddPage(tabs, "Shortcuts", ShortcutsTab());
         AddPage(tabs, "Performance", PerformanceSection());
         AddPage(tabs, "Privacy and cloud", Stack(CloudSection(), DataSection()));
         AddPage(tabs, "Startup and updates", Stack(StartupSection(), UpdatesSection()));
+        AddPage(tabs, WhatsNewPage, WhatsNewTab());
+        this.tabs = tabs;
         tabs.SelectionChanged += (_, e) =>
         {
             if (e.Source == tabs) host.PreviewBubble(tabs.SelectedIndex == 1);
@@ -650,6 +660,195 @@ public sealed class SettingsWindow : Window
 
     // ---- Features --------------------------------------------------------------------------------
 
+    /// <summary>Shows one page ("What's new"), for links from the chat and the tray.</summary>
+    public void ShowPage(string title)
+    {
+        if (tabs?.Items.OfType<TabItem>().FirstOrDefault(item => (string)item.Header == title) is { } page) tabs.SelectedItem = page;
+        Activate();
+    }
+
+    // ---- What's new ------------------------------------------------------------------------------
+
+    UIElement WhatsNewTab()
+    {
+        var panel = new StackPanel();
+        IReadOnlyList<Assistant.Core.ReleaseNotes> releases = Assistant.Core.Changelog.BuiltIn(typeof(SettingsWindow).Assembly);
+        panel.Children.Add(Hint($"You have version {host.Version}. The newest is first."));
+        if (releases.Count == 0) panel.Children.Add(Hint("The list of changes isn't included in this copy of the app."));
+        foreach (Assistant.Core.ReleaseNotes release in releases)
+        {
+            var heading = Heading(release.Version);
+            if (release.Date.Length > 0)
+            {
+                var date = new Run("  " + release.Date) { FontWeight = FontWeights.Normal, FontSize = 12 };
+                date.SetResourceReference(TextElement.ForegroundProperty, "Muted");
+                heading.Inlines.Add(date);
+            }
+            panel.Children.Add(heading);
+            foreach (string change in release.Changes)
+            {
+                (string title, string text) = Assistant.Core.Changelog.Split(change);
+                var line = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 7) };
+                line.Inlines.Add(new Run("•  "));
+                if (title.Length > 0) line.Inlines.Add(new Run(title + " ") { FontWeight = FontWeights.SemiBold });
+                line.Inlines.Add(new Run(text));
+                panel.Children.Add(line);
+            }
+        }
+        return panel;
+    }
+
+    // ---- Shortcuts -------------------------------------------------------------------------------
+
+    readonly StackPanel shortcutRows = new();
+    readonly List<(Shortcut Shortcut, TextBlock Problem)> shortcutProblems = [];
+
+    UIElement ShortcutsTab()
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(Hint("Press keys to run anything you'd type to the assistant, for example “open spotify”, “pause”, " +
+                                "“volume 30”, “set a timer for 25 minutes” or “my list”. Quick ones show a note on the character; " +
+                                "answers open the chat. You can also type “make Alt+S open Spotify” in the chat."));
+
+        var header = new Grid { Margin = new Thickness(0, 10, 0, 2) };
+        ShortcutColumns(header);
+        header.Children.Add(Small("Keys", 0));
+        header.Children.Add(Small("Command", 1));
+        panel.Children.Add(header);
+        panel.Children.Add(shortcutRows);
+        ShowShortcuts();
+
+        var add = new Button { Content = "Add shortcut", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0) };
+        add.Click += (_, _) =>
+        {
+            edited.Shortcuts.Add(new Shortcut());
+            ShowShortcuts();
+            // Straight to the new row's keys box.
+            if (shortcutRows.Children[^1] is FrameworkElement row && FindKeysBox(row) is { } box) box.Focus();
+        };
+        panel.Children.Add(add);
+
+        panel.Children.Add(Heading("While playing"));
+        panel.Children.Add(Check("Pause shortcuts while a game runs (so the game gets those keys)", edited.ShortcutsPauseInGames,
+            value => edited.ShortcutsPauseInGames = value));
+        panel.Children.Add(Hint("Windows gives a key combination to one program at a time: while the assistant has it, other " +
+                                "programs don't get it. Alt + a letter is often a menu key in other apps, so Ctrl+Alt or Win " +
+                                "combinations are the safest."));
+        return panel;
+
+        static TextBlock Small(string text, int column)
+        {
+            var label = Hint(text);
+            label.Margin = new Thickness(0);
+            Grid.SetColumn(label, column);
+            return label;
+        }
+    }
+
+    static void ShortcutColumns(Grid grid)
+    {
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+    }
+
+    static TextBox? FindKeysBox(FrameworkElement row) =>
+        row is StackPanel { Children.Count: > 0 } stack && stack.Children[0] is Grid grid ? grid.Children.OfType<TextBox>().FirstOrDefault() : null;
+
+    void ShowShortcuts()
+    {
+        shortcutRows.Children.Clear();
+        shortcutProblems.Clear();
+        foreach (Shortcut shortcut in edited.Shortcuts) shortcutRows.Children.Add(ShortcutRow(shortcut));
+        RefreshShortcutProblems();
+    }
+
+    UIElement ShortcutRow(Shortcut shortcut)
+    {
+        var grid = new Grid();
+        ShortcutColumns(grid);
+
+        // The keys: click the box, then press them together.
+        var keys = new TextBox { Text = Assistant.Core.Actions.HotkeyText.Normalize(shortcut.Keys) ?? shortcut.Keys, IsReadOnly = true,
+                                 Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Click, then press the keys together" };
+        keys.PreviewKeyDown += (_, e) =>
+        {
+            e.Handled = true;
+            Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (key is Key.Tab) { e.Handled = false; return; }
+            if (key is Key.Back or Key.Delete) { keys.Text = shortcut.Keys = ""; ShortcutChanged(); return; }
+            if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift
+                    or Key.LWin or Key.RWin or Key.Escape)
+                return;
+
+            var parts = new List<string>();
+            ModifierKeys modifiers = Keyboard.Modifiers;
+            if (modifiers.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");
+            if (modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
+            if (modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
+            if (modifiers.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
+            // The number-row keys are D0–D9 to Windows; written as plain digits.
+            string name = key is >= Key.D0 and <= Key.D9 ? ((int)(key - Key.D0)).ToString() : key.ToString();
+            parts.Add(name);
+            string combination = string.Join("+", parts);
+            keys.Text = shortcut.Keys = Assistant.Core.Actions.HotkeyText.Normalize(combination) ?? combination;
+            ShortcutChanged();
+        };
+        Grid.SetColumn(keys, 0);
+        grid.Children.Add(keys);
+
+        var command = new TextBox { Text = shortcut.Command, ToolTip = "What it runs, as you'd type it to the assistant" };
+        command.TextChanged += (_, _) =>
+        {
+            shortcut.Command = command.Text.Trim();
+            ShortcutChanged();
+        };
+        Grid.SetColumn(command, 1);
+        grid.Children.Add(command);
+
+        var test = new Button { Content = "Test", Style = (Style)FindResource("Ghost"), Margin = new Thickness(6, 0, 0, 0), ToolTip = "Run it now" };
+        test.Click += (_, _) => host.TestShortcut(shortcut);
+        Grid.SetColumn(test, 2);
+        grid.Children.Add(test);
+
+        var delete = new Button { Content = "\uE711", Style = (Style)FindResource("IconButton"), ToolTip = "Delete this shortcut" };
+        delete.Click += (_, _) =>
+        {
+            edited.Shortcuts.Remove(shortcut);
+            ShowShortcuts();
+            ShortcutChanged();
+        };
+        Grid.SetColumn(delete, 3);
+        grid.Children.Add(delete);
+
+        var problem = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(2, 2, 0, 0), Visibility = Visibility.Collapsed };
+        problem.SetResourceReference(TextBlock.ForegroundProperty, "Bad");
+        shortcutProblems.Add((shortcut, problem));
+
+        var row = new StackPanel { Margin = new Thickness(0, 4, 0, 4) };
+        row.Children.Add(grid);
+        row.Children.Add(problem);
+        return row;
+    }
+
+    // Registered again at once (ApplyLive), then each row says whether its keys work.
+    void ShortcutChanged()
+    {
+        Changed();
+        RefreshShortcutProblems();
+    }
+
+    void RefreshShortcutProblems()
+    {
+        foreach ((Shortcut shortcut, TextBlock problem) in shortcutProblems)
+        {
+            string? text = host.ShortcutProblem(shortcut.Keys);
+            problem.Text = text ?? "";
+            problem.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
+        }
+    }
+
     UIElement PerformanceSection()
     {
         var panel = new StackPanel();
@@ -767,6 +966,11 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(Labeled("Groq key", KeyBox(edited.GroqApiKey, value => edited.GroqApiKey = value)));
         panel.Children.Add(Labeled("OpenRouter key", KeyBox(edited.OpenRouterApiKey, value => edited.OpenRouterApiKey = value)));
         panel.Children.Add(Hint("Keys are saved encrypted for your Windows account, in config.json on this computer only."));
+        panel.Children.Add(Check("Look facts up for cloud chat (Wikipedia; web search when you press Search the web; exact sums)",
+            edited.CloudWebSearch, value => edited.CloudWebSearch = value));
+        panel.Children.Add(Hint("A factual question is looked up on Wikipedia (only the search words go there) and the answer is " +
+                                "based on the article, listed under it. \"Search the web\" under an answer lets Groq's model search " +
+                                "further, through its search partner; it's slower and uses far more of the free limit."));
         panel.Children.Add(Check("Let cloud chat know about me: your name and the about-me facts that matter for the message",
             edited.CloudKnowsAboutMe, value => edited.CloudKnowsAboutMe = value));
         panel.Children.Add(Hint("Only lines from memory\\about-me.md, picked per message. Places, files, notes, activity and past " +
@@ -779,8 +983,27 @@ public sealed class SettingsWindow : Window
     {
         var panel = new StackPanel();
         panel.Children.Add(Heading("Updates"));
-        panel.Children.Add(Check("Check for a new version once a day and install it on the next start", edited.AutoUpdate,
-            value => edited.AutoUpdate = value));
+        foreach ((string mode, string label) in new[]
+                 {
+                     ("auto", "Install updates automatically (downloaded quietly, installed the next time the assistant starts)"),
+                     ("notify", "Tell me when there's an update, and I'll install it (tray menu > Install version …)"),
+                     ("off", "Don't look for updates (Check now below still works)"),
+                 })
+        {
+            var option = new RadioButton
+            {
+                GroupName = "updates",
+                IsChecked = edited.UpdateMode == mode,
+                Margin = new Thickness(0, 4, 0, 2),
+                Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap },
+            };
+            option.Checked += (_, _) =>
+            {
+                edited.UpdateMode = mode;
+                Changed();
+            };
+            panel.Children.Add(option);
+        }
         panel.Children.Add(Hint($"This is version {host.Version}."));
 
         var updateStatus = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8, 0, 0, 0), MaxWidth = 300 };
@@ -929,6 +1152,7 @@ public sealed class SettingsWindow : Window
 
     void Save()
     {
+        edited.Shortcuts.RemoveAll(shortcut => shortcut.Keys.Length == 0 && shortcut.Command.Length == 0); // rows left empty
         try
         {
             edited.Save(host.ConfigPath);

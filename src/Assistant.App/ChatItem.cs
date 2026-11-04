@@ -1,4 +1,6 @@
 using System.Windows;
+using Assistant.Core;
+using Assistant.Core.Llm;
 using Assistant.Core.Search;
 
 namespace Assistant.App;
@@ -7,7 +9,34 @@ namespace Assistant.App;
 public sealed class ChatItem
 {
     public required string Who { get; init; }
-    public required string Text { get; init; }
+    public required string Text
+    {
+        get => text;
+        init
+        {
+            text = value;
+            Parts = CodeBlocks.Split(value).Select(part => new MessagePart(part)).ToList();
+        }
+    }
+    string text = "";
+
+    /// <summary>The message as prose and code blocks (code keeps its exact layout, in a monospace box).</summary>
+    public IReadOnlyList<MessagePart> Parts { get; private init; } = [];
+
+    /// <summary>Web pages the cloud model searched for this answer.</summary>
+    public IReadOnlyList<WebSource> Sources
+    {
+        get => sources;
+        init
+        {
+            sources = value;
+            SourceLinks = value.Select(source => new SourceLink(source)).ToList();
+        }
+    }
+    IReadOnlyList<WebSource> sources = [];
+
+    public IReadOnlyList<SourceLink> SourceLinks { get; private init; } = [];
+    public Visibility SourcesVisibility => SourceLinks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
     public IReadOnlyList<FileHit> Files
     {
@@ -42,6 +71,14 @@ public sealed class ChatItem
     /// <summary>On replies to a message: what was asked and who answered, for the 👍/👎 buttons.</summary>
     public string? Question { get; init; }
     public string Source { get; init; } = "";
+
+    /// <summary>A factual question cloud chat answered: "Search the web" looks further (Groq's search).</summary>
+    public string? WebSearchQuestion { get; init; }
+    public Visibility WebSearchVisibility => WebSearchQuestion is null ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>Cloud chat didn't answer a factual question: "Try again".</summary>
+    public string? RetryQuestion { get; init; }
+    public Visibility RetryVisibility => RetryQuestion is null ? Visibility.Collapsed : Visibility.Visible;
 
     /// <summary>Buttons under the reply: which app to open, or a confirmation.</summary>
     public IReadOnlyList<ChoiceButton> Choices { get; init; } = [];

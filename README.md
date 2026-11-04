@@ -167,9 +167,11 @@ finds files on your computer, and optional free cloud chat handles conversation.
   - "note …" phrases now go to notes; "remember …" still goes to memory.
 - **Help with selected text:** mark text anywhere with the mouse, right-click the character > **Help with selected text**.
   A card shows what was picked up, with **Explain, Summarise, Translate to English / Bulgarian, Fix grammar, Make shorter**
-  or your own question; answers have a **Copy** button. The marked text is read through Windows' accessibility interface
-  (no simulated key presses, the clipboard is never changed); apps that don't share it (some Chrome pages, Discord) use
-  the last copied text instead, and the card says so. The local model answers (up to 2,500 characters, 1,200 for
+  or your own question; answers have a **Copy** button. Typing "translate this", "summarise this", "explain the selected
+  text" or `преведи това` in the chat does the same. The marked text is read through Windows' accessibility interface
+  (no simulated key presses, the clipboard is never changed), web pages first (not the browser's address bar), with a
+  second look when Chrome or Edge is slow to share the page; apps that don't share it (Discord) use text copied in the
+  last two minutes, and the card says so. The local model answers (up to 2,500 characters, 1,200 for
   translations and rewrites, whose answer is as long as the text); **Ask cloud chat instead…** shows exactly what would
   be sent first. Not in game mode, not from windows in `exclusions.json`, and never added to the chat history.
 - **It feels alive** (Settings > Character > Life, every part can be turned off; all of it stops during a game and none
@@ -186,6 +188,21 @@ finds files on your computer, and optional free cloud chat handles conversation.
     hat on New Year's Eve and Day, and on your birthday, only if you told it to remember it ("remember my birthday is
     14 March"); then it also says happy birthday once that day.
   - **Walking around** the bottom of the screen every few minutes: off by default, since it can be distracting.
+- **Accurate answers** (cloud chat): a factual question is looked up on Wikipedia (Bulgarian for a question in
+  Cyrillic, English otherwise; only the search words go there) and the relevant parts of the article go with the
+  question, so the model answers from them; the articles are listed under the answer. If they don't say, it says so
+  instead of guessing, and **Search the web** under the answer lets Groq's own web search look further (slower, and it
+  uses far more of the free limit: one searched question can take 30,000+ tokens). If cloud chat doesn't answer a
+  factual question, the small offline model doesn't guess: "Try again" asks once more. Maths, logic and code questions
+  get more thinking time, room for a full answer and Python for exact sums. Code is shown in its own monospace box
+  with a Copy button. Settings > Privacy and cloud turns the lookups off.
+- **Custom shortcuts:** a key combination runs anything you'd type ("Alt+S" → "open spotify", "Ctrl+Alt+P" → "pause").
+  Settings > Shortcuts, or say "make Alt+S open Spotify", "remove the Alt+S shortcut", "my shortcuts" (Bulgarian
+  too). Quick results show as a note on the character; answers open the chat. Registered with Windows like
+  push-to-talk (not a keyboard hook); paused while a game runs, so games get the keys.
+- **What's new:** after an update, a note on the character and a card in the chat with the highlights; everything is
+  in Settings > What's new (from `CHANGELOG.md`, which is also each GitHub release's notes). Updates: install
+  automatically (default), tell me first, or off (Settings > Startup and updates).
 - **Copying from the chat:** any part of a message can be marked with the mouse and copied (Ctrl+C or right-click).
 - **Looking at the screen:** ask "look at this" or "what does this error mean?" and the local model looks at the window
   you were using (never the whole screen) and answers. The picture stays in memory, is never saved and never goes

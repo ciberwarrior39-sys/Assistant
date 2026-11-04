@@ -97,3 +97,21 @@ jobs:
           vpk upload github --repoUrl $env:REPO_URL --token $env:GH_TOKEN --outputDir releases --publish `
             --releaseName "Assistant $env:VERSION" --tag "v$env:VERSION"
           if ($LASTEXITCODE -ne 0) { throw "Uploading failed." }
+
+      # The release's notes: this version's section of CHANGELOG.md (the same text the app shows in What's new).
+      - name: Release notes from CHANGELOG.md
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $lines = Get-Content CHANGELOG.md -Encoding utf8
+          $start = [array]::FindIndex($lines, [Predicate[string]]{ param($l) $l -match "^##\s+v?$([regex]::Escape($env:VERSION))(\s|$)" })
+          if ($start -lt 0) {
+            Write-Host "CHANGELOG.md has no section for $env:VERSION; the release keeps no notes."
+            exit 0
+          }
+          $notes = @()
+          for ($i = $start + 1; $i -lt $lines.Count -and $lines[$i] -notmatch '^##\s'; $i++) { $notes += $lines[$i] }
+          ($notes -join "`n").Trim() | Out-File "$env:RUNNER_TEMP\notes.md" -Encoding utf8
+          gh release edit "v$env:VERSION" --repo "${{ github.repository }}" --notes-file "$env:RUNNER_TEMP\notes.md"
+          if ($LASTEXITCODE -ne 0) { throw "Setting the release notes failed." }

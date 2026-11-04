@@ -4,7 +4,11 @@ using Assistant.Core.Storage;
 
 namespace Assistant.Core.Llm;
 
-public sealed record CloudReply(string Text, string Provider);
+public sealed record CloudReply(string Text, string Provider)
+{
+    /// <summary>Web pages the answer was based on, when the model searched.</summary>
+    public IReadOnlyList<WebSource> Sources { get; init; } = [];
+}
 
 /// <summary>
 /// Tries each configured cloud provider in order (Groq first, then OpenRouter).
@@ -15,10 +19,14 @@ public sealed class CloudChat(IReadOnlyList<OpenAiCompatibleProvider> providers,
     public bool IsConfigured => providers.Count > 0;
 
     /// <summary>Returns null when no provider answered; the caller then uses the local model's reply.</summary>
-    public Task<CloudReply?> AskAsync(IReadOnlyList<ChatMessage> messages, CancellationToken ct) => AskAsync(messages, null, ct);
+    public Task<CloudReply?> AskAsync(IReadOnlyList<ChatMessage> messages, CancellationToken ct) => AskAsync(messages, CloudRequest.Chat, ct);
 
     /// <param name="longAnswer">Room and temperature for a worked answer (solving an exercise); null for plain chat.</param>
-    public async Task<CloudReply?> AskAsync(IReadOnlyList<ChatMessage> messages, (int MaxTokens, double Temperature)? longAnswer, CancellationToken ct)
+    public Task<CloudReply?> AskAsync(IReadOnlyList<ChatMessage> messages, (int MaxTokens, double Temperature)? longAnswer, CancellationToken ct) =>
+        AskAsync(messages, longAnswer is { } room ? new CloudRequest(room.MaxTokens, room.Temperature) : CloudRequest.Chat, ct);
+
+    /// <param name="request">How long the answer may be, how much the model may think, and whether it may search the web.</param>
+    public async Task<CloudReply?> AskAsync(IReadOnlyList<ChatMessage> messages, CloudRequest request, CancellationToken ct)
     {
         foreach (OpenAiCompatibleProvider provider in providers)
         {
@@ -26,11 +34,16 @@ public sealed class CloudChat(IReadOnlyList<OpenAiCompatibleProvider> providers,
             {
                 try
                 {
-                    LlmResponse response = longAnswer is { } room
-                        ? await provider.ChatAsync(messages, room.MaxTokens, room.Temperature, ct)
-                        : await provider.ChatAsync(messages, [], ct);
+                    LlmResponse response = await provider.ChatAsync(messages, request, ct);
                     sentLog.Record(provider.Name, response.Model ?? provider.ModelNow, messages, response.Usage, "ok");
-                    if (response.Content.Length > 0) return new CloudReply(response.Content, provider.Name);
+                    if (response.Content.Length > 0) return new CloudReply(response.Content, provider.Name) { Sources = response.Sources };
+                    // Empty: a search or code run used up the room before an answer was written. Once more, plainly.
+                    if (attempt == 1 && (request.Search || request.Code))
+                    {
+                        DiagnosticLog.Info($"{provider.Name} answered empty after searching or running code; asking again without");
+                        request = request with { Search = false, Code = false };
+                        continue;
+                    }
                     break;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or LlmException

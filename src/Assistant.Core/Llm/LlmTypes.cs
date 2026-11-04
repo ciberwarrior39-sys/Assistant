@@ -36,6 +36,23 @@ public sealed record LlmResponse(string Content, IReadOnlyList<ToolCall> ToolCal
 
     /// <summary>The model that actually answered (OpenRouter's free router picks one).</summary>
     public string? Model { get; init; }
+
+    /// <summary>Web pages the cloud model searched while answering (Groq's browser search), most relevant first.</summary>
+    public IReadOnlyList<WebSource> Sources { get; init; } = [];
+}
+
+/// <summary>A web page an answer was based on.</summary>
+public sealed record WebSource(string Title, string Url);
+
+/// <summary>
+/// How a cloud request should be answered. ReasoningEffort: how long a reasoning model may think (low, medium, high).
+/// Search: Groq's gpt-oss may search the web (costly: every page it reads is added to the request, often 30,000+
+/// tokens, so only when the user asks). Code: it may run Python for exact sums.
+/// </summary>
+public sealed record CloudRequest(int MaxTokens, double Temperature, string ReasoningEffort = "low", bool Search = false, bool Code = false)
+{
+    /// <summary>Plain chat: short answers, little thinking.</summary>
+    public static CloudRequest Chat { get; } = new(400, 0.7);
 }
 
 public sealed record LlmUsage(int PromptTokens, int CompletionTokens);

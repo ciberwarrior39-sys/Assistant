@@ -3,18 +3,23 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Assistant.Core.Diagnostics;
 
 namespace Assistant.Core.Llm;
 
 /// <summary>
-/// Groq, OpenRouter and other OpenAI-compatible cloud APIs. Used for plain conversation only,
-/// so it never receives tools, and the caller decides which messages may leave the computer.
+/// Groq, OpenRouter and other OpenAI-compatible cloud APIs. Used for plain conversation only: it never gets the app's
+/// own tools (files, memory, the screen), only the provider's built-in web search and code runner where offered,
+/// and the caller decides which messages may leave the computer.
 /// </summary>
-public sealed class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient http) : ILlmProvider
+public sealed partial class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient http) : ILlmProvider
 {
-    // Replies appear in a small chat window; this also keeps free token quotas lasting longer.
-    const int MaxReplyTokens = 400;
+    const int MaxSources = 5;
+
+    // Set when the provider refuses a request with web search and code (not offered on this key or plan): from then
+    // on, until the app restarts, requests go without them, so every answer still arrives.
+    bool webToolsRefused;
 
     // Reasoning models think before answering, and that thinking needs room too.
     const int MaxReasoningModelTokens = 1024;
@@ -33,14 +38,20 @@ public sealed class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient 
     public string ModelNow => standIn is not null && DateTime.UtcNow < standInUntil ? standIn : CurrentModel;
 
     public Task<LlmResponse> ChatAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition> tools, CancellationToken ct) =>
-        ChatAsync(messages, MaxReplyTokens, 0.7, ct);
+        ChatAsync(messages, CloudRequest.Chat, ct);
+
+    /// <summary>A longer, more careful answer than plain chat allows, for example solving an exercise step by step.</summary>
+    public Task<LlmResponse> ChatAsync(IReadOnlyList<ChatMessage> messages, int maxTokens, double temperature, CancellationToken ct) =>
+        ChatAsync(messages, new CloudRequest(maxTokens, temperature), ct);
 
     /// <summary>
-    /// A longer, more careful answer than plain chat allows, for example solving an exercise step by step.
-    /// Reasoning models get extra room on top for their thinking.
+    /// Reasoning models get extra room on top of MaxTokens for their thinking, and more again when they may search the
+    /// web or run code (Groq's gpt-oss only; the work happens on Groq's servers and one finished answer comes back).
     /// </summary>
-    public async Task<LlmResponse> ChatAsync(IReadOnlyList<ChatMessage> messages, int maxTokens, double temperature, CancellationToken ct)
+    public async Task<LlmResponse> ChatAsync(IReadOnlyList<ChatMessage> messages, CloudRequest request, CancellationToken ct)
     {
+        int maxTokens = request.MaxTokens;
+        double temperature = request.Temperature;
         var messageArray = new JsonArray();
         foreach (ChatMessage message in messages)
         {
@@ -56,44 +67,70 @@ public sealed class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient 
 
         string model = ModelNow;
         bool reasoningModel = model.StartsWith("openai/gpt-oss", StringComparison.OrdinalIgnoreCase);
+        bool webTools = (request.Search || request.Code) && reasoningModel && !webToolsRefused
+                        && endpoint.Name.Equals("Groq", StringComparison.OrdinalIgnoreCase);
+        int thinking = request.ReasoningEffort == "low" ? MaxReasoningModelTokens : 2 * MaxReasoningModelTokens;
+        bool search = webTools && request.Search;
         var body = new JsonObject
         {
             ["model"] = model,
             ["messages"] = messageArray,
-            ["max_tokens"] = reasoningModel ? Math.Max(MaxReasoningModelTokens, maxTokens + MaxReasoningModelTokens - MaxReplyTokens) : maxTokens,
+            ["max_tokens"] = reasoningModel ? maxTokens + thinking + (search ? 2048 : 0) : maxTokens,
             ["temperature"] = temperature,
         };
         if (reasoningModel)
         {
-            // Groq's gpt-oss models: keep the thinking short and leave it out of the response.
-            body["reasoning_effort"] = "low";
+            // Groq's gpt-oss models: think as much as the request allows, and leave the thinking out of the response.
+            body["reasoning_effort"] = request.ReasoningEffort;
             body["include_reasoning"] = false;
         }
+        if (webTools)
+        {
+            var tools = new JsonArray();
+            if (request.Search) tools.Add(new JsonObject { ["type"] = "browser_search" });
+            if (request.Code) tools.Add(new JsonObject { ["type"] = "code_interpreter" }); // the model decides whether to run any
+            body["tools"] = tools;
+            body["tool_choice"] = "auto";
+        }
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(endpoint.BaseAddress, "chat/completions"))
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, new Uri(endpoint.BaseAddress, "chat/completions"))
         {
             Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
         };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", endpoint.ApiKey);
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", endpoint.ApiKey);
 
-        using HttpResponseMessage response = await http.SendAsync(request, ct);
+        using HttpResponseMessage response = await http.SendAsync(httpRequest, ct);
         string text = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
+        {
+            // A request with web search and code that's refused as such (not a quota, key or server problem): ask again
+            // without them, and don't offer them again until the next start.
+            if (webTools && (int)response.StatusCode is 400 or 403 or 422)
+            {
+                webToolsRefused = true;
+                DiagnosticLog.Info($"{endpoint.Name} refused web search and code ({(int)response.StatusCode}: {ExtractError(text)}); answering without them");
+                return await ChatAsync(messages, request with { Search = false, Code = false }, ct);
+            }
             throw new LlmException($"{endpoint.Name} returned {(int)response.StatusCode}: {ExtractError(text)}", (int)response.StatusCode);
+        }
 
         using JsonDocument document = JsonDocument.Parse(text);
         JsonElement root = document.RootElement;
 
         string content = "";
+        var sources = new List<WebSource>();
         if (root.TryGetProperty("choices", out JsonElement choices)
             && choices.ValueKind == JsonValueKind.Array
             && choices.GetArrayLength() > 0
-            && choices[0].TryGetProperty("message", out JsonElement reply)
-            && reply.TryGetProperty("content", out JsonElement c)
-            && c.ValueKind == JsonValueKind.String)
+            && choices[0].TryGetProperty("message", out JsonElement reply))
         {
-            content = c.GetString() ?? "";
+            if (reply.TryGetProperty("content", out JsonElement c) && c.ValueKind == JsonValueKind.String)
+                content = c.GetString() ?? "";
+            // What the web search found: anywhere under executed_tools, objects with a title and a web address.
+            if (reply.TryGetProperty("executed_tools", out JsonElement executed)) CollectSources(executed, sources);
         }
+        // "【3†L10-L14】": the model's markers pointing into its search results; the sources are listed separately.
+        content = CitationMarker().Replace(content, "");
 
         LlmUsage? usage = null;
         if (root.TryGetProperty("usage", out JsonElement u) && u.ValueKind == JsonValueKind.Object)
@@ -105,8 +142,35 @@ public sealed class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient 
 
         string? answeredBy = root.TryGetProperty("model", out JsonElement m) && m.ValueKind == JsonValueKind.String ? m.GetString() : null;
 
-        return new LlmResponse(content.Trim(), []) { Usage = usage, Model = answeredBy };
+        return new LlmResponse(content.Trim(), []) { Usage = usage, Model = answeredBy, Sources = sources };
     }
+
+    static void CollectSources(JsonElement element, List<WebSource> sources)
+    {
+        if (sources.Count >= MaxSources) return;
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                if (element.TryGetProperty("url", out JsonElement url) && url.ValueKind == JsonValueKind.String
+                    && Uri.TryCreate(url.GetString(), UriKind.Absolute, out Uri? address)
+                    && (address.Scheme == Uri.UriSchemeHttps || address.Scheme == Uri.UriSchemeHttp)
+                    && sources.All(source => source.Url != address.AbsoluteUri))
+                {
+                    string title = element.TryGetProperty("title", out JsonElement t) && t.ValueKind == JsonValueKind.String
+                        ? (t.GetString() ?? "").Trim()
+                        : "";
+                    sources.Add(new WebSource(title.Length > 0 ? title : address.Host, address.AbsoluteUri));
+                }
+                foreach (JsonProperty property in element.EnumerateObject()) CollectSources(property.Value, sources);
+                break;
+            case JsonValueKind.Array:
+                foreach (JsonElement item in element.EnumerateArray()) CollectSources(item, sources);
+                break;
+        }
+    }
+
+    [GeneratedRegex(@"\s?【[^】]*】")]
+    private static partial Regex CitationMarker();
 
     /// <summary>
     /// After a "model not found": asks the provider which models this key may use and switches to the

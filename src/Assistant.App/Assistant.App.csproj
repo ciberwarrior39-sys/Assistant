@@ -27,6 +27,11 @@
     <Resource Include="Fonts\Onest-SemiBold.ttf" />
   </ItemGroup>
 
+  <!-- What's new in each version: Settings > What's new and the card after an update (also each release's notes). -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\CHANGELOG.md" LogicalName="CHANGELOG.md" />
+  </ItemGroup>
+
   <!-- Keep Windows Forms names out of the global usings, or Application, MessageBox, Button
        and others become ambiguous with their WPF namesakes. -->
   <ItemGroup>

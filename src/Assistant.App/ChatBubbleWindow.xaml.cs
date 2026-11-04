@@ -49,8 +49,14 @@ public partial class ChatBubbleWindow : Window
     /// <summary>⋯ > Settings.</summary>
     public event Action? SettingsRequested;
 
-    /// <summary>The "Help with selected text" suggestion: the app picks up the marked text, like the character's menu.</summary>
-    public event Action? TextHelpRequested;
+    /// <summary>⋯ > What's new, or "See everything new" on the card after an update.</summary>
+    public event Action? WhatsNewRequested;
+
+    /// <summary>
+    /// "Help with selected text" from the bubble: the suggestion (null), or a typed "translate this" (the task to run).
+    /// The app picks up the marked text, like the character's menu.
+    /// </summary>
+    public event Action<TextHelpRequest?>? TextHelpRequested;
 
     public ChatBubbleWindow(AssistantService assistant, DependencyService dependencies, DataFolder data, CharacterMood mood)
     {
@@ -165,6 +171,7 @@ public partial class ChatBubbleWindow : Window
         menu.Items.Add(MenuEntry("Check again", () => _ = RefreshStatusAsync()));
         menu.Items.Add(MenuEntry("Open data folder", () => Shell.OpenFolder(data.Root)));
         menu.Items.Add(new Separator());
+        menu.Items.Add(MenuEntry("What's new", () => WhatsNewRequested?.Invoke()));
         menu.Items.Add(MenuEntry("Settings…", () => SettingsRequested?.Invoke()));
         dialogsOpen++; // the menu takes focus: don't hide the bubble for that
         menu.Closed += (_, _) => dialogsOpen--;
@@ -196,7 +203,7 @@ public partial class ChatBubbleWindow : Window
         if (busy || sender is not FrameworkElement { Tag: Suggestion suggestion }) return;
         if (suggestion.Text is null)
         {
-            TextHelpRequested?.Invoke();
+            TextHelpRequested?.Invoke(null);
             return;
         }
         if (suggestion.Send)
@@ -276,6 +283,15 @@ public partial class ChatBubbleWindow : Window
         if (!IsVisible) mood.Set(Mood.Review);
         ScrollToBottom();
     }
+
+    /// <summary>After an update: the highlights card, at the top of what's new in the chat (seen when it next opens).</summary>
+    public void ShowUpdateCard(ReleaseNotes notes)
+    {
+        items.Add(new UpdateItem(notes));
+        ScrollToBottom();
+    }
+
+    void OnWhatsNew(object sender, RoutedEventArgs e) => WhatsNewRequested?.Invoke();
 
     /// <summary>A message from the assistant that isn't a reply, for example from the tray menu.</summary>
     public void Say(string text)
@@ -363,7 +379,39 @@ public partial class ChatBubbleWindow : Window
         if (text.Length == 0 || busy) return;
         Input.Clear();
         lastSent = text;
+
+        // "translate this", "summarise the selected text", "преведи това": about the marked text, not a chat question.
+        if (TextHelpRequests.FromMessage(text) is { } request && TextHelpRequested is not null)
+        {
+            items.Add(new ChatItem { Who = "You", Text = text });
+            ScrollToBottom();
+            TextHelpRequested(request);
+            return;
+        }
         await SendAsync(text, "You");
+    }
+
+    /// <summary>
+    /// A shortcut was pressed: its command runs as if typed. A quick result ("Opening Spotify.") shows as a note on the
+    /// character without opening the chat; anything with more to it (an answer, files, a choice, the to-do list) opens it.
+    /// </summary>
+    public async Task RunShortcutAsync(string keys, string command, Action<string> showNote, Action openChat)
+    {
+        if (busy)
+        {
+            showNote("busy, try again in a moment");
+            return;
+        }
+        AssistantReply? reply = await SendAsync(command, $"You ({keys})");
+        if (reply is null)
+        {
+            openChat(); // the problem is in the chat
+            return;
+        }
+        bool needsChat = IsVisible || reply.Files.Count > 0 || reply.Options.Count > 0 || reply.ShowTodos || reply.NothingFound
+                         || reply.Source != "local" || reply.CloudFollowUp is not null || reply.Text.Length > 60 || reply.Text.Contains('\n');
+        if (needsChat) openChat();
+        else showNote(reply.Text);
     }
 
     /// <summary>A question said aloud: shown as "You (voice)" and answered like a typed one. Null if busy or it failed.</summary>
@@ -389,7 +437,8 @@ public partial class ChatBubbleWindow : Window
             items.Add(new ChatItem
             {
                 Who = from, Text = reply.Text, Files = reply.Files, Notes = reply.Notes, CloudQuestion = reply.CloudFollowUp,
-                Choices = ChoiceButton.For(reply.Options), Question = text, Source = reply.Source,
+                Choices = ChoiceButton.For(reply.Options), Question = text, Source = reply.Source, Sources = reply.Sources,
+                WebSearchQuestion = reply.WebSearchQuestion, RetryQuestion = reply.RetryQuestion,
             });
             if (reply.ShowTodos && assistant.Organizer is { } organizer) items.Add(new TodoListItem(organizer.Todos));
             ShowReplyMood(reply);
@@ -514,11 +563,13 @@ public partial class ChatBubbleWindow : Window
     /// The character's menu > "Help with selected text": reads what the user marked (or copied) and shows it on a card
     /// with what can be done with it. Nothing is sent anywhere here.
     /// </summary>
-    public async Task OfferTextHelpAsync(Func<Task<(PickedText? Text, string Problem)>> pick)
+    /// <param name="request">From a typed "translate this": the task to run on the text straight away (null: just the card).</param>
+    public async Task OfferTextHelpAsync(Func<Task<(PickedText? Text, string Problem)>> pick, TextHelpRequest? request = null)
     {
         if (busy) return;
         mood.Touch();
         SetBusy(true, "Reading the marked text…");
+        TextHelpItem? card = null;
         try
         {
             (PickedText? picked, string problem) = await pick();
@@ -527,9 +578,10 @@ public partial class ChatBubbleWindow : Window
                 AddNote(problem);
                 return;
             }
-            foreach (TextHelpItem older in items.OfType<TextHelpItem>().Where(card => card.IsOpen))
+            foreach (TextHelpItem older in items.OfType<TextHelpItem>().Where(open => open.IsOpen))
                 older.Close("Replaced by newer text.");
-            items.Add(new TextHelpItem(picked.Text, picked.Source));
+            card = new TextHelpItem(picked.Text, picked.Source);
+            items.Add(card);
             mood.Set(Mood.Idle);
         }
         finally
@@ -537,6 +589,14 @@ public partial class ChatBubbleWindow : Window
             SetBusy(false);
             ScrollToBottom();
         }
+
+        if (card is null || request is null) return;
+
+        // Typed "translate this": no language named means into English from Bulgarian, into Bulgarian otherwise.
+        TextTask? task = request.TranslateEitherWay
+            ? (card.Text.Any(c => c is >= 'А' and <= 'я') ? TextTask.ToEnglish : TextTask.ToBulgarian)
+            : request.Task;
+        if (task is { } run) await RunTextTaskAsync(card, run, showRequest: false);
     }
 
     async void OnTextTask(object sender, RoutedEventArgs e)
@@ -554,7 +614,8 @@ public partial class ChatBubbleWindow : Window
         if (!busy && card.IsOpen) await RunTextTaskAsync(card, TextTask.Ask);
     }
 
-    async Task RunTextTaskAsync(TextHelpItem card, TextTask task)
+    /// <param name="showRequest">False when the user's own typed words are already in the chat.</param>
+    async Task RunTextTaskAsync(TextHelpItem card, TextTask task, bool showRequest = true)
     {
         string? question = null;
         if (task == TextTask.Ask)
@@ -578,7 +639,7 @@ public partial class ChatBubbleWindow : Window
         }
 
         mood.Touch();
-        items.Add(new ChatItem { Who = "You", Text = question ?? TextHelp.Label(task) });
+        if (showRequest) items.Add(new ChatItem { Who = "You", Text = question ?? TextHelp.Label(task) });
         card.Question = "";
         SetBusy(true, "Working on the text…");
         mood.Set(Mood.Thinking);
@@ -664,10 +725,73 @@ public partial class ChatBubbleWindow : Window
 
     void OnCopyReply(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: ChatItem item } button) return;
+        if (sender is Button { Tag: ChatItem item } button) CopyWithTick(button, item.CopyText ?? item.Text, "Copy the answer");
+    }
+
+    void OnCopyCode(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: MessagePart part } button) CopyWithTick(button, part.Text, "Copy the code");
+    }
+
+    // "Search the web" under a factual answer: Groq's model searches and answers again, with its sources.
+    async void OnSearchWeb(object sender, RoutedEventArgs e)
+    {
+        if (busy || sender is not Button { Tag: ChatItem { WebSearchQuestion: { } question } } button) return;
+        button.Visibility = Visibility.Collapsed;
+        mood.Touch();
+        SetBusy(true, "Searching the web… this takes a little while");
+        mood.Set(Mood.Thinking);
         try
         {
-            Clipboard.SetText(item.CopyText ?? item.Text);
+            AssistantReply reply = await assistant.SearchWebAsync(question, CancellationToken.None);
+            string from = reply.Source == "local" ? "Assistant" : $"Assistant · {reply.Source}";
+            items.Add(new ChatItem { Who = from, Text = reply.Text, Sources = reply.Sources, Question = question, Source = reply.Source });
+            ShowReplyMood(reply);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or LlmException or TaskCanceledException)
+        {
+            DiagnosticLog.Error("Web search failed", ex);
+            AddNote("The web search didn't work just now. Try again in a minute.");
+            button.Visibility = Visibility.Visible;
+        }
+        finally
+        {
+            SetBusy(false);
+            ScrollToBottom();
+        }
+    }
+
+    // "Try again" after cloud chat didn't answer a factual question.
+    async void OnRetry(object sender, RoutedEventArgs e)
+    {
+        if (busy || sender is not Button { Tag: ChatItem { RetryQuestion: { } question } } button) return;
+        button.Visibility = Visibility.Collapsed;
+        await SendAsync(question, "You");
+    }
+
+    // A source under an answer: opens in the browser (web addresses only).
+    void OnOpenLink(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string url }
+            || !Uri.TryCreate(url, UriKind.Absolute, out Uri? address)
+            || (address.Scheme != Uri.UriSchemeHttps && address.Scheme != Uri.UriSchemeHttp))
+            return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(address.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Win32Exception ex)
+        {
+            DiagnosticLog.Error("Couldn't open a source link", ex);
+        }
+    }
+
+    // Copies, and shows a tick on the button for a moment.
+    void CopyWithTick(Button button, string text, string tip)
+    {
+        try
+        {
+            Clipboard.SetText(text);
             button.Content = "\uE73E"; // ✓ for a moment
             button.ToolTip = "Copied";
             var back = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
@@ -675,7 +799,7 @@ public partial class ChatBubbleWindow : Window
             {
                 back.Stop();
                 button.Content = "\uE8C8";
-                button.ToolTip = "Copy the answer";
+                button.ToolTip = tip;
             };
             back.Start();
         }
