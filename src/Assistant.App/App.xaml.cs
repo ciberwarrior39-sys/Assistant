@@ -144,6 +144,7 @@ public partial class App : Application
         }
 
         Retention.Purge(data, Retention.RawLogs);
+        DiagnosticLog.DeleteOld();
 
         // First run (or "Run setup again"): the wizard sets up the brain, file search, voice and cloud keys.
         string speechModels = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Assistant", "models");
@@ -157,6 +158,19 @@ public partial class App : Application
         PerformanceProfile profile = PerformanceProfile.For(config.Performance);
         Motion.FramesPerSecond = profile.AnimationFps;
         DiagnosticLog.Info($"Performance profile: {profile.Label}");
+
+        // Disk space: voices that aren't used go (about 64 MB each), and after a switch to Lite the local model too, if the
+        // user agreed (Settings > Performance asked). Both download again when they're wanted.
+        piper.RemoveVoicesExcept(PiperVoices.FromSetting(config.VoiceName));
+        if (config.RemoveLocalModel && !profile.LocalModel)
+        {
+            OllamaSpace.Remove();
+            if (OllamaSpace.InstalledBytes() == 0)
+            {
+                config.RemoveLocalModel = false;
+                config.Save(data.ConfigFile);
+            }
+        }
 
         // The app's own Ollama starts in the background; the bubble's status line shows when it's ready.
         // Lite runs no local model, so there's nothing to start.
@@ -331,6 +345,14 @@ public partial class App : Application
         // Screensaver: bounces around a few minutes before Windows turns the screen off.
         var screensaver = new Screensaver(character, mood, bubble, config);
 
+        // Backups: once a day by themselves when the destination is there, a reminder after 7 days without one.
+        var backups = new Backups(config, data.ConfigFile, Path.Combine(data.Root, "backup-state.json"),
+            openSetup: () => openSettingsAt?.Invoke(SettingsWindow.BackupsPage),
+            showNote: (text, click) =>
+            {
+                if (character.IsVisible) character.ShowNote(text, TimeSpan.FromSeconds(15), click);
+            });
+
         // Settings: one window at a time, changes shown live on the real character and bubble.
         openSettings = () =>
         {
@@ -387,6 +409,7 @@ public partial class App : Application
                 Installed: StartWithWindows.IsInstalled,
                 Resources: () => resources.SampleAsync(voice?.SpeechModelLoaded == true, CancellationToken.None),
                 Piper: piper,
+                Backups: backups,
                 Version: updater?.CurrentVersion ?? "development build",
                 ShortcutProblem: shortcutKeys.Problem,
                 TestShortcut: shortcut => shortcutKeys.Run(shortcut)));
@@ -448,7 +471,9 @@ public partial class App : Application
                     if (bubbleWasOpen) character.OpenChat();
                 }
             },
-            ownWindow: () => new WindowInteropHelper(character).EnsureHandle());
+            ownWindow: () => new WindowInteropHelper(character).EnsureHandle(),
+            backups: backups,
+            files: fileSearch);
 
         // Help with selected text: mark text anywhere, right-click the character. Read through Windows' accessibility
         // interface (or the last copied text), shown on a card; nothing is sent anywhere until the user picks a cloud option.
@@ -493,9 +518,19 @@ public partial class App : Application
         ImportHandoff.Listen(ImportCharacter);
         if (importFile is not null) _ = Dispatcher.InvokeAsync(() => ImportCharacter(importFile), DispatcherPriority.ApplicationIdle);
 
+        bool gaming = false;
+
+        // Backups: the daily one when it's due, the one-time offer and the 7-day reminder (Backups.TickAsync).
+        var backupTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(3) };
+        backupTimer.Tick += async (_, _) =>
+        {
+            backupTimer.Interval = TimeSpan.FromMinutes(5);
+            await backups.TickAsync(gaming);
+        };
+        backupTimer.Start();
+
         // A timer is due: show it on the character and in the bubble without stealing focus, and say it aloud.
         // In game mode the character stays hidden, so it is only said.
-        bool gaming = false;
         reminders.Due += text =>
         {
             bubble.Say(text);
@@ -579,8 +614,15 @@ public partial class App : Application
         // between uses it leaves memory after the profile's keep-alive time.
         bubble.IsVisibleChanged += (_, _) =>
         {
-            if (bubble.IsVisible && profile.LocalModel && !gaming) _ = localModel.WarmUpAsync();
+            if (bubble.IsVisible && profile.LocalModel && !gaming) _ = WarmUpAsync();
         };
+
+        // Once the model is on the graphics card, the graphics libraries this PC doesn't use can go (OllamaSpace).
+        async Task WarmUpAsync()
+        {
+            await localModel.WarmUpAsync();
+            if (config.OllamaEmbedded) await Task.Run(OllamaSpace.RemoveUnusedGpuLibraries);
+        }
 
         // What each part uses, in the developer log every 10 minutes (and live in Settings > Performance).
         var logResources = new DispatcherTimer { Interval = TimeSpan.FromMinutes(10) };

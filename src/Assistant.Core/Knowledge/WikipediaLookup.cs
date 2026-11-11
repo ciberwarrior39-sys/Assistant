@@ -48,6 +48,7 @@ public sealed partial class WikipediaLookup(HttpClient http)
             foreach (string title in titles.Take(MaxArticles))
             {
                 string extract = await ExtractAsync(language, title, ct);
+                if (!IsAbout(question, title, extract)) continue;
                 string relevant = Relevant(question, extract);
                 if (relevant.Length == 0) continue;
                 text.Append($"Wikipedia, «{title}»:\n{relevant}\n\n");
@@ -90,6 +91,20 @@ public sealed partial class WikipediaLookup(HttpClient http)
         using JsonDocument document = JsonDocument.Parse(await http.GetStringAsync(url, ct));
         JsonElement pages = document.RootElement.GetProperty("query").GetProperty("pages");
         return pages.GetArrayLength() > 0 && pages[0].TryGetProperty("extract", out JsonElement extract) ? extract.GetString() ?? "" : "";
+    }
+
+    // An article is used only when it is about the question: its title shares a key word with it, or at least half of
+    // the question's key words appear in the text. Otherwise the search just returned its nearest guess.
+    static bool IsAbout(string question, string title, string extract)
+    {
+        string[] keys = MemoryMatch.KeyWords(question);
+        if (keys.Length == 0) return false;
+        string[] titleWords = Word().Matches(title.ToLowerInvariant()).Select(match => match.Value).ToArray();
+        if (keys.Any(key => titleWords.Any(word => RelevantFacts.Similar(key, word)))) return true;
+
+        var textWords = Word().Matches(extract.ToLowerInvariant()).Select(match => match.Value).ToHashSet();
+        int found = keys.Count(key => textWords.Contains(key) || textWords.Any(word => RelevantFacts.Similar(key, word)));
+        return found * 2 >= keys.Length;
     }
 
     // The article's opening, then the paragraphs that share the most words with the question, in the article's order.

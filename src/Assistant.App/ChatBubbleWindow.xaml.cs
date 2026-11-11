@@ -385,7 +385,11 @@ public partial class ChatBubbleWindow : Window
         {
             items.Add(new ChatItem { Who = "You", Text = text });
             ScrollToBottom();
-            TextHelpRequested(request);
+            // "is this a scam? <the message>": the text came with the request, so there's nothing to pick up.
+            if (request.Pasted is { } pasted)
+                await OfferTextHelpAsync(() => Task.FromResult<(PickedText?, string)>((new PickedText(pasted, "pasted in the chat"), "")), request);
+            else
+                TextHelpRequested(request);
             return;
         }
         await SendAsync(text, "You");
@@ -439,6 +443,7 @@ public partial class ChatBubbleWindow : Window
                 Who = from, Text = reply.Text, Files = reply.Files, Notes = reply.Notes, CloudQuestion = reply.CloudFollowUp,
                 Choices = ChoiceButton.For(reply.Options), Question = text, Source = reply.Source, Sources = reply.Sources,
                 WebSearchQuestion = reply.WebSearchQuestion, RetryQuestion = reply.RetryQuestion,
+                LookUpQuestion = reply.LookUpQuestion,
             });
             if (reply.ShowTodos && assistant.Organizer is { } organizer) items.Add(new TodoListItem(organizer.Todos));
             ShowReplyMood(reply);
@@ -536,7 +541,8 @@ public partial class ChatBubbleWindow : Window
                 : await assistant.AskCloudAboutScreenAsync(question, text, CancellationToken.None);
             string from = reply.Source == "local" ? "Assistant" : $"Assistant · {reply.Source}";
             bool answered = !reply.Source.StartsWith("local", StringComparison.Ordinal);
-            items.Add(new ChatItem { Who = from, Text = reply.Text, CopyText = item.ForSelectedText && answered ? reply.Text : null });
+            string answer = answered && item.AppendToAnswer is { } append ? reply.Text + "\n\n" + append : reply.Text;
+            items.Add(new ChatItem { Who = from, Text = answer, CopyText = item.ForSelectedText && answered ? reply.Text : null });
             ShowReplyMood(reply);
             DiagnosticLog.Info($"{(item.ForSelectedText ? "Text" : "Screen")} follow-up in {timer.ElapsedMilliseconds} ms from {reply.Source}");
         }
@@ -617,6 +623,12 @@ public partial class ChatBubbleWindow : Window
     /// <param name="showRequest">False when the user's own typed words are already in the chat.</param>
     async Task RunTextTaskAsync(TextHelpItem card, TextTask task, bool showRequest = true)
     {
+        if (task == TextTask.ScamCheck)
+        {
+            await CheckScamAsync(card, showRequest);
+            return;
+        }
+
         string? question = null;
         if (task == TextTask.Ask)
         {
@@ -674,6 +686,61 @@ public partial class ChatBubbleWindow : Window
         {
             DiagnosticLog.Error("Ollama timed out", ex);
             AddNote("Ollama took too long to answer. Try again in a moment.");
+        }
+        finally
+        {
+            SetBusy(false);
+            ScrollToBottom();
+        }
+    }
+
+    /// <summary>
+    /// "Is this a scam?": first what the code found (instantly, on this computer), then a verdict. Cloud chat judges
+    /// best, so with it connected the card shows exactly what would be sent and waits for Send; otherwise the local model
+    /// weighs it. The same advice from code ends every verdict, whatever the model said.
+    /// </summary>
+    async Task CheckScamAsync(TextHelpItem card, bool showRequest)
+    {
+        mood.Touch();
+        if (showRequest) items.Add(new ChatItem { Who = "You", Text = TextHelp.Label(TextTask.ScamCheck) });
+        ScamReport report = ScamSigns.Check(card.Text);
+        bool cloud = assistant.CloudAvailable, local = assistant.LocalModelEnabled;
+        string found = report.Describe();
+        if (cloud) found += "\n\nCloud chat can look at the whole message for a verdict. Check below what would be sent first.";
+        else if (!local) found += "\n\n" + ScamSigns.Advice;
+        items.Add(new ChatItem { Who = "Assistant", Text = found });
+        DiagnosticLog.Info($"Scam check: {report.Signs.Count} signs, {report.LinkHosts.Count} links"); // never the text
+        mood.Set(report.Signs.Count >= 2 ? Mood.Confused : Mood.Idle);
+
+        string instruction = TextHelp.Instruction(TextTask.ScamCheck, report.ForModel());
+        if (cloud)
+        {
+            items.Add(new CloudConfirmItem(instruction, TextHelp.Cut(card.Text, TextHelp.MaxCloudChars))
+            {
+                ForSelectedText = true,
+                AppendToAnswer = ScamSigns.Advice,
+            });
+            ScrollToBottom();
+            return;
+        }
+        if (!local)
+        {
+            ScrollToBottom();
+            return;
+        }
+
+        SetBusy(true, "Weighing it up…");
+        mood.Set(Mood.Thinking);
+        try
+        {
+            AssistantReply reply = await assistant.HelpWithTextAsync(TextTask.ScamCheck, card.Text, report.ForModel(), CancellationToken.None);
+            items.Add(new ChatItem { Who = "Assistant", Text = reply.Text + "\n\n" + ScamSigns.Advice, Notes = reply.Notes });
+            ShowReplyMood(reply);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or LlmException or TaskCanceledException)
+        {
+            DiagnosticLog.Error("Scam check with the local model failed", ex);
+            AddNote("The local model didn't answer, so there's only what I found above. " + ScamSigns.Advice);
         }
         finally
         {
@@ -752,6 +819,38 @@ public partial class ChatBubbleWindow : Window
         {
             DiagnosticLog.Error("Web search failed", ex);
             AddNote("The web search didn't work just now. Try again in a minute.");
+            button.Visibility = Visibility.Visible;
+        }
+        finally
+        {
+            SetBusy(false);
+            ScrollToBottom();
+        }
+    }
+
+    // "Look it up" under an answer from saved facts: cloud chat (with Wikipedia) answers the same question.
+    async void OnLookUp(object sender, RoutedEventArgs e)
+    {
+        if (busy || sender is not Button { Tag: ChatItem { LookUpQuestion: { } question } } button) return;
+        button.Visibility = Visibility.Collapsed;
+        mood.Touch();
+        SetBusy(true, "Looking it up…");
+        mood.Set(Mood.Thinking);
+        try
+        {
+            AssistantReply reply = await assistant.LookUpAsync(question, CancellationToken.None);
+            string from = reply.Source == "local" ? "Assistant" : $"Assistant · {reply.Source}";
+            items.Add(new ChatItem
+            {
+                Who = from, Text = reply.Text, Sources = reply.Sources, Question = question, Source = reply.Source,
+                WebSearchQuestion = reply.WebSearchQuestion,
+            });
+            ShowReplyMood(reply);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or LlmException or TaskCanceledException)
+        {
+            DiagnosticLog.Error("Looking it up failed", ex);
+            AddNote("Looking it up didn't work just now. Try again in a minute.");
             button.Visibility = Visibility.Visible;
         }
         finally

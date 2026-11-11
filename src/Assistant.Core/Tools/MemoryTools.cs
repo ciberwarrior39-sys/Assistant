@@ -124,7 +124,9 @@ public sealed partial class RecallTool(MemoryStore memory) : ITool
 
     // Always about saved facts.
     static readonly string[] MemoryQuestions =
-        ["do you remember", "what do you remember", "what do you know about me", "did i tell you", "what did i tell you", "who am i"];
+        ["do you remember", "what do you remember", "what do you know about me", "did i tell you", "what did i tell you", "who am i",
+         "what have i told you", "your memory", "what's in your memory", "what you know about me",
+         "какво знаеш за мен", "какво помниш", "какво съм ти казвал", "какво си запомнил", "паметта си", "кой съм аз"];
 
     // "What's my name?": about saved facts only when one matches; otherwise ordinary chat ("what's my IP?").
     static readonly string[] MyQuestions =
@@ -199,10 +201,14 @@ public sealed partial class RecallTool(MemoryStore memory) : ITool
         List<MemoryFact> shown = (related.Count > 0 && !everything ? memory.Search(topic, related) : everything ? all : [])
             .Take(everything ? 8 : 3).ToList();
 
-        if (shown.Count == 0) return NotSaved;
-        if (shown.Count == 1) return $"I have this saved: {ToYou(shown[0].Text)}.";
-        return "Here's what I have saved:\n" + string.Join("\n", shown.Select(fact => "- " + ToYou(fact.Text)));
+        return shown.Count == 0 ? NotSaved : Say(shown);
     }
+
+    /// <summary>Saved facts said back to the user, word for word ("my" becomes "your").</summary>
+    public static string Say(IReadOnlyList<MemoryFact> facts) =>
+        facts.Count == 1
+            ? $"I have this saved: {ToYou(facts[0].Text)}."
+            : "Here's what I have saved:\n" + string.Join("\n", facts.Select(fact => "- " + ToYou(fact.Text)));
 
     // Facts saved in the user's own words ("my name is Poni") are said back to them ("your name is Poni").
     static string ToYou(string fact) =>

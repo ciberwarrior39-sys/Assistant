@@ -3,7 +3,7 @@ using Assistant.Core.Llm;
 namespace Assistant.Core;
 
 /// <summary>What to do with text the user marked: the buttons on the "Help with selected text" card.</summary>
-public enum TextTask { Explain, Summarise, ToEnglish, ToBulgarian, FixGrammar, Shorter, Ask }
+public enum TextTask { Explain, Summarise, ToEnglish, ToBulgarian, FixGrammar, Shorter, Ask, ScamCheck }
 
 /// <summary>
 /// "Help with selected text": the prompts and the size limits. The local model's context is 2048 tokens, which has
@@ -33,6 +33,7 @@ public static class TextHelp
         TextTask.ToBulgarian => "Translate to Bulgarian",
         TextTask.FixGrammar => "Fix grammar",
         TextTask.Shorter => "Make shorter",
+        TextTask.ScamCheck => "Is this a scam?",
         _ => "Ask",
     };
 
@@ -45,6 +46,11 @@ public static class TextHelp
         TextTask.ToBulgarian => "Translate this text into Bulgarian. Output only the translation.",
         TextTask.FixGrammar => "Correct the spelling, grammar and punctuation of this text. Keep its meaning, language and tone. Output only the corrected text.",
         TextTask.Shorter => "Rewrite this text shorter and clearer, in the same language, keeping the important points. Output only the new text.",
+        // question: what the code found (ScamReport.ForModel), so the model weighs it with the text.
+        TextTask.ScamCheck => "Is this message, email or link a scam or a phishing attempt? Start with one verdict: \"Likely a scam\", " +
+                              "\"Suspicious\" or \"No clear scam signs\". Then give the two or three reasons that matter most, in a few short " +
+                              "sentences, in the same language as the text. You can't check who really sent it, so never call it certainly safe. " +
+                              question?.Trim(),
         _ => $"Answer this question about the text, briefly: {question?.Trim()}",
     };
 

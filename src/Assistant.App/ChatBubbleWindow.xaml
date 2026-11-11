@@ -279,6 +279,9 @@
                                                     ToolTip="Groq's model searches the web and answers from what it finds. Slower, and it uses much more of the free limit."/>
                                             <Button Style="{StaticResource SmallPrimary}" Content="Try again" Visibility="{Binding RetryVisibility}"
                                                     Tag="{Binding}" Click="OnRetry"/>
+                                            <Button Style="{StaticResource SmallButton}" Content="Look it up" Visibility="{Binding LookUpVisibility}"
+                                                    Tag="{Binding}" Click="OnLookUp"
+                                                    ToolTip="This answer came from what you saved. Look it up asks cloud chat and Wikipedia the same question; only the question is sent."/>
                                         </StackPanel>
 
                                         <!-- Follow-ups: the cloud for a screen or selected-text answer (asks first) -->
@@ -370,6 +373,7 @@
                                             <Button Style="{StaticResource Chip}" Content="Translate to Bulgarian" CommandParameter="ToBulgarian" Tag="{Binding}" Click="OnTextTask"/>
                                             <Button Style="{StaticResource Chip}" Content="Fix grammar" CommandParameter="FixGrammar" Tag="{Binding}" Click="OnTextTask"/>
                                             <Button Style="{StaticResource Chip}" Content="Make shorter" CommandParameter="Shorter" Tag="{Binding}" Click="OnTextTask"/>
+                                            <Button Style="{StaticResource Chip}" Content="Is this a scam?" CommandParameter="ScamCheck" Tag="{Binding}" Click="OnTextTask"/>
                                         </WrapPanel>
                                         <DockPanel Margin="0,4,0,0" Visibility="{Binding ButtonsVisibility}">
                                             <Button DockPanel.Dock="Right" Style="{StaticResource SmallButton}" Content="Ask" CommandParameter="Ask" Tag="{Binding}"

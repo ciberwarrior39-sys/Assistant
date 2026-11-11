@@ -67,6 +67,33 @@ public sealed class PiperInstall(string folder)
     public bool IsReady(PiperVoice voice) =>
         ExePath is not null && File.Exists(ModelPath(voice)) && File.Exists(ModelPath(voice) + ".json");
 
+    /// <summary>
+    /// Deletes the downloaded voices other than this one (null: a Windows voice is in use, so all of them), about 64 MB
+    /// each. Piper itself stays, so picking one again only downloads the voice. Returns the bytes freed.
+    /// </summary>
+    public long RemoveVoicesExcept(PiperVoice? keep)
+    {
+        if (!Directory.Exists(VoiceFolder)) return 0;
+        long freed = 0;
+        foreach (string file in Directory.EnumerateFiles(VoiceFolder).ToList())
+        {
+            string name = Path.GetFileName(file);
+            if (keep is not null && name.StartsWith(keep.Id + ".onnx", StringComparison.OrdinalIgnoreCase)) continue;
+            try
+            {
+                long size = new FileInfo(file).Length;
+                File.Delete(file);
+                freed += size;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DiagnosticLog.Error("Couldn't delete a voice that isn't used", ex);
+            }
+        }
+        if (freed > 0) DiagnosticLog.Info($"Removed voices that aren't used ({freed / 1_000_000} MB)");
+        return freed;
+    }
+
     /// <summary>Megabytes still to download for this voice (the program the first time, then the voice).</summary>
     public int MegabytesNeeded(PiperVoice voice) =>
         (ExePath is null ? EngineMegabytes : 0) + (File.Exists(ModelPath(voice)) ? 0 : VoiceMegabytes);

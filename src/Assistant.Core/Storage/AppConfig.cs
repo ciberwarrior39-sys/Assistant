@@ -26,6 +26,10 @@ public sealed class AppConfig
     // hardware; Settings > Performance changes it (after a restart).
     public string Performance { get; set; } = "full";
 
+    // Set when the user switched to Lite and agreed to free the space: the app's own Ollama and model are deleted at the
+    // next start (Lite never starts them). "Run setup again" downloads them back.
+    public bool RemoveLocalModel { get; set; }
+
     // Optional free cloud models for conversation. Groq is recommended; OpenRouter signs up without a phone.
     // Leave a key empty to skip that provider. Without any key, everything runs locally.
     // Keys are saved encrypted for this Windows user ("dpapi:..."); a key pasted here as plain text is encrypted on the next save.
@@ -123,6 +127,14 @@ public sealed class AppConfig
     // "search the web for …": google, duckduckgo or bing. The query opens in the default browser.
     public string SearchEngine { get; set; } = "google";
 
+    // Backups (Settings > Backups, or "back up my files" in the chat): copies of these folders go to the destination as
+    // plain files, Assistant Backup\<PC>\Current, with older versions of changed or deleted files kept 30 days.
+    // backupFolders empty means Documents, Desktop and Pictures. backupId recognises the drive if its letter changes.
+    public string BackupDestination { get; set; } = "";
+    public string BackupId { get; set; } = "";
+    public List<string> BackupFolders { get; set; } = [];
+    public bool BackupAuto { get; set; } = true; // once a day, when the destination is there
+
     // Start with Windows (installed app only): a Run entry for the current user, also switchable in Task Manager.
     public bool StartWithWindows { get; set; } = true;
 
@@ -166,6 +178,9 @@ public sealed class AppConfig
         if (ContextSize == 2048) ContextSize = 4096;                                      // 0.4.1: room for picked facts
         if (UpdateMode is not ("auto" or "notify" or "off")) UpdateMode = "auto";
         Shortcuts ??= [];
+        BackupFolders ??= [];
+        BackupDestination ??= "";
+        BackupId ??= "";
         Shortcuts.RemoveAll(shortcut => shortcut is null || string.IsNullOrWhiteSpace(shortcut.Keys));
     }
 

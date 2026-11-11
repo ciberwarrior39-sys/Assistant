@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="src/Assistant.Core/Assistant.Core.csproj" />
   <Project Path="src/Assistant.App/Assistant.App.csproj" />
+  <Project Path="tests/Assistant.Checks/Assistant.Checks.csproj" />
 </Solution>

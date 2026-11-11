@@ -148,6 +148,42 @@ finds files on your computer, and optional free cloud chat handles conversation.
   `намали звука`, `звука на 30`, `пауза`, `следваща песен`, `заключи компютъра`, `тъмен режим`, `направи скрийншот`,
   `изпразни кошчето`. No key presses are simulated: volume goes through Windows' audio interface, media control through
   a Windows command message. "open my CV" isn't an app, folder or website, so file search answers it as before.
+- **PC check-up** (English and Bulgarian, answered by code on this computer, nothing sent anywhere):
+  - "why is my PC slow?" / "what's using my RAM?" / `компютърът ми е бавен`: what stands out (memory, processor or a full
+    system drive), the apps using the most, the apps that start with Windows, and a reminder to restart after a few days.
+    Buttons: **Close** a heavy app (each window gets the same "close" as clicking X, so it can still ask to save; not
+    offered during a game), **Don't start … with Windows** (switched off the way Task Manager does it, with **Turn it back
+    on**; apps installed for all users go through Settings > Startup apps, which needs administrator rights).
+  - "my disk is full" / "free up space" / `освободи място`: free space per drive, temporary files, installers in
+    Downloads older than a month, the Recycle Bin and your biggest files (over 1 GB, found with Everything; shown as
+    cards, never deleted by the app). Buttons: **Delete temporary files** (only ones untouched for a day; files in use
+    stay), **Move old installers to the Recycle Bin** (restorable until it's emptied), **Empty the Recycle Bin** (asks
+    first), **Open Storage settings** (Windows' own clean-up for update files).
+  - "my internet isn't working" / "why is my internet slow?" / "websites won't load" / `нямам интернет` /
+    `бавен интернет`: checks step by step like a technician and says where it breaks: on a network at all (and the Wi-Fi
+    signal), an address from the router, the router answering, the internet beyond it answering (1.1.1.1 and 8.8.8.8),
+    website names being found (DNS), and websites loading (the same small test Windows makes at msftconnecttest.com,
+    which also spots hotel and café login pages). It names a VPN or a proxy if one is on. Buttons as fit: **Open the
+    login page**, **Clear the DNS list** (no administrator rights needed), **Test the speed**, Wi-Fi, network and proxy settings. "My database connection"
+    and "neural network" aren't caught.
+  - "speed test" / "how fast is my internet?" / `скоростта на интернета` (or the check-up's button): ping, download and
+    upload, measured against Cloudflare like speed test sites do: six transfers at once, the first 1.5 seconds left out
+    while the connections speed up, at most 8 seconds each way, or 300 MB down and 150 MB up. Only when asked. "My
+    internet speed is so slow" is a complaint, so it gets the whole check-up instead.
+- **Backups** (Settings > Backups, or the chat): copies of Documents, Desktop and Pictures (and any folder you add,
+  "also back up D:\Projects") to a USB or external drive, or any folder (a OneDrive folder works too). They're plain files
+  in `Assistant Backup\<PC name>\Current`, openable without the app; when a file changes or is deleted on the PC, the
+  backup's previous copy moves to `Older versions\<date and time>` and is kept 30 days, so a mistake or ransomware can
+  be undone. Only new and changed files are copied; files in use are tried again next time; OneDrive files that are only
+  in the cloud aren't downloaded for it; tool folders (`node_modules`, `.vs`) are left out; a full drive is caught before
+  anything is copied. It runs by itself once a day when the drive is plugged in (found again if its letter changes), in
+  the background, and the character reminds you after 7 days without a backup; the first time, it offers once to set
+  backups up. In the chat: "back up my files" (with buttons for each plugged-in drive if it isn't set up yet), "when was
+  my last backup?", "set up backups", `направи резервно копие`. A single file: "make a backup of my CV on the desktop",
+  "copy report.docx to the USB", `копирай CV-то на флашката`: found like "find my CV" (a saved place first), copied
+  next to anything already there ("CV (copy).pdf"); buttons when several files match; Desktop, Documents, Downloads
+  (small typos are fine), saved places, "the USB", a drive letter or a full path. Nothing goes online. Tested in `tests\Assistant.Checks`
+  on real folders: changes, deletions, a missing folder and old versions expiring.
 - **Notes, to-do list and reminders** (English and Bulgarian, answered by code, private like memory, never sent to the cloud):
   - "note: the wifi password is on the router", "show my notes", "notes about wifi", "delete the note about wifi"
     (`бележка: …`, `покажи бележките`). Kept in `notes.md`, one dated line each.
@@ -174,6 +210,16 @@ finds files on your computer, and optional free cloud chat handles conversation.
   last two minutes, and the card says so. The local model answers (up to 2,500 characters, 1,200 for
   translations and rewrites, whose answer is as long as the text); **Ask cloud chat instead…** shows exactly what would
   be sent first. Not in game mode, not from windows in `exclusions.json`, and never added to the chat history.
+- **Is this a scam?** Mark a message, email or link and press **Is this a scam?** on the card, or type "is this a scam?"
+  (`това измама ли е?`), or paste the message with the question before or after it ("is this legit: https://…").
+  First, code on this computer lists the warning signs it finds (a rush or a threat, a request for passwords, codes or
+  card details, a small fee to release a parcel, an unexpected prize, gift cards or crypto, a remote-control app,
+  "new number" asking for money, "verify your account", guaranteed profit) and where the links really go (an address
+  pretending to be a brand, a shortened link, a bare number, look-alike letters, endings like .top). Then a verdict:
+  with cloud chat connected, the card shows exactly what would be sent (remove anything private first) and waits for
+  **Send**; otherwise the local model weighs it. Every verdict ends with the same advice, written by the app, not the
+  model: don't click, reply or pay; go to the company's own app or site. The signs and the requests that start a check
+  are tested in `tests\Assistant.Checks\cases\scam.txt`.
 - **It feels alive** (Settings > Character > Life, every part can be turned off; all of it stops during a game and none
   of it opens the chat):
   - **Petting:** move the mouse back and forth over it and hearts float up; **double-click** it for a little hop ("boop!").
@@ -188,9 +234,13 @@ finds files on your computer, and optional free cloud chat handles conversation.
     hat on New Year's Eve and Day, and on your birthday, only if you told it to remember it ("remember my birthday is
     14 March"); then it also says happy birthday once that day.
   - **Walking around** the bottom of the screen every few minutes: off by default, since it can be distracting.
-- **Accurate answers** (cloud chat): a factual question is looked up on Wikipedia (Bulgarian for a question in
-  Cyrillic, English otherwise; only the search words go there) and the relevant parts of the article go with the
-  question, so the model answers from them; the articles are listed under the answer. If they don't say, it says so
+- **Accurate answers** (cloud chat): your saved facts come first: a question whose key words are all in something
+  you saved ("who is Kris?", "when is the exam?") is answered from those facts on this computer, with **Look it up**
+  under it for when you meant the world. Otherwise a question about the world is looked up on Wikipedia (Bulgarian
+  for a question in Cyrillic, English otherwise; only the search words go there) and the relevant parts of the article
+  go with the question, so the model answers from them; the articles are listed under the answer. Small talk,
+  follow-ups ("is this…?"), advice and questions about you or the assistant aren't looked up, and an article that isn't
+  about the question is left out. If they don't say, it says so
   instead of guessing, and **Search the web** under the answer lets Groq's own web search look further (slower, and it
   uses far more of the free limit: one searched question can take 30,000+ tokens). If cloud chat doesn't answer a
   factual question, the small offline model doesn't guess: "Try again" asks once more. Maths, logic and code questions
@@ -286,6 +336,17 @@ script near the end of `docs/index.html`:
 dotnet run --project src\Assistant.App
 ```
 
+## Checks
+
+```
+dotnet run --project tests\Assistant.Checks
+```
+
+Sends every message in `tests\Assistant.Checks\cases\routing.txt` through the assistant and checks which part of it
+answered (a quick answer, a tool, saved facts, cloud chat with or without a lookup, the local model). The models,
+Wikipedia and Windows are stand-ins, so it takes a second and nothing leaves the computer. When the assistant handles
+a message wrongly, add a line for it there (`expected route | the message`), then change the rule until it passes.
+
 ## Optional: smarter chat with a free cloud model
 
 Plain conversation goes straight to the cloud model when a key is set up, without waiting for the local model: Groq's
@@ -308,4 +369,6 @@ With both set, Groq is tried first and OpenRouter takes over when Groq's free qu
 | Settings | `Documents\Assistant\config.json` (restart after editing) |
 | Everything sent to a cloud model | `Documents\Assistant\sent\` |
 | Notes about past chats (7 days) | `Documents\Assistant\conversations\` |
-| Developer log (errors, timings, never message text) | `%LocalAppData%\Assistant\logs\` |
+| Developer log (errors, timings, never message text; 30 days) | `%LocalAppData%\Assistant\logs\` |
+| The app's own Ollama and the local model (about 3.5–5 GB; Lite can remove them) | `%LocalAppData%\Assistant\ollama\` and `ollama-models\` |
+| Natural voice (only the one in use) and the speech model | `%LocalAppData%\Assistant\piper\` and `models\` |

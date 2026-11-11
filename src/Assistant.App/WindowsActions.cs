@@ -18,7 +18,7 @@ namespace Assistant.App;
 /// <summary>
 /// Does what the user asked on the PC: opens apps, folders, websites and Settings pages, searches the web, changes the
 /// volume, controls music and video, locks the PC, switches dark/light mode, takes screenshots and empties the Recycle
-/// Bin (after asking). No key presses are simulated: volume goes through Windows' audio interface and media control
+/// Bin (after asking), and runs the PC check-ups (CheckUp, InternetCheck). No key presses are simulated: volume goes through Windows' audio interface and media control
 /// through a Windows command message, so nothing here looks like input automation to anti-cheat software.
 /// </summary>
 public sealed partial class WindowsActions(
@@ -27,7 +27,9 @@ public sealed partial class WindowsActions(
     Func<bool> gameMode,
     Action openAssistantSettings,
     Action<bool> showAssistant,
-    Func<IntPtr> ownWindow) : IActionRunner
+    Func<IntPtr> ownWindow,
+    Backups backups,
+    IFileSearch files) : IActionRunner
 {
     const int VolumeStep = 10;
 
@@ -64,6 +66,19 @@ public sealed partial class WindowsActions(
                 SetTheme theme => Theme(theme.Dark),
                 TakeScreenshot => await ScreenshotAsync(ct),
                 EmptyRecycleBin bin => RecycleBin(bin.Confirmed),
+                PcCheckUp { Kind: CheckUpKind.Speed } => await CheckUp.SpeedAsync(gameMode(), ct),
+                PcCheckUp { Kind: CheckUpKind.Space } => await CheckUp.SpaceAsync(ct),
+                PcCheckUp { Kind: CheckUpKind.Internet } => await InternetCheck.CheckAsync(ct),
+                FlushDns => await InternetCheck.FlushDnsAsync(ct),
+                SpeedTest => await InternetCheck.SpeedTestAsync(ct),
+                OpenWebPage page => OpenSite(page.Url),
+                BackupIntent backup => backups.Handle(backup),
+                CopyRequest copy => await CopyAsync(copy, ct),
+                CopyFile file => CopyInto(file.Source, file.Folder),
+                CloseApp app => await CheckUp.CloseAsync(app, ct),
+                StartupApp startup => CheckUp.SetStartup(startup),
+                CleanUp { Confirmed: false } cleanUp => await CheckUp.AskToCleanAsync(cleanUp.Kind, ct),
+                CleanUp cleanUp => await CheckUp.CleanAsync(cleanUp, ct),
                 _ => null,
             };
         }
@@ -172,6 +187,143 @@ public sealed partial class WindowsActions(
         }
         return null;
     }
+
+    // ---- Copying a file somewhere ("make a backup of my CV on the desktop") ---------------------------------------
+
+    // Words that only describe the request, not the file.
+    static readonly HashSet<string> NotFileWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "my", "the", "a", "an", "this", "that", "file", "files", "document", "doc", "of", "for", "me", "copy", "backup",
+        "моя", "моят", "моето", "моите", "ми", "файла", "файл", "файлът", "документа", "документ", "на", "за",
+    };
+
+    // Common slips for the folders people copy to ("desctop", "dowloads").
+    static readonly string[] FolderNames = ["desktop", "documents", "downloads", "pictures", "music", "videos"];
+
+    async Task<ActionReply?> CopyAsync(CopyRequest copy, CancellationToken ct)
+    {
+        string? folder = CopyDestination(copy.Where);
+        if (folder is null) return null; // not a place known here: other help can answer
+        string[] words = WordRegex().Matches(copy.What.ToLowerInvariant())
+            .Select(match => match.Value.Trim('-'))
+            .Where(word => word.Length >= 2 && !NotFileWords.Contains(word))
+            .Select(word => word.EndsWith("-то") || word.EndsWith("-та") ? word[..^3] : word) // "CV-то" → "cv"
+            .Distinct()
+            .ToArray();
+        if (words.Length == 0) return null;
+
+        // A file the user saved the place of ("My CV is in D:\Docs\CV.pdf") comes first, then file search.
+        List<string> found = SavedFiles(copy.What);
+        if (found.Count == 0)
+        {
+            FileSearchResult result = await files.SearchAsync(new FileSearchQuery(words, [], null, 5), ct);
+            if (!result.Available) return new ActionReply($"File search isn't working right now ({result.Problem}), so I can't find {copy.What}.");
+            found = result.Files.Select(file => file.FullPath).Where(File.Exists).ToList();
+        }
+        if (found.Count == 0) return new ActionReply($"I couldn't find a file matching \"{copy.What}\". Try its name, like \"copy CV.pdf to the desktop\".");
+        if (found.Count == 1) return CopyInto(found[0], folder);
+
+        return new ActionReply($"Several files match \"{copy.What}\". Which one should I copy to {FolderLabel(folder)}?")
+        {
+            Files = found.Select(path => new FileHit(path, File.GetLastWriteTime(path))).ToList(),
+            Options = [.. found.Take(4).Select(path => new ActionOption(
+                $"{Path.GetFileName(path)} ({Shorten(Path.GetDirectoryName(path) ?? "", 30)})", new CopyFile(path, folder))),
+                new ActionOption("Cancel", null)],
+        };
+    }
+
+    // Copies a file into a folder, next to anything already there: "CV.pdf", then "CV (copy).pdf", "CV (copy 2).pdf".
+    static ActionReply CopyInto(string source, string folder)
+    {
+        if (!File.Exists(source)) return new ActionReply("That file isn't there anymore.");
+        if (!Directory.Exists(folder)) return new ActionReply($"{folder} isn't there anymore (a drive may have been unplugged).");
+        string name = Path.GetFileNameWithoutExtension(source), extension = Path.GetExtension(source);
+        string target = Path.Combine(folder, name + extension);
+        for (int n = 1; File.Exists(target); n++)
+            target = Path.Combine(folder, $"{name} (copy{(n == 1 ? "" : " " + n)}){extension}");
+        File.Copy(source, target);
+        DiagnosticLog.Info("Copied a file from the chat");
+        return new ActionReply($"Copied {Path.GetFileName(source)} to {FolderLabel(folder)}" +
+                               (Path.GetFileName(target) == Path.GetFileName(source) ? "." : $" as {Path.GetFileName(target)} (one with that name was already there)."))
+        {
+            Files = [new FileHit(target, File.GetLastWriteTime(target))],
+        };
+    }
+
+    // "desktop" (or "desctop"), "documents", a saved place, "the USB" / "флашката", "E:", "drive E", or a full path.
+    string? CopyDestination(string where)
+    {
+        string clean = CopyPlaceWords().Replace(where.Trim().TrimEnd('.', '!', '?'), "").Trim();
+        if (clean.Length == 0) return null;
+        string lower = clean.ToLowerInvariant();
+
+        if (UsbWords().IsMatch(lower))
+            return Assistant.Core.Backup.BackupEngine.Drives().FirstOrDefault(drive => drive.Removable)?.Root;
+        if (DriveLetter().Match(lower) is { Success: true } drive)
+        {
+            string root = drive.Groups["l"].Value.ToUpperInvariant() + @":\";
+            return Directory.Exists(root) ? root : null;
+        }
+        if (Path.IsPathFullyQualified(clean)) return Directory.Exists(clean) ? clean : null;
+        if (Folder(clean) is { } folder) return folder;
+
+        string? nearest = FolderNames.FirstOrDefault(known => lower.Length >= 5 && EditDistance(lower, known) <= 2);
+        return nearest is null ? null : Folder(nearest);
+    }
+
+    List<string> SavedFiles(string what)
+    {
+        var paths = new List<string>();
+        foreach (string fact in placeFacts())
+        {
+            if (!Assistant.Core.Organizer.TextMatch.Matches(fact, what)) continue;
+            foreach (Match path in SavedPath().Matches(fact))
+            {
+                string file = path.Value.TrimEnd('.', ',', ')', ' ');
+                if (File.Exists(file) && !paths.Contains(file)) paths.Add(file);
+            }
+        }
+        return paths;
+    }
+
+    static string FolderLabel(string folder)
+    {
+        string leaf = Path.GetFileName(folder.TrimEnd('\\'));
+        return leaf.Length > 0 ? leaf : folder;
+    }
+
+    static string Shorten(string text, int max) => text.Length <= max ? text : "…" + text[^(max - 1)..];
+
+    static int EditDistance(string a, string b)
+    {
+        var row = Enumerable.Range(0, b.Length + 1).ToArray();
+        for (int i = 1; i <= a.Length; i++)
+        {
+            int previous = row[0];
+            row[0] = i;
+            for (int j = 1; j <= b.Length; j++)
+            {
+                int saved = row[j];
+                row[j] = Math.Min(Math.Min(row[j] + 1, row[j - 1] + 1), previous + (a[i - 1] == b[j - 1] ? 0 : 1));
+                previous = saved;
+            }
+        }
+        return row[b.Length];
+    }
+
+    [GeneratedRegex(@"[\p{L}\p{N}][\p{L}\p{N}._-]*")]
+    private static partial Regex WordRegex();
+
+    // "the", "my", "folder", "папката" around a place's name.
+    [GeneratedRegex(@"^(?:the|my|моя|моят|моята)\s+|\s+(?:folder|папка|папката)$|^(?:папката|папка)\s+", RegexOptions.IgnoreCase)]
+    private static partial Regex CopyPlaceWords();
+
+    [GeneratedRegex(@"^(?:usb(?:\s+(?:stick|drive))?|flash\s*drive|thumb\s*drive|memory\s+stick|external\s+(?:drive|disk)|pen\s*drive|флашк\w*|флашка\w*|външни(?:я|ят)\s+диск|usb-?то)$")]
+    private static partial Regex UsbWords();
+
+    // "E:", "E:\", "e drive", "drive E", "диск E": the letter in group "l", whichever way it was written.
+    [GeneratedRegex(@"^(?:(?<l>[a-z]):\\?|(?<l>[a-z])\s+drive|drive\s+(?<l>[a-z])|диск\s+(?<l>[a-z]))$")]
+    private static partial Regex DriveLetter();
 
     ActionReply SearchWeb(string query)
     {

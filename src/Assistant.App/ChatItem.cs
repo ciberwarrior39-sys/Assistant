@@ -80,6 +80,10 @@ public sealed class ChatItem
     public string? RetryQuestion { get; init; }
     public Visibility RetryVisibility => RetryQuestion is null ? Visibility.Collapsed : Visibility.Visible;
 
+    /// <summary>The answer came from saved facts: "Look it up" asks cloud chat (and Wikipedia) the same question.</summary>
+    public string? LookUpQuestion { get; init; }
+    public Visibility LookUpVisibility => LookUpQuestion is null ? Visibility.Collapsed : Visibility.Visible;
+
     /// <summary>Buttons under the reply: which app to open, or a confirmation.</summary>
     public IReadOnlyList<ChoiceButton> Choices { get; init; } = [];
 

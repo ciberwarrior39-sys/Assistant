@@ -47,7 +47,8 @@ public static partial class RelevantFacts
 
     static int Score(string[] query, string[] line) => query.Count(word => line.Any(other => Similar(word, other)));
 
-    static bool Similar(string a, string b)
+    /// <summary>The same word, or two forms of it ("exam" and "exams", "изпит" and "изпитът").</summary>
+    internal static bool Similar(string a, string b)
     {
         if (a == b) return true;
         int shorter = Math.Min(a.Length, b.Length);

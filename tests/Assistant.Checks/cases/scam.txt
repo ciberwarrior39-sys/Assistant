@@ -1,0 +1,41 @@
+# The scam check. One check per line:   expected | text
+#   signs 0 / signs >=N   how many warning signs the code finds in the text
+#   asks                  the typed message starts a scam check of the marked text
+#   pasted                the typed message starts a scam check of the text that came with it
+#   chat                  the typed message is ordinary chat
+# "\n" in a line is a new line. Add every scam (or honest message) the check got wrong.
+
+# ---- Classic scams: two or more signs ----
+signs >=2 | DHL: Your parcel is on hold due to an unpaid delivery fee of 1.99 EUR. Pay within 24 hours: https://dhl-paket-help.top/pay
+signs >=2 | PayPal: Your account has been suspended due to suspicious activity. Verify your account here: http://paypal.com.secure-login.xyz/verify
+signs >=2 | Hi mum, this is my new number, my phone broke. Can you send me 300 euro today? I'll pay you back
+signs >=2 | Congratulations! You've won an iPhone 16. Claim your prize now: bit.ly/3xYz12
+signs >=2 | Microsoft Support: your PC is infected. Install AnyDesk and give us the code so we can fix it immediately
+signs >=2 | Еконт: Вашата пратка е задържана. Платете такса за доставка от 1,50 лв.: https://econt-bg.click/plati
+signs >=2 | НАП: Полага ви се възстановяване на данък. Потвърдете данните на вашата карта тук: https://nra-bg.top/refund
+signs >=2 | Вашият профил в ДСК ще бъде блокиран. Въведете ПИН кода и паролата си спешно: www.dsk-bank-online.icu
+signs >=2 | Earn $500 per day with guaranteed profit! Invest in bitcoin now
+signs >=2 | Your Steam account will be locked. Log in at https://steamcommunlty.com/login to keep it
+
+# ---- Honest messages: no signs ----
+signs 0 | Hi, are we still on for dinner on Friday? I booked the table for 8.
+signs 0 | Your order has shipped and will arrive on Thursday. Track it in the Amazon app or at https://www.amazon.de/orders
+signs 0 | Здравей, утре в 10 ще мина да взема книгата. Благодаря!
+signs 0 | Честит рожден ден! Да си жив и здрав.
+signs 0 | The meeting notes are in https://docs.google.com/document/d/abc123 and the slides follow tomorrow.
+signs 0 | I attached the photos as holiday.zip, have a look when you can.
+
+# ---- Typed requests ----
+asks | is this a scam?
+asks | Is this a scam
+asks | това измама ли е?
+asks | check this message
+asks | can you check if this is a scam
+pasted | is this a scam? Your parcel is on hold, pay the customs fee at dhl-help.top
+pasted | is this legit: https://paypal-verify.top/login
+pasted | Your account has been locked, verify your details at the link below\nis this a scam?
+pasted | Вашата пратка е задържана, платете таксата тук\nизмама ли е това?
+chat | is this safe?
+chat | is it real that the Nile is the longest river?
+chat | is this legit
+chat | is it safe to eat raw eggs?

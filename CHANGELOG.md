@@ -4,6 +4,19 @@ The newest version is first. The app shows this in Settings > What's new, and ea
 Each version starts with a line "## <version> (<month> <year>)", and each change is one line starting with "- ".
 The first three lines of a version are the highlights shown after an update.
 
+## 0.7.0 (November 2026)
+- **PC check-up:** ask "why is my PC slow?" and the assistant shows what's using your memory and processor and which apps start with Windows, with buttons to close a heavy app or stop one starting with Windows (and turn it back on).
+- **Backups:** your folders copied to a USB drive or any folder once a day by themselves, as normal files, with older versions of changed or deleted files kept 30 days. Ask "back up my files" to start.
+- **Is this a scam?** Mark or paste a message, email or link and ask. The app lists the warning signs it finds (fake delivery fees, look-alike links, requests for codes) and gives a verdict, always with the same safe advice.
+- **Internet trouble:** ask "my internet isn't working" and the assistant checks Wi-Fi, the router, the internet, website names and login pages one by one, says where it breaks and what fixes it. "Speed test" measures download, upload and ping.
+- **Free up space:** ask "my disk is full" to see temporary files, old installers, the Recycle Bin and your biggest files, and clear them with one button. Installers go to the Recycle Bin first.
+- **Your saved facts come first:** a question about something you saved ("who is Kris?", "when is the exam?") is answered from your own facts, on your computer. A Look it up button under it asks the web instead.
+- **Fewer pointless lookups:** Wikipedia is only asked about the world. Small talk, follow-ups ("is this…?"), advice, and questions about you or the assistant are answered without it.
+- **Articles that don't fit are left out:** when Wikipedia's nearest match isn't about your question, it isn't used or listed as a source.
+- **"Look inside your memory"** and similar requests now show what's saved, in English and Bulgarian.
+- **Takes less space:** the local model's helper no longer keeps graphics-card files for other kinds of PCs (usually 0.7–1.2 GB freed after the first answer), voices you don't use are removed, and the app's own logs are kept 30 days.
+- **Switching to Lite** offers to remove the local model and free about 4.6 GB. Run setup again downloads it back.
+
 ## 0.6.0 (November 2026)
 - **More accurate answers:** factual questions are looked up on Wikipedia and answered from the article, which is listed under the answer. If it isn't there, the assistant says so instead of guessing, and Search the web looks further.
 - **Better at maths and code:** questions that need working out get more thinking time and room for a full answer, and sums are worked out exactly. Code is shown in its own box with a Copy button.

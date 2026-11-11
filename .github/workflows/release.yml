@@ -104,8 +104,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $lines = Get-Content CHANGELOG.md -Encoding utf8
-          $start = [array]::FindIndex($lines, [Predicate[string]]{ param($l) $l -match "^##\s+v?$([regex]::Escape($env:VERSION))(\s|$)" })
+          $lines = @(Get-Content CHANGELOG.md -Encoding utf8)
+          $heading = "^##\s+v?$([regex]::Escape($env:VERSION))(\s|$)"
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match $heading) { $start = $i; break }
+          }
           if ($start -lt 0) {
             Write-Host "CHANGELOG.md has no section for $env:VERSION; the release keeps no notes."
             exit 0

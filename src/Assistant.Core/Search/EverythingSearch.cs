@@ -59,6 +59,49 @@ public sealed class EverythingSearch : IFileSearch
     public Task<FileSearchResult> SearchAsync(FileSearchQuery query, CancellationToken ct) =>
         Task.Run(() => Search(query), ct);
 
+    /// <summary>
+    /// The biggest of the user's own files (not Windows, programs or app data), largest first, with their sizes.
+    /// Empty when Everything isn't running or its SDK is missing.
+    /// </summary>
+    public static Task<IReadOnlyList<(FileHit File, long Bytes)>> BiggestFilesAsync(long atLeastBytes, int max, CancellationToken ct) =>
+        Task.Run<IReadOnlyList<(FileHit File, long Bytes)>>(() =>
+        {
+            try
+            {
+                lock (Gate)
+                {
+                    Native.Everything_SetSearchW($"file: size:>{atLeastBytes}");
+                    Native.Everything_SetRequestFlags(Native.REQUEST_FULL_PATH_AND_FILE_NAME | Native.REQUEST_DATE_MODIFIED | Native.REQUEST_SIZE);
+                    Native.Everything_SetSort(Native.SORT_SIZE_DESCENDING);
+                    Native.Everything_SetMax(200);
+                    if (!Native.Everything_QueryW(true)) return [];
+
+                    var found = new List<(FileHit, long)>();
+                    var buffer = new StringBuilder(32768);
+                    uint total = Native.Everything_GetNumResults();
+                    for (uint i = 0; i < total && found.Count < max; i++)
+                    {
+                        buffer.Clear();
+                        Native.Everything_GetResultFullPathNameW(i, buffer, (uint)buffer.Capacity);
+                        string path = buffer.ToString();
+                        if (ExcludedPaths.Any(folder => path.Contains(folder, StringComparison.OrdinalIgnoreCase))) continue;
+                        // pagefile.sys, hiberfil.sys and the like at a drive's root belong to Windows.
+                        if (Path.GetDirectoryName(path) is { Length: <= 3 } && path.EndsWith(".sys", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (!Native.Everything_GetResultSize(i, out long bytes)) continue;
+                        DateTime modified = Native.Everything_GetResultDateModified(i, out long fileTime) && fileTime > 0
+                            ? DateTime.FromFileTime(fileTime)
+                            : DateTime.MinValue;
+                        found.Add((new FileHit(path, modified), bytes));
+                    }
+                    return found;
+                }
+            }
+            catch (DllNotFoundException)
+            {
+                return [];
+            }
+        }, ct);
+
     static FileSearchResult Search(FileSearchQuery query)
     {
         try
@@ -170,6 +213,8 @@ public sealed class EverythingSearch : IFileSearch
         public const uint REQUEST_FULL_PATH_AND_FILE_NAME = 0x00000004;
         public const uint REQUEST_DATE_MODIFIED = 0x00000040;
         public const uint SORT_DATE_MODIFIED_DESCENDING = 14;
+        public const uint REQUEST_SIZE = 0x00000010;
+        public const uint SORT_SIZE_DESCENDING = 6;
         public const uint ERROR_IPC = 2;
 
         [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern void Everything_SetSearchW(string search);
@@ -182,5 +227,6 @@ public sealed class EverythingSearch : IFileSearch
         [DllImport(Dll)] public static extern uint Everything_GetMajorVersion();
         [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern uint Everything_GetResultFullPathNameW(uint index, StringBuilder buffer, uint bufferSize);
         [DllImport(Dll)] public static extern bool Everything_GetResultDateModified(uint index, out long fileTime);
+        [DllImport(Dll)] public static extern bool Everything_GetResultSize(uint index, out long size);
     }
 }

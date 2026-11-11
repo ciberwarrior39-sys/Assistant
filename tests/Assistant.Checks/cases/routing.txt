@@ -1,0 +1,210 @@
+# Which part of the assistant answers a message.
+#
+# One check per line:   expected route | the message
+# Lines starting with # are comments. A line starting with @ changes the setup for the checks after it:
+#   @ normal       cloud chat connected, local model on
+#   @ cloud-down   cloud chat connected but not answering
+#   @ no-cloud     no cloud key
+#   @ lite         Lite mode (no local model)
+#   @ game         game mode (cloud only)
+#
+# Routes:
+#   quick_answer, shortcut, conversation_log, organizer, action    answered by code
+#   tool:search_files, tool:recall, tool:remember, ...             sent straight to a tool, no model
+#   memory          answered from saved facts ("Look it up" under it)
+#   cloud           cloud chat, nothing looked up
+#   cloud+lookup    cloud chat with a Wikipedia lookup
+#   local>cloud     the local model saw it first (something private in it), then cloud chat answered
+#   local           the local model answered
+#   no_answer       cloud chat was needed and didn't answer ("Try again")
+#   help            a pointer to what works (Lite and game mode)
+#
+# The saved facts these checks use are in cases\memory. Nothing here calls a real model or the internet.
+# Found a message the assistant handled wrongly? Add a line for it here, then fix the rule until it passes.
+
+@ normal
+
+# ---- Answered by code ------------------------------------------------------------------------------------------
+quick_answer | flip a coin
+quick_answer | roll a d20
+quick_answer | what time is it?
+quick_answer | what's 12 * 7
+quick_answer | 15% of 200
+quick_answer | set a timer for 5 minutes
+quick_answer | pick a number between 1 and 10
+shortcut | my shortcuts
+shortcut | make Alt+S open Spotify
+conversation_log | what did we talk about yesterday?
+conversation_log | за какво говорихме вчера?
+organizer | note that the plumber comes on Friday
+organizer | show my notes
+organizer | add milk to my to-do list
+organizer | what are my reminders?
+organizer | запиши си че имам зъболекар в петък
+action | open spotify
+action | отвори spotify
+action | take a screenshot
+action | lock my pc
+action | google best pizza in sofia
+
+# PC check-up: "why is it slow?" and "where did my space go?"
+action | Why is my PC so slow?
+action | my laptop keeps freezing
+action | what's using all my RAM?
+action | speed up my computer
+action | Компютърът ми е много бавен
+action | my disk is full
+action | free up some space
+action | what's taking up all my space?
+action | Дискът ми е пълен
+action | освободи място
+action | Can you delete my temporary files?
+action | clear temp files
+action | изтрий временните файлове
+action | delete old installers in my downloads
+# Backups
+action | back up my files
+action | backup now
+action | when was my last backup?
+action | are my files backed up?
+action | set up backups
+action | also back up D:\Projects
+action | направи резервно копие
+action | кога беше последното резервно копие?
+action | Make a backup for my CV in the desctop.
+action | copy report.docx to the USB
+action | back up my files to the usb
+
+# Internet check-up
+action | why is my internet slow?
+action | my wifi keeps dropping
+action | no internet
+action | websites won't load
+action | test my internet speed
+action | speed test
+action | how fast is my internet?
+action | скоростта на интернета
+action | нямам интернет
+action | интернетът не работи
+action | Защо ми е бавен интернетът?
+# ... but not a database connection, a neural network or a question about sizes
+cloud | my database connection is not working, what's wrong with this code?
+cloud | why is my neural network so slow to train?
+cloud+lookup | How much space does a 4k movie take?
+
+# ---- Straight to a tool ----------------------------------------------------------------------------------------
+tool:search_files | find my CV
+tool:search_files | find documents I edited today
+tool:search_files | open the file report.docx
+tool:get_recent_activity | what did I do today?
+tool:get_recent_activity | how long did I spend in Unity today?
+tool:look_at_screen | what does this error mean?
+tool:remember | remember that my dentist is on Friday
+tool:forget | forget that I love playing Hollow Knight
+tool:recall | where's my CV?
+tool:recall | what do you know about me?
+tool:recall | look inside your memory
+tool:recall | what's my name?
+tool:recall | when is my physics exam?
+tool:recall | did I tell you about my trip?
+tool:recall | какво знаеш за мен?
+
+# ---- Memory before the encyclopedia: every key word of the question is in a saved fact ---------------------------
+memory | Who is Kris?
+memory | who is mila
+memory | What is Kris doing?
+memory | When is the physics exam?
+memory | how is my sister doing?
+memory | Кога е изпитът по математика?
+memory | Къде живее баба?
+memory | What do you know about Kris?
+
+# ... but a definition is the world's business, and so is someone who isn't saved
+cloud+lookup | What is physics?
+cloud+lookup | Who is Napoleon?
+
+# ---- Questions about the world: looked up ------------------------------------------------------------------------
+cloud+lookup | Who wrote "Под игото"?
+cloud+lookup | Кой е написал "Под игото"?
+cloud+lookup | Кои са разказвачите в "Бай Ганьо журналист"?
+cloud+lookup | When was Hristo Botev born?
+cloud+lookup | Кога е роден Христо Ботев?
+cloud+lookup | What is the capital of Australia?
+cloud+lookup | Where is Mount Everest?
+cloud+lookup | Who won the 1998 World Cup?
+cloud+lookup | When did World War I start?
+cloud+lookup | Can you tell me who discovered penicillin?
+cloud+lookup | Do you know who painted the Mona Lisa?
+cloud+lookup | Кажи ми кой е открил пеницилина
+cloud+lookup | Tell me a country in bulgaria
+cloud+lookup | Is it true that the Nile is the longest river?
+cloud+lookup | Who was Napoleon and what were his reforms?
+cloud+lookup | Explain photosynthesis
+cloud+lookup | Какво е фотосинтеза?
+cloud+lookup | Колко е висок връх Мусала?
+
+# ---- Not lookups: small talk -------------------------------------------------------------------------------------
+cloud | hi
+cloud | thanks!
+cloud | How are you today?
+cloud | как си днес?
+
+# ---- Not lookups: leans on the chat before it --------------------------------------------------------------------
+cloud | Is this tied to the european union by any case?
+cloud | Why did he do that?
+cloud | What does it mean?
+cloud | Who wrote this book?
+cloud | Кой е написал тази книга?
+
+# ---- Not lookups: about the user or the assistant ----------------------------------------------------------------
+cloud | Your name is now verity
+cloud | do you like being my assistant?
+cloud | What can you do?
+cloud | What's my favourite colour?
+cloud | How do I activate analysis toolpak in excel?
+cloud | Какво мислиш за Вазов?
+cloud | Think of a way to make a tutorial for a game that I am making
+
+# ---- Not lookups: advice, opinions, things to write, right now ---------------------------------------------------
+cloud | Should I learn Rust or Go?
+cloud | What should I cook tonight?
+cloud | How to make pancakes?
+cloud | Write a poem about autumn?
+cloud | What's the weather today?
+cloud | Who won the match yesterday?
+
+# ---- Maths and code: cloud chat with working out, no lookup -------------------------------------------------------
+cloud | Solve 3x + 5 = 20
+cloud | Реши уравнението x² - 4 = 0
+cloud | Why does my Python loop never end?
+cloud | What's the difference between a list and a tuple in Python?
+
+# ---- Something private in it: the local model sees it first ------------------------------------------------------
+local>cloud | I spent all day on my homework
+local>cloud | what's on this page?
+local>cloud | what's in my downloads folder?
+local>cloud | summarise the document I was working on
+local>cloud+lookup | what do you know about black holes?
+
+@ cloud-down
+quick_answer | flip a coin
+memory | Who is Kris?
+no_answer | Who wrote "Под игото"?
+local | hi
+
+@ no-cloud
+memory | Who is Kris?
+local | hi
+local | Who wrote "Под игото"?
+
+@ lite
+tool:recall | what's my name?
+memory | Who is Kris?
+cloud+lookup | When was Hristo Botev born?
+cloud | hi
+
+@ game
+tool:search_files | find my CV
+help | what does this error mean?
+cloud | hi
+cloud+lookup | When was Hristo Botev born?

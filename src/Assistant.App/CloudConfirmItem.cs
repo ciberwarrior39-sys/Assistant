@@ -18,6 +18,9 @@ public sealed class CloudConfirmItem(string question, string screenText) : INoti
     /// <summary>Selected text rather than text read off a screenshot: changes the card's wording and where it's sent.</summary>
     public bool ForSelectedText { get; init; }
 
+    /// <summary>Added under the cloud's answer by the app itself (the scam check's advice), so it's always there.</summary>
+    public string? AppendToAnswer { get; init; }
+
     public string QuestionLabel => ForSelectedText ? "Your request" : "Your question";
     public string TextLabel => ForSelectedText ? "Selected text" : "Text from your screen";
 

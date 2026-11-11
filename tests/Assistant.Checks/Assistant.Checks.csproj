@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Checks that each kind of message is answered by the right part of the assistant (cases\routing.txt).
+       How to run them: see "Checks" in README.md.
+       No model, no internet and no packages of its own: the local model, cloud chat and Wikipedia are stand-ins. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Assistant.Checks</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Assistant.Core\Assistant.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="cases\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

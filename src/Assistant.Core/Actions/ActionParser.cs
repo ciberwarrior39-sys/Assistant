@@ -50,6 +50,11 @@ public static partial class ActionParser
         string text = Courtesy(Spaces().Replace(message.Trim(), " "));
         if (text.Length == 0 || text.Length > 200) return null;
 
+        if (Backup(text) is { } backup) return backup;
+        if (Copy(text) is { } copy) return copy;
+        if (First(text, TempFiles)) return new CleanUp(CleanUpKind.TempFiles, Confirmed: false);
+        if (First(text, OldInstallers)) return new CleanUp(CleanUpKind.OldInstallers, Confirmed: false);
+        if (CheckUp(text) is { } checkUp) return checkUp;
         if (Volume(text) is { } volume) return volume;
         if (Media(text) is { } media) return media;
         if (First(text, Lock)) return new LockPc();
@@ -71,6 +76,7 @@ public static partial class ActionParser
         ["изпразниш"] = "изпразни", ["изчистиш"] = "изчисти", ["направиш"] = "направи", ["потърсиш"] = "потърси", ["сложиш"] = "сложи",
         ["включиш"] = "включи", ["изключиш"] = "изключи", ["прескочиш"] = "прескочи", ["върнеш"] = "върни", ["смениш"] = "смени",
         ["покажеш"] = "покажи",
+        ["изтриеш"] = "изтрий", ["махнеш"] = "махни", ["почистиш"] = "почисти", ["премахнеш"] = "премахни",
         // "би ли пуснал/пуснала …"
         ["пуснал"] = "пусни", ["пуснала"] = "пусни",
         ["спрял"] = "спри", ["спряла"] = "спри",
@@ -170,6 +176,94 @@ public static partial class ActionParser
         return name.Length == 0 ? null : new OpenTarget(name, kind);
     }
 
+    // "why is my PC so slow?", "my disk is full", "компютърът ми е бавен": a check-up. Searched anywhere in the message
+    // (people say it many ways), but only when the PC itself is meant: a slow internet or a slow website is something else.
+    static ActionIntent? CheckUp(string text)
+    {
+        if (text.Length > 120) return null;
+        // "speed test", "how fast is my internet": measured straight away. "My internet speed is so slow" is a complaint,
+        // so it gets the whole check-up (which offers the speed test too).
+        if (SpeedRequest().IsMatch(text) && !Complaint().IsMatch(text)) return new SpeedTest();
+        if (InternetCheck().IsMatch(text)) return new PcCheckUp(CheckUpKind.Internet);
+        if (NotThePc().IsMatch(text)) return null;
+        if (SpaceCheck().IsMatch(text)) return new PcCheckUp(CheckUpKind.Space);
+        if (SpeedCheck().IsMatch(text)) return new PcCheckUp(CheckUpKind.Speed);
+        return null;
+    }
+
+    [GeneratedRegex("""
+        \b(?:pc|computer|laptop|windows|system)\b.*\b(?:slow|slower|slowly|lags?|lagging|laggy|sluggish|freez\w*|hangs|hanging|stutter\w*)\b
+        |\b(?:slow|lagging|laggy|sluggish)\s+(?:pc|computer|laptop)\b
+        |\bspeed\s+up\s+(?:my\s+|the\s+|this\s+)?(?:pc|computer|laptop|windows)\b
+        |\b(?:what|which\s+\w+)(?:'s|\s+is|\s+are)\s+(?:using|eating|hogging|taking)\s+(?:up\s+)?(?:all\s+)?(?:my\s+|the\s+)?(?:ram|memory|cpu|processor)\b
+        |\b(?:pc|computer|laptop)\s+check-?\s?up\b|\bcheck-?\s?up\s+(?:of\s+)?(?:my\s+|the\s+)?(?:pc|computer|laptop)\b
+        |\bcheck\s+(?:my\s+|the\s+)?(?:pc|computer|laptop)(?:'s)?(?:\s+(?:health|speed|performance))?$
+        |\b(?:компютър|лаптоп|пц|уиндоус)\w*\b.*\b(?:бав\w*|забав\w*|лагва\w*|насича\w*|зависва\w*|блокира\w*|тормози\w*)
+        |\b(?:бав\w*|забав\w*)\b.*\b(?:компютър|лаптоп|пц)\w*
+        |\bускори\s+(?:ми\s+)?(?:компютъра|лаптопа|пц-то)
+        |\bкакво\s+(?:натоварва|изяжда|ползва|използва|заема)\s+(?:ми\s+)?(?:рам|рам-а|процесора|компютъра)
+        |\b(?:провери|прегледай)\s+(?:ми\s+)?(?:компютъра|лаптопа)
+        """, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace)]
+    private static partial Regex SpeedCheck();
+
+    [GeneratedRegex("""
+        \b(?:disk|drive|storage|hard\s+drive|ssd|hdd|c\s+drive|c:|space)\s+(?:is\s+)?(?:almost\s+|nearly\s+|completely\s+)?(?:full|running\s+out|running\s+low|low)\b
+        |\b(?:running\s+out\s+of|out\s+of|low\s+on|no\s+more)\s+(?:disk\s+|drive\s+|storage\s+|free\s+)?(?:space|storage)\b
+        |\b(?:free|clear|make)\s+(?:up\s+)?(?:some\s+)?(?:disk\s+|drive\s+|storage\s+)?(?:space|room|storage)\b
+        |\b(?:what(?:'s|\s+is)|what\s+are)\s+(?:taking|using|eating|filling)\s+(?:up\s+)?(?:all\s+)?(?:the\s+|my\s+)?(?:space|storage|disk|drive)\b
+        |\bclean\s*up\s+(?:my\s+|the\s+|this\s+)?(?:pc|computer|laptop|disk|drive|storage)\b|\bdisk\s+clean\s*up\b
+        |\bhow\s+much\s+free\s+(?:disk\s+)?(?:space|storage)\b
+        |\bhow\s+much\s+(?:disk\s+)?(?:space|storage)\s+(?:do\s+i\s+have|have\s+i\s+got|is\s+left|is\s+free|left)\b
+        |\b(?:диск|паметта|хранилище)\w*\s+(?:ми\s+)?(?:е\s+)?(?:пъл(?:ен|на|но)|свършва|препълн\w*)
+        |\bняма(?:м)?\s+(?:повече\s+)?(?:свободно\s+)?място\b
+        |\b(?:освободи|направи)\s+(?:малко\s+|още\s+)?(?:свободно\s+)?място\b
+        |\bпочисти\s+(?:ми\s+)?(?:компютъра|лаптопа|диска|паметта)
+        |\bкакво\s+(?:заема|пълни|изяжда)\s+(?:ми\s+)?(?:мястото|място|диска|паметта)
+        |\bколко\s+свободно\s+място\b
+        |\bколко\s+място\s+(?:имам|има|остава|ми\s+остава|е\s+свободно)\b
+        """, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace)]
+    private static partial Regex SpaceCheck();
+
+    // "my internet isn't working", "the Wi-Fi keeps dropping", "нямам интернет", "бавен интернет". "Connection" and "network"
+    // only after "my"/"the", so a database connection or a neural network isn't caught.
+    [GeneratedRegex("""
+        \b(?:internet|wi-?fi|(?:my|the)\s+(?:internet\s+|wi-?fi\s+)?(?:connection|network))\b.*?
+          \b(?:not\s+working|doesn['’]t\s+work|does\s+not\s+work|isn['’]t\s+working|is\s+not\s+working|stopped\s+working|down|slow|slower|so\s+slow
+          |keeps\s+(?:dropping|disconnecting|cutting\s+out)|drops|dropping|disconnects|disconnecting|cuts\s+out|laggy|lagging|lags|broken|bad|weak|unstable
+          |not\s+connecting|won['’]t\s+connect|can['’]t\s+connect|isn['’]t\s+connecting|gone|out)\b
+        |\bno\s+(?:internet|wi-?fi)\b
+        |\bcan['’]t\s+(?:connect\s+to|get\s+on(?:to)?|access|reach)\s+(?:the\s+)?(?:internet|wi-?fi|any\s+websites?|websites|online)\b
+        |\b(?:websites?|pages|sites)\s+(?:won['’]t|don['’]t|aren['’]t|do\s+not|will\s+not)\s+(?:load|open|work)\b
+        |\b(?:check|test|diagnose|fix|troubleshoot)\s+(?:my\s+|the\s+)?(?:internet|wi-?fi|connection|network)(?:\s+(?:speed|connection))?\b
+        |\b(?:internet|wi-?fi|connection)\s+speed\b|\bspeed\s*test\b|\bhow\s+fast\s+is\s+my\s+(?:internet|wi-?fi|connection)\b
+        |\b(?:интернет|уай-?фа|wi-?fi|вайфа|връзката|мрежата)\w*\b.*?(?:не\s+работи|не\s+върви|не\s+тръгва|бав\w*|спира|прекъсва|пада|го\s+няма|изчезна|изчезва|лагва\w*|слаб\w*)
+        |\bнямам\s+(?:интернет|връзка|wi-?fi|уай-?фай|вайфай)\b|\bняма\s+(?:интернет|връзка\s+с\s+интернет)\b
+        |\b(?:провери|тествай|оправи)\s+(?:ми\s+)?(?:интернета|връзката|скоростта\s+на\s+интернета|уай-?фая|вайфая)
+        |\bбав(?:ен|ия|ият)\s+интернет|\bскоростта\s+на\s+интернета\b
+        |\bсайтовете\s+не\s+(?:се\s+)?(?:зареждат|отварят|отваря)
+        """, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace)]
+    private static partial Regex InternetCheck();
+
+    [GeneratedRegex("""
+        \bspeed\s*-?\s*test\b
+        |\b(?:test|check|measure|run)\s+(?:a\s+)?(?:my\s+|the\s+)?(?:internet|wi-?fi|connection|network|download|upload)\s+speed\b
+        |\b(?:what's|what\s+is|show)\s+(?:my\s+|the\s+)?(?:internet|wi-?fi|connection|download|upload)\s+speed\b
+        |\bhow\s+fast\s+is\s+(?:my\s+|the\s+)?(?:internet|wi-?fi|connection)\b
+        |\b(?:тествай|провери|измери|покажи)\s+(?:ми\s+)?(?:скоростта|скорост)\b
+        |\bскорост(?:та)?\s+на\s+(?:интернета|връзката|уай-?фая|вайфая)\b
+        |\bколко\s+(?:е\s+)?бърз\s+(?:е\s+)?(?:ми\s+)?(?:интернетът|интернета)
+        """, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace)]
+    private static partial Regex SpeedRequest();
+
+    [GeneratedRegex(@"\b(?:slow|slower|not\s+working|n['’]t\s+working|down|drops?|dropping|lag\w*|bad|weak|unstable|terrible|бав\w*|не\s+работи|прекъсва|пада|слаб\w*|лагва\w*)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex Complaint();
+
+    // A slow connection, website or game server isn't the PC: other help (and a later check-up) is for those.
+    [GeneratedRegex(@"\b(?:internet|wi-?fi|connection|network|website|site|download\s+speed|ping|server|интернет\w*|уай-?фай|връзка\w*|мрежа\w*|сайт\w*)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NotThePc();
+
     static bool First(string text, Regex[] patterns) => patterns.Any(pattern => pattern.IsMatch(text));
 
     static Match? Find(string text, Regex[] patterns)
@@ -265,6 +359,79 @@ public static partial class ActionParser
     [
         new($@"^{Polite}(?:take|make|grab|capture)\s+(?:a\s+)?(?:screenshot|screen\s*shot|screen\s+capture|picture\s+of\s+(?:the|my)\s+screen)(?:\s+of\s+(?:the|my)\s+screen)?$|^screenshot$", Options),
         new(@"^(?:направи\s+)?(?:скрийншот|снимка\s+на\s+екрана|екранна\s+снимка)$", Options),
+    ];
+
+    // "make a backup of my CV on the desktop", "copy report.docx to the USB", "направи копие на CV-то на работния плот".
+    // "Back up my files to the USB" is about all of them: that's a backup.
+    static ActionIntent? Copy(string text)
+    {
+        if (Find(text, CopyTo) is not { } match) return null;
+        string what = match.Groups["what"].Value.Trim(), where = match.Groups["where"].Value.Trim();
+        if (what.Length == 0 || where.Length == 0) return null;
+        return AllFiles().IsMatch(what) ? new BackupNow() : new CopyRequest(what, where);
+    }
+
+    static readonly Regex[] CopyTo =
+    [
+        new($@"^{Polite}(?:make|create|save|put|keep)\s+(?:a\s+)?(?:backup|back-up|copy|duplicate|spare\s+copy)\s+(?:of|for)\s+(?<what>.+?)\s+(?:in|on|to|into|onto|at)\s+(?<where>.+)$", Options),
+        new($@"^{Polite}(?:back\s*up|backup|copy|duplicate|save\s+a\s+copy\s+of)\s+(?<what>.+?)\s+(?:to|into|in|on|onto)\s+(?<where>.+)$", Options),
+        new(@"^(?:направи|създай|запази|сложи)\s+(?:ми\s+)?(?:резервно\s+)?копие\s+(?:на|за)\s+(?<what>.+?)\s+(?:в|във|на)\s+(?<where>.+)$", Options),
+        new(@"^(?:копирай|архивирай)\s+(?:ми\s+)?(?<what>.+?)\s+(?:в|във|на)\s+(?<where>.+)$", Options),
+    ];
+
+    [GeneratedRegex(@"^(?:all\s+)?(?:of\s+)?(?:my\s+|the\s+)?(?:files|stuff|everything|data|pc|computer|laptop|всичко|файловете(?:\s+ми)?|компютъра)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex AllFiles();
+
+    // "back up my files", "when was my last backup?", "set up backups", "also back up D:\Projects", "направи резервно копие".
+    static BackupIntent? Backup(string text)
+    {
+        if (First(text, BackupAdd) && Find(text, BackupAdd) is { } add) return new AddBackupFolder(add.Groups["path"].Value.Trim().Trim('"'));
+        if (First(text, BackupSetUp)) return new SetUpBackups();
+        if (First(text, BackupAsk)) return new BackupStatus();
+        if (First(text, BackupRun)) return new BackupNow();
+        return null;
+    }
+
+    static readonly Regex[] BackupRun =
+    [
+        new($@"^{Polite}(?:back\s*up|backup)\s+(?:all\s+)?(?:of\s+)?(?:my\s+|the\s+)?(?:files|pc|computer|laptop|stuff|documents|everything|data)(?:\s+now)?$", Options),
+        // "backup now" arrives as "backup": Courtesy drops a trailing "now".
+        new($@"^{Polite}(?:back\s*up|backup|back\s*up\s+now|backup\s+now|(?:run|make|start|do)\s+(?:a\s+|the\s+|my\s+)?backup(?:\s+now)?)$", Options),
+        new(@"^(?:направи|пусни|започни)\s+(?:ми\s+)?(?:резервно\s+копие|резервни\s+копия|бекъп|архив)(?:\s+(?:на\s+(?:файловете|компютъра)(?:\s+ми)?|сега))?$", Options),
+        new(@"^(?:архивирай|бекъпни)\s+(?:ми\s+)?(?:файловете|компютъра)(?:\s+(?:ми|си))?(?:\s+сега)?$", Options),
+    ];
+
+    static readonly Regex[] BackupAsk =
+    [
+        new(@"\b(?:when\s+was\s+(?:my\s+|the\s+)?last\s+backup|(?:are|is)\s+my\s+(?:files|stuff|pc|computer|laptop|data)\s+backed\s+up|backup\s+status|did\s+(?:the\s+|my\s+)?backup\s+(?:run|work|happen)|do\s+i\s+have\s+a\s+backup)\b", Options),
+        new(@"кога\s+(?:беше|е)\s+(?:последното\s+)?(?:резервно\s+копие|бекъп|архивиране)|архивирани\s+ли\s+са|имам\s+ли\s+(?:резервно\s+копие|бекъп)", Options),
+    ];
+
+    static readonly Regex[] BackupSetUp =
+    [
+        new($@"^{Polite}(?:set\s*up|setup|turn\s+on|start|configure)\s+(?:my\s+|the\s+)?(?:automatic\s+)?backups?$|^backup\s+settings$", Options),
+        new(@"^(?:настрой|включи)\s+(?:ми\s+)?(?:резервните\s+копия|резервни\s+копия|архивирането|бекъпа|бекъп)$", Options),
+    ];
+
+    // A full path after "back up" ("also back up D:\Projects", "архивирай и D:\Снимки").
+    static readonly Regex[] BackupAdd =
+    [
+        new($@"^{Polite}(?:also\s+)?(?:back\s*up|backup|add)\s+(?:the\s+folder\s+|folder\s+)?(?<path>""?[a-z]:\\.*?""?)(?:\s+(?:too|as\s+well|to\s+(?:the\s+|my\s+)?backups?))?$", Options),
+        new(@"^(?:архивирай|добави)\s+(?:и\s+)?(?:папката\s+)?(?<path>""?[a-z]:\\.*?""?)(?:\s+(?:също|към\s+резервните\s+копия))?$", Options),
+    ];
+
+    // "delete my temporary files", "изтрий временните файлове": says how much first, then a button deletes them.
+    static readonly Regex[] TempFiles =
+    [
+        new($@"^{Polite}(?:delete|clear|clean|remove|empty|wipe|get\s+rid\s+of)\s+(?:out\s+|up\s+)?(?:all\s+)?(?:of\s+)?(?:my\s+|the\s+|all\s+the\s+)?(?:temporary|temp)\s+(?:files|folder|data)(?:\s+(?:on|from)\s+(?:my|the|this)\s+(?:pc|computer|laptop))?$", Options),
+        new(@"^(?:изтрий|изчисти|почисти|махни|премахни)\s+(?:ми\s+)?(?:всички\s+)?(?:временните|временни)\s+(?:файлове|данни)(?:\s+(?:от|на)\s+(?:компютъра|лаптопа))?$", Options),
+    ];
+
+    // "delete old installers", "изтрий старите инсталатори": the installers in Downloads older than a month.
+    static readonly Regex[] OldInstallers =
+    [
+        new($@"^{Polite}(?:delete|clear|clean\s+up|remove|get\s+rid\s+of)\s+(?:all\s+)?(?:my\s+|the\s+)?(?:old\s+)?(?:installers|setup\s+files|installation\s+files)(?:\s+(?:in|from)\s+(?:my\s+|the\s+)?downloads)?$", Options),
+        new(@"^(?:изтрий|изчисти|махни|премахни)\s+(?:ми\s+)?(?:всички\s+)?(?:старите\s+)?(?:инсталатори|инсталаторите|инсталационни\s+файлове|инсталационните\s+файлове)(?:\s+(?:от|в)\s+(?:изтеглени|изтеглянията|downloads))?$", Options),
     ];
 
     static readonly Regex[] EmptyBin =

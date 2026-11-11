@@ -282,8 +282,9 @@ public sealed class SetupWizard : Window
         model.SelectionChanged += (_, _) => Changed();
         useExisting.Click += (_, _) => Changed();
 
-        modelPart.Children.Add(Hint("The model is about 1–3.5 GB, and the app's own Ollama (when needed) about 1–2 GB more. " +
-                                    "The app's copies live in its own folder, so uninstalling removes them."));
+        modelPart.Children.Add(Hint("The model is about 1–3.5 GB, and the app's own Ollama (when needed) about 2 GB more; after the " +
+                                    "first answer on the graphics card, the parts made for other graphics cards are removed (usually " +
+                                    "0.7–1.2 GB). The app's copies live in its own folder, so uninstalling removes them."));
         return panel;
     }
 

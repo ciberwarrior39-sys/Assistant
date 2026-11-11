@@ -5,5 +5,8 @@
     <PlatformTarget>x64</PlatformTarget>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Only the English resources of .NET, WPF and Windows Forms ship with the app (about 19 MB of translations of
+         their built-in messages into other languages are left out). The app's own text doesn't use them. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 </Project>

@@ -29,6 +29,7 @@ public sealed record SettingsHost(
     bool Installed,                    // installed with the setup file (not run from source)
     Func<Task<IReadOnlyList<Assistant.Core.Diagnostics.ResourceUsage>>> Resources, // what each part uses now
     Assistant.Core.Voice.PiperInstall Piper, // the natural voices, downloaded on request
+    Backups Backups,                   // copies of the user's folders, to a USB drive or any folder
     string Version,
     Func<string, string?> ShortcutProblem,   // why a shortcut's keys don't work right now, or null
     Action<Shortcut> TestShortcut);         // run a shortcut's command now
@@ -61,6 +62,7 @@ public sealed class SettingsWindow : Window
     readonly AppConfig edited;    // the shared config, changed live
     /// <summary>The name of the What's new page, for opening Settings there.</summary>
     public const string WhatsNewPage = "What's new";
+    public const string BackupsPage = "Backups";
 
     TabControl? tabs;
 
@@ -113,6 +115,7 @@ public sealed class SettingsWindow : Window
         AddPage(tabs, "Features", FeaturesSection());
         AddPage(tabs, "Shortcuts", ShortcutsTab());
         AddPage(tabs, "Performance", PerformanceSection());
+        AddPage(tabs, BackupsPage, BackupsSection());
         AddPage(tabs, "Privacy and cloud", Stack(CloudSection(), DataSection()));
         AddPage(tabs, "Startup and updates", Stack(StartupSection(), UpdatesSection()));
         AddPage(tabs, WhatsNewPage, WhatsNewTab());
@@ -876,6 +879,7 @@ public sealed class SettingsWindow : Window
             {
                 if (edited.Performance == profile.Id) return;
                 edited.Performance = profile.Id;
+                edited.RemoveLocalModel = !profile.LocalModel && edited.OllamaEmbedded && AskToRemoveLocalModel();
                 Changed(needsRestart: true);
             };
             panel.Children.Add(option);
@@ -884,6 +888,168 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(Heading("Right now"));
         panel.Children.Add(ResourceTable());
         return panel;
+    }
+
+    // Lite runs no local model: offer to free the space it takes. Only the app's own copy, never an Ollama the user installed.
+    bool AskToRemoveLocalModel()
+    {
+        long bytes = Assistant.Core.Setup.OllamaSpace.InstalledBytes();
+        if (bytes < 100_000_000) return false;
+        MessageBoxResult answer = MessageBox.Show(this,
+            $"Lite doesn't use the local model. Free {bytes / 1_000_000_000.0:0.0} GB by removing it and the app's Ollama?\n\n" +
+            "They're removed after the restart. If you switch back to Balanced or Full, tray > Run setup again downloads them.",
+            "Assistant", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+        return answer == MessageBoxResult.Yes;
+    }
+
+    // ---- Backups -------------------------------------------------------------------------------------------------
+
+    readonly StackPanel backupFolderRows = new();
+
+    UIElement BackupsSection()
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(Hint("Copies of your folders on a USB drive (best: it survives if the PC breaks) or in any folder, as normal " +
+                                "files you can open without the assistant. Only new and changed files are copied each time, and the " +
+                                "previous copy of a changed or deleted file is kept 30 days in \"Older versions\", so a mistake can be undone."));
+
+        var status = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 4) };
+        var warning = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 2, 0, 4) };
+        warning.SetResourceReference(TextBlock.ForegroundProperty, "Warn");
+        var destination = new TextBlock { TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        void Refresh()
+        {
+            status.Text = host.Backups.StatusText();
+            destination.Text = edited.BackupDestination.Length > 0
+                ? Path.Combine(edited.BackupDestination, Assistant.Core.Backup.BackupEngine.FolderName)
+                : "Not chosen yet";
+            string? same = edited.BackupDestination.Length > 0
+                ? Assistant.Core.Backup.BackupEngine.SameDriveWarning(host.Backups.Folders, edited.BackupDestination)
+                : null;
+            warning.Text = same ?? "";
+            warning.Visibility = same is null ? Visibility.Collapsed : Visibility.Visible;
+        }
+        void OnBackupChanged() => Dispatcher.Invoke(Refresh);
+        host.Backups.Changed += OnBackupChanged;
+        Closed += (_, _) => host.Backups.Changed -= OnBackupChanged;
+        panel.Children.Add(status);
+
+        // Where.
+        panel.Children.Add(Heading("Where the copies go"));
+        panel.Children.Add(destination);
+        panel.Children.Add(warning);
+        void Use(string path)
+        {
+            host.Backups.SetDestination(path, save: false); // the shared config: Save writes it, Cancel undoes it
+            Changed();
+            ShowBackupFolders();
+            Refresh();
+        }
+        var drives = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+        foreach (Assistant.Core.Backup.BackupDrive drive in Assistant.Core.Backup.BackupEngine.Drives())
+        {
+            var button = new Button
+            {
+                Content = $"{drive.Root.TrimEnd('\\')} {drive.Name} ({Assistant.Core.Backup.BackupEngine.Size(drive.FreeBytes)} free)",
+                Style = (Style)FindResource("Ghost"),
+                Margin = new Thickness(0, 0, 6, 6),
+            };
+            string root = drive.Root;
+            button.Click += (_, _) => Use(root);
+            drives.Children.Add(button);
+        }
+        var choose = new Button { Content = "Choose a folder…", Style = (Style)FindResource("Ghost"), Margin = new Thickness(0, 0, 6, 6) };
+        choose.Click += (_, _) =>
+        {
+            var dialog = new OpenFolderDialog { Title = "Where should the backups go?" };
+            if (dialog.ShowDialog(this) == true) Use(dialog.FolderName);
+        };
+        drives.Children.Add(choose);
+        panel.Children.Add(drives);
+        if (drives.Children.Count == 1)
+            panel.Children.Add(Hint("No USB or other drive is plugged in right now. Plug one in and open this page again, or choose any folder."));
+
+        // What.
+        panel.Children.Add(Heading("What's backed up"));
+        panel.Children.Add(backupFolderRows);
+        var add = new Button { Content = "Add a folder…", Style = (Style)FindResource("Ghost"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) };
+        add.Click += (_, _) =>
+        {
+            var dialog = new OpenFolderDialog { Title = "Which folder should be backed up too?" };
+            if (dialog.ShowDialog(this) != true) return;
+            if (edited.BackupFolders.Count == 0) edited.BackupFolders = [.. Assistant.Core.Backup.BackupEngine.DefaultFolders()];
+            if (!edited.BackupFolders.Contains(dialog.FolderName, StringComparer.OrdinalIgnoreCase)) edited.BackupFolders.Add(dialog.FolderName);
+            Changed();
+            ShowBackupFolders();
+            Refresh();
+        };
+        panel.Children.Add(add);
+        ShowBackupFolders();
+
+        // When.
+        panel.Children.Add(Heading("When"));
+        panel.Children.Add(Check("Back up by itself once a day, whenever the drive is plugged in (a reminder comes after 7 days without a backup)",
+            edited.BackupAuto, value => edited.BackupAuto = value));
+
+        var now = new Button { Content = "Back up now", Style = (Style)FindResource("Primary"), Padding = new Thickness(14, 4, 14, 4), Margin = new Thickness(0, 10, 8, 0) };
+        var open = new Button { Content = "Open the backup", Style = (Style)FindResource("Ghost"), Margin = new Thickness(0, 10, 8, 0) };
+        var stop = new Button { Content = "Stop", Style = (Style)FindResource("Ghost"), Margin = new Thickness(0, 10, 0, 0) };
+        now.Click += async (_, _) =>
+        {
+            if (!host.Backups.IsSetUp)
+            {
+                status.Text = "Choose where the copies go first.";
+                return;
+            }
+            now.IsEnabled = false;
+            Assistant.Core.Backup.BackupOutcome outcome = await host.Backups.RunAsync();
+            now.IsEnabled = true;
+            Refresh();
+            if (outcome.Problem is not null) status.Text = outcome.Problem;
+        };
+        open.Click += (_, _) =>
+        {
+            string? where = Assistant.Core.Backup.BackupEngine.Resolve(edited.BackupDestination, edited.BackupId);
+            string folder = where is null ? "" : Assistant.Core.Backup.BackupEngine.PcFolder(where);
+            if (Directory.Exists(folder)) Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true })?.Dispose();
+            else status.Text = "There's no backup to open yet, or its drive isn't plugged in.";
+        };
+        stop.Click += (_, _) => host.Backups.Stop();
+        var buttons = new WrapPanel();
+        buttons.Children.Add(now);
+        buttons.Children.Add(open);
+        buttons.Children.Add(stop);
+        panel.Children.Add(buttons);
+        panel.Children.Add(Hint("Files in use are skipped and copied next time. OneDrive files that are only in the cloud aren't downloaded " +
+                                "for the backup. Tool folders (node_modules, .vs) are left out. In the chat: \"back up my files\", " +
+                                "\"when was my last backup?\", \"also back up D:\\Projects\"."));
+        Refresh();
+        return panel;
+    }
+
+    void ShowBackupFolders()
+    {
+        backupFolderRows.Children.Clear();
+        IReadOnlyList<string> folders = edited.BackupFolders.Count > 0 ? edited.BackupFolders : Assistant.Core.Backup.BackupEngine.DefaultFolders();
+        foreach (string folder in folders)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+            var remove = new Button { Content = "\uE711", Style = (Style)FindResource("IconButton"), ToolTip = "Stop backing up this folder" };
+            DockPanel.SetDock(remove, Dock.Right);
+            string path = folder;
+            remove.Click += (_, _) =>
+            {
+                if (edited.BackupFolders.Count == 0) edited.BackupFolders = [.. Assistant.Core.Backup.BackupEngine.DefaultFolders()];
+                edited.BackupFolders.RemoveAll(item => item.Equals(path, StringComparison.OrdinalIgnoreCase));
+                if (edited.BackupFolders.Count == 0)
+                    edited.BackupFolders.Add(path); // at least one folder: an empty list would mean the defaults again
+                Changed();
+                ShowBackupFolders();
+            };
+            row.Children.Add(remove);
+            row.Children.Add(new TextBlock { Text = folder, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = folder });
+            backupFolderRows.Children.Add(row);
+        }
     }
 
     UIElement StartupSection()
