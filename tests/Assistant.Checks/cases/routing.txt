@@ -14,6 +14,10 @@
 #   memory          answered from saved facts ("Look it up" under it)
 #   cloud           cloud chat, nothing looked up
 #   cloud+lookup    cloud chat with a Wikipedia lookup
+#   routine         "every morning at 8 …": saved, listed or removed by the app
+#   calendar        answered from the user's calendar by the app
+#   mail            answered from the user's inbox by the app (sender, subject, date)
+#   guide           "show me where to click": the app looked at the window and marked a control
 #   cloud>offer     cloud chat asked for one of the app's actions: shown as a button, not run
 #   local>cloud     the local model saw it first (something private in it), then cloud chat answered
 #   local           the local model answered
@@ -229,6 +233,13 @@ cloud | go on then, do the impossible
 action | louder
 action | смени темата
 action | change the theme
+action | shut down my computer
+action | restart my pc
+action | изключи компютъра
+action | what's my battery level?
+action | how much battery do I have left
+action | close chrome
+action | затвори spotify
 
 @ lite
 cloud>offer | it's way too quiet in here, sort it out
@@ -238,3 +249,58 @@ cloud>offer | it's way too quiet in here, sort it out
 
 @ no-cloud
 local | it's way too quiet in here, sort it out
+
+# ---- Show me where to click ----------------------------------------------------------------------------------------
+# The stand-in window is cases\windows\editor.json. Nothing is clicked; in game mode nothing is even looked at.
+@ normal
+guide | where is the save button?
+guide | Where's the Settings button in this app?
+guide | show me the print button
+guide | I can't find the share button
+guide | where do I click to change the font?
+guide | how do I make the text bigger in this app?
+guide | къде е бутонът за запазване?
+guide | покажи ми къде да натисна, за да сменя шрифта
+# An app by name counts only when it is the window in use (the stand-in window is "Editor").
+guide | where is the print option in Editor?
+guide | how do I change the font in editor?
+cloud+lookup | Where is Plovdiv in Bulgaria?
+cloud | how do I make a pivot table in Excel?
+# A rule that matches still wins, and files stay with file search.
+tool:search_files | where is my tax report
+
+@ lite
+guide | where is the save button?
+
+@ game
+guide | where is the save button?
+
+@ no-cloud
+guide | where do I click to change the font?
+
+# ---- Calendar, mail and routines -----------------------------------------------------------------------------------
+# Stand-ins: a made-up calendar and inbox. Private like notes: never cloud chat, in any setup.
+@ normal
+calendar | what's on my calendar today?
+calendar | what do I have tomorrow?
+calendar | when is my next meeting?
+calendar | am I free on Friday?
+calendar | какво имам утре в календара?
+calendar | какви срещи имам днес?
+mail | any new emails?
+mail | check my email
+mail | did Ivan reply?
+mail | any emails from the bank?
+mail | имам ли нова поща?
+mail | писа ли ми Иван?
+routine | every morning at 8 tell me what's on my calendar today
+routine | every weekday at 9: any new emails?
+routine | my routines
+routine | всеки ден в 8 кажи ми какво имам днес
+
+@ game
+calendar | what's on my calendar today?
+mail | any new emails?
+
+@ no-cloud
+calendar | what do I have tomorrow?

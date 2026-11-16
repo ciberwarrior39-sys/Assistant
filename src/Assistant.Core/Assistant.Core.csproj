@@ -19,6 +19,19 @@
     <PackageReference Include="System.Speech" Version="10.0.12" />
   </ItemGroup>
 
+  <!-- Wake word (0.8): runs openWakeWord's small ONNX models on the CPU. Microsoft's ONNX Runtime, MIT licence. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+  </ItemGroup>
+
+  <!-- Mail (0.8): a read-only look at the inbox over IMAP. MailKit, MIT licence. 4.16.0 or later: earlier versions
+       have a known flaw in STARTTLS (this app uses SSL from the start, but stays on a fixed version anyway).
+       The cryptography package is named to lift MimeKit's older copy, which also has known flaws. -->
+  <ItemGroup>
+    <PackageReference Include="MailKit" Version="4.16.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.12" />
+  </ItemGroup>
+
   <!-- Setup (build step 10): cloud keys encrypted with Windows DPAPI, and Windows Search as the file-search
        fallback when Everything isn't installed. Both are Microsoft's own packages. -->
   <ItemGroup>

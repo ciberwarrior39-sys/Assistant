@@ -1,0 +1,226 @@
+{
+ "app": "Editor",
+ "x": 100,
+ "y": 100,
+ "width": 900,
+ "height": 600,
+ "complete": true,
+ "elements": [
+  {
+   "name": "&File",
+   "kind": "menu item",
+   "x": 110,
+   "y": 130,
+   "width": 44,
+   "height": 22,
+   "enabled": true
+  },
+  {
+   "name": "&Edit",
+   "kind": "menu item",
+   "x": 156,
+   "y": 130,
+   "width": 44,
+   "height": 22,
+   "enabled": true
+  },
+  {
+   "name": "F&ormat",
+   "kind": "menu item",
+   "x": 202,
+   "y": 130,
+   "width": 44,
+   "height": 22,
+   "enabled": true
+  },
+  {
+   "name": "&View",
+   "kind": "menu item",
+   "x": 248,
+   "y": 130,
+   "width": 44,
+   "height": 22,
+   "enabled": true
+  },
+  {
+   "name": "&Help",
+   "kind": "menu item",
+   "x": 294,
+   "y": 130,
+   "width": 44,
+   "height": 22,
+   "enabled": true
+  },
+  {
+   "name": "Save",
+   "kind": "button",
+   "x": 110,
+   "y": 160,
+   "width": 28,
+   "height": 28,
+   "enabled": true
+  },
+  {
+   "name": "Save as…",
+   "kind": "button",
+   "x": 140,
+   "y": 160,
+   "width": 28,
+   "height": 28,
+   "enabled": true
+  },
+  {
+   "name": "Print\tCtrl+P",
+   "kind": "button",
+   "x": 170,
+   "y": 160,
+   "width": 28,
+   "height": 28,
+   "enabled": true
+  },
+  {
+   "name": "Bold (Ctrl+B)",
+   "kind": "button",
+   "x": 200,
+   "y": 160,
+   "width": 28,
+   "height": 28,
+   "enabled": true
+  },
+  {
+   "name": "Zoom in",
+   "kind": "button",
+   "x": 230,
+   "y": 160,
+   "width": 28,
+   "height": 28,
+   "enabled": true
+  },
+  {
+   "name": "Zoom out",
+   "kind": "button",
+   "x": 260,
+   "y": 160,
+   "width": 28,
+   "height": 28,
+   "enabled": true
+  },
+  {
+   "name": "Share",
+   "kind": "button",
+   "x": 900,
+   "y": 160,
+   "width": 50,
+   "height": 28,
+   "enabled": true
+  },
+  {
+   "name": "Settings",
+   "kind": "button",
+   "x": 960,
+   "y": 160,
+   "width": 30,
+   "height": 28,
+   "enabled": true
+  },
+  {
+   "name": "Search",
+   "kind": "text field",
+   "x": 680,
+   "y": 160,
+   "width": 200,
+   "height": 28,
+   "enabled": true
+  },
+  {
+   "name": "Home",
+   "kind": "tab",
+   "x": 110,
+   "y": 195,
+   "width": 60,
+   "height": 26,
+   "enabled": true
+  },
+  {
+   "name": "Insert",
+   "kind": "tab",
+   "x": 172,
+   "y": 195,
+   "width": 60,
+   "height": 26,
+   "enabled": true
+  },
+  {
+   "name": "Text editor",
+   "kind": "document",
+   "x": 110,
+   "y": 225,
+   "width": 880,
+   "height": 440,
+   "enabled": true
+  },
+  {
+   "name": "Ln 1, Col 1",
+   "kind": "text",
+   "x": 110,
+   "y": 672,
+   "width": 90,
+   "height": 20,
+   "enabled": true
+  },
+  {
+   "name": "Save your work often",
+   "kind": "text",
+   "x": 300,
+   "y": 672,
+   "width": 160,
+   "height": 20,
+   "enabled": true
+  },
+  {
+   "name": "Share",
+   "kind": "link",
+   "x": 880,
+   "y": 672,
+   "width": 50,
+   "height": 20,
+   "enabled": true
+  },
+  {
+   "name": "Paste",
+   "kind": "button",
+   "x": 290,
+   "y": 160,
+   "width": 28,
+   "height": 28,
+   "enabled": false
+  },
+  {
+   "name": "Minimize",
+   "kind": "button",
+   "x": 880,
+   "y": 100,
+   "width": 40,
+   "height": 30,
+   "enabled": true
+  },
+  {
+   "name": "Maximize",
+   "kind": "button",
+   "x": 920,
+   "y": 100,
+   "width": 40,
+   "height": 30,
+   "enabled": true
+  },
+  {
+   "name": "Close",
+   "kind": "button",
+   "x": 960,
+   "y": 100,
+   "width": 40,
+   "height": 30,
+   "enabled": true
+  }
+ ]
+}

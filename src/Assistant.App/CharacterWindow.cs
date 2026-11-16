@@ -438,6 +438,68 @@ public sealed class CharacterWindow : Window
         BeginAnimation(LeftProperty, walk);
     }
 
+    // ---- Pointing at something on the screen (the guide's "I can't see it") -------------------------------------
+
+    readonly DispatcherTimer pointBack = new();
+    (double Left, double Top)? pointHome;  // where it stood before it went to point
+    (double Left, double Top) pointSpot;   // where it stands while pointing
+
+    /// <summary>
+    /// Walks next to a place on the screen (in WPF units), says "here!", and after a while walks back to where it
+    /// stood. It stands beside the place, never on it. Not while hidden or in game mode.
+    /// </summary>
+    public void PointAt(Rect place, TimeSpan stay)
+    {
+        if (!IsVisible || inGameMode) return;
+        StopWalking();
+        bubble.Hide();
+        pointBack.Stop();
+        pointHome ??= (Left, Top);
+
+        var screen = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+                              SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        const double gap = 6;
+        double left = place.Right + gap + Width <= screen.Right ? place.Right + gap : place.Left - gap - Width;
+        left = Math.Clamp(left, screen.Left, Math.Max(screen.Left, screen.Right - Width));
+        double top = Math.Clamp(place.Top + place.Height / 2 - Height / 2, screen.Top, Math.Max(screen.Top, screen.Bottom - Height));
+        pointSpot = (left, top);
+        Glide(left, top);
+        ShowNote("here!", stay);
+
+        pointBack.Interval = stay;
+        pointBack.Tick -= OnPointBack;
+        pointBack.Tick += OnPointBack;
+        pointBack.Start();
+    }
+
+    void OnPointBack(object? sender, EventArgs e)
+    {
+        pointBack.Stop();
+        if (pointHome is not { } home) return;
+        pointHome = null;
+        // Dragged somewhere else meanwhile: it stays where the user put it.
+        if (Math.Abs(Left - pointSpot.Left) > 2 || Math.Abs(Top - pointSpot.Top) > 2) return;
+        Glide(home.Left, home.Top);
+    }
+
+    // Moves there in under a second. The window's own place is set first, so when the animation ends (or is cut
+    // short by a drag) it is simply there.
+    void Glide(double left, double top)
+    {
+        double fromLeft = Left, fromTop = Top;
+        BeginAnimation(LeftProperty, null);
+        BeginAnimation(TopProperty, null);
+        Left = left;
+        Top = top;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        var across = new DoubleAnimation(fromLeft, left, TimeSpan.FromSeconds(0.8)) { FillBehavior = FillBehavior.Stop, EasingFunction = ease };
+        var down = new DoubleAnimation(fromTop, top, TimeSpan.FromSeconds(0.8)) { FillBehavior = FillBehavior.Stop, EasingFunction = ease };
+        Timeline.SetDesiredFrameRate(across, Motion.FramesPerSecond);
+        Timeline.SetDesiredFrameRate(down, Motion.FramesPerSecond);
+        BeginAnimation(LeftProperty, across);
+        BeginAnimation(TopProperty, down);
+    }
+
     bool walking;
 
     // Keeps it where it is now (a drag or the chat opening interrupts a walk).

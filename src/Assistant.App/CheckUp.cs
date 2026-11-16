@@ -236,6 +236,91 @@ static class CheckUp
     // ---- Closing an app -----------------------------------------------------------------------------------------
 
     /// <summary>
+    /// "Close chrome": finds the open app the name means (its program name, its description or a window title), then
+    /// closes it like the check-up's button does. Several apps that fit become buttons to choose from.
+    /// </summary>
+    public static async Task<ActionReply> CloseByNameAsync(string name, bool gameMode, CancellationToken ct)
+    {
+        string wanted = name.Trim();
+        if (gameMode) return new ActionReply("A game is running, so I'm not closing anything right now.");
+
+        var found = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // program name -> name to show
+        Process[] processes = Process.GetProcesses();
+        try
+        {
+            foreach (Process process in processes)
+            {
+                string program;
+                try
+                {
+                    program = process.ProcessName;
+                }
+                catch (InvalidOperationException)
+                {
+                    continue; // ended meanwhile
+                }
+                if (found.ContainsKey(program) || NeverClose.Contains(program) || IsThisApp(program) || !HasVisibleWindow(process)) continue;
+                string? friendly = FriendlyName(process);
+                if (Means(wanted, program) || (friendly is not null && Means(wanted, friendly)) || Means(wanted, WindowTitle(process)))
+                    found[program] = friendly ?? program;
+            }
+        }
+        finally
+        {
+            foreach (Process process in processes) process.Dispose();
+        }
+
+        // An exact program name beats looser matches ("word" also sits in a browser tab's title).
+        var exact = found.Where(app => Same(app.Key, wanted) || Same(app.Value, wanted)).ToList();
+        if (exact.Count == 1) found = new Dictionary<string, string> { [exact[0].Key] = exact[0].Value };
+
+        if (found.Count == 0) return new ActionReply($"I don't see {wanted} among the open apps.");
+        if (found.Count == 1)
+        {
+            (string program, string shown) = (found.First().Key, found.First().Value);
+            return await CloseAsync(new CloseApp(shown, program), ct);
+        }
+        return new ActionReply($"Several open apps fit \"{wanted}\". Which one?")
+        {
+            Options = [.. found.Take(4).Select(app => new ActionOption($"Close {app.Value}", new CloseApp(app.Value, app.Key))),
+                       new ActionOption("Cancel", null)],
+        };
+    }
+
+    static bool Same(string a, string b) =>
+        string.Equals(a.Replace(" ", ""), b.Replace(" ", ""), StringComparison.OrdinalIgnoreCase);
+
+    // The name as a whole word in the text ("word" in "Document1 - Word", not in "password"), or the two the same
+    // without spaces ("vs code" and "VSCode"), or a program name that contains it ("edge" in "msedge").
+    static bool Means(string wanted, string text)
+    {
+        if (text.Length == 0 || wanted.Length < 2) return false;
+        if (Same(wanted, text)) return true;
+        int at = text.IndexOf(wanted, StringComparison.OrdinalIgnoreCase);
+        while (at >= 0)
+        {
+            bool startsWord = at == 0 || !char.IsLetterOrDigit(text[at - 1]);
+            int end = at + wanted.Length;
+            bool endsWord = end == text.Length || !char.IsLetterOrDigit(text[end]);
+            if (startsWord && endsWord) return true;
+            at = text.IndexOf(wanted, at + 1, StringComparison.OrdinalIgnoreCase);
+        }
+        return !text.Contains(' ') && wanted.Length >= 4 && text.Contains(wanted.Replace(" ", ""), StringComparison.OrdinalIgnoreCase);
+    }
+
+    static string WindowTitle(Process process)
+    {
+        try
+        {
+            return process.MainWindowTitle;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
+        {
+            return "";
+        }
+    }
+
+    /// <summary>
     /// Sends each of the app's windows the same "close" Windows sends when X is clicked (WM_CLOSE), then waits a few
     /// seconds. No key presses, no forced ending: an app with unsaved work can still ask.
     /// </summary>
@@ -267,7 +352,7 @@ static class CheckUp
                 await Task.Delay(500, ct);
 
             long freed = Math.Max(0, Memory.Now().AvailableBytes - freeBefore);
-            DiagnosticLog.Info("Closed an app from the check-up");
+            DiagnosticLog.Info("Closed an app");
             if (processes.Any(process => IsRunning(process) && HasVisibleWindow(process)))
                 return new ActionReply($"{app.Name} is still open. It may be asking you something, like whether to save. Have a look at its window.");
             return new ActionReply(freed >= 100L << 20

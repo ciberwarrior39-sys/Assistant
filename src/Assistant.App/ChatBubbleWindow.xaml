@@ -34,10 +34,44 @@
             <Setter Property="MinHeight" Value="25"/>
             <Setter Property="FontSize" Value="{DynamicResource SmallSize}"/>
         </Style>
+        <!-- Things to press under a reply ("Open Excel", "Next step", "Search the web"): tinted with the accent color and
+             outlined in it, so they stand out from the text around them in light and dark mode alike. -->
         <Style x:Key="SmallButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Padding" Value="11,2"/>
-            <Setter Property="MinHeight" Value="25"/>
+            <Setter Property="Padding" Value="13,4"/>
+            <Setter Property="MinHeight" Value="30"/>
             <Setter Property="FontSize" Value="{DynamicResource SmallSize}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentInk}"/>
+            <Setter Property="Background" Value="{DynamicResource AccentTint}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Box" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource ControlCorners}"
+                                Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter x:Name="Words" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <!-- Under the mouse it fills in, like the main button. -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="Background" Value="{DynamicResource Accent}"/>
+                                <Setter TargetName="Words" Property="TextElement.Foreground" Value="{DynamicResource OnAccent}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Box" Property="Opacity" Value="0.8"/>
+                            </Trigger>
+                            <!-- Pressed already, or not for now: back to a plain outline. -->
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Box" Property="Background" Value="Transparent"/>
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Line}"/>
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="SmallGhost" TargetType="Button" BasedOn="{StaticResource Ghost}">
             <Setter Property="Padding" Value="8,2"/>

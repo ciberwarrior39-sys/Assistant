@@ -32,6 +32,11 @@
     <EmbeddedResource Include="..\..\CHANGELOG.md" LogicalName="CHANGELOG.md" />
   </ItemGroup>
 
+  <!-- The app's own wake word model, once trained (docs\wake-word-training.md). Without it "Hey Jarvis" is used. -->
+  <ItemGroup>
+    <Content Include="wake\*.onnx" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Keep Windows Forms names out of the global usings, or Application, MessageBox, Button
        and others become ambiguous with their WPF namesakes. -->
   <ItemGroup>

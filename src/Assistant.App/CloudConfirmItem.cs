@@ -21,10 +21,15 @@ public sealed class CloudConfirmItem(string question, string screenText) : INoti
     /// <summary>Added under the cloud's answer by the app itself (the scam check's advice), so it's always there.</summary>
     public string? AppendToAnswer { get; init; }
 
-    public string QuestionLabel => ForSelectedText ? "Your request" : "Your question";
-    public string TextLabel => ForSelectedText ? "Selected text" : "Text from your screen";
+    /// <summary>"Show me where to click": what the user wants to do, and the names of the controls in their window.</summary>
+    public bool ForGuide { get; init; }
 
-    public string Explanation => ForSelectedText
+    public string QuestionLabel => ForGuide ? "What you want to do" : ForSelectedText ? "Your request" : "Your question";
+    public string TextLabel => ForGuide ? "Names of the buttons in that window" : ForSelectedText ? "Selected text" : "Text from your screen";
+
+    public string Explanation => ForGuide
+        ? "Only this and these names are sent (and logged in the sent folder), so cloud chat can pick where to click. Delete any line that's private, such as a file or a person's name."
+        : ForSelectedText
         ? "Only your request and this text are sent (and logged in the sent folder). Remove anything private first."
         : "Read off the screenshot on this computer. Fix anything it misread. Only your question and this text are sent (and logged in the sent folder); the screenshot stays here.";
 

@@ -446,6 +446,8 @@ public partial class ChatBubbleWindow : Window
                 LookUpQuestion = reply.LookUpQuestion,
             });
             if (reply.ShowTodos && assistant.Organizer is { } organizer) items.Add(new TodoListItem(organizer.Todos));
+            // "Show me where to click" couldn't pick on this computer: the card with what cloud chat would get.
+            if (reply.GuideCloud is { } guide) items.Add(new CloudConfirmItem(guide.Task, guide.Names) { ForGuide = true });
             ShowReplyMood(reply);
             if (statusBroken) _ = RefreshStatusAsync(); // a reply that worked may mean it's fixed
 
@@ -542,13 +544,17 @@ public partial class ChatBubbleWindow : Window
         var timer = Stopwatch.StartNew();
         try
         {
-            AssistantReply reply = item.ForSelectedText
-                ? await assistant.AskCloudAboutTextAsync(question, text, CancellationToken.None)
+            AssistantReply reply = item.ForGuide ? await assistant.GuideWithCloudAsync(question, text, CancellationToken.None)
+                : item.ForSelectedText ? await assistant.AskCloudAboutTextAsync(question, text, CancellationToken.None)
                 : await assistant.AskCloudAboutScreenAsync(question, text, CancellationToken.None);
             string from = reply.Source == "local" ? "Assistant" : $"Assistant · {reply.Source}";
             bool answered = !reply.Source.StartsWith("local", StringComparison.Ordinal);
             string answer = answered && item.AppendToAnswer is { } append ? reply.Text + "\n\n" + append : reply.Text;
-            items.Add(new ChatItem { Who = from, Text = answer, CopyText = item.ForSelectedText && answered ? reply.Text : null });
+            items.Add(new ChatItem
+            {
+                Who = from, Text = answer, CopyText = item.ForSelectedText && answered ? reply.Text : null,
+                Choices = ChoiceButton.For(reply.Options), // the guide's "Next step" and "I can't see it"
+            });
             ShowReplyMood(reply);
             DiagnosticLog.Info($"{(item.ForSelectedText ? "Text" : "Screen")} follow-up in {timer.ElapsedMilliseconds} ms from {reply.Source}");
         }
@@ -772,6 +778,7 @@ public partial class ChatBubbleWindow : Window
         {
             AssistantReply reply = await assistant.RunActionAsync(intent, CancellationToken.None);
             items.Add(new ChatItem { Who = "Assistant", Text = reply.Text, Files = reply.Files, Choices = ChoiceButton.For(reply.Options) });
+            if (reply.GuideCloud is { } guide) items.Add(new CloudConfirmItem(guide.Task, guide.Names) { ForGuide = true });
             ShowReplyMood(reply);
         }
         finally

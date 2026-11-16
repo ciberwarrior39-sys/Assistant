@@ -116,6 +116,7 @@ public sealed class SettingsWindow : Window
         AddPage(tabs, "Shortcuts", ShortcutsTab());
         AddPage(tabs, "Performance", PerformanceSection());
         AddPage(tabs, BackupsPage, BackupsSection());
+        AddPage(tabs, "Calendar and mail", CalendarMailSection());
         AddPage(tabs, "Privacy and cloud", Stack(CloudSection(), DataSection()));
         AddPage(tabs, "Startup and updates", Stack(StartupSection(), UpdatesSection()));
         AddPage(tabs, WhatsNewPage, WhatsNewTab());
@@ -602,6 +603,61 @@ public sealed class SettingsWindow : Window
         return panel;
     }
 
+    // ---- Calendar and mail -------------------------------------------------------------------------
+
+    UIElement CalendarMailSection()
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(Hint("Read-only, and only on this computer: the app looks things up when you ask (\"what's on my calendar today?\", " +
+                                "\"any new emails?\", \"did Ivan reply?\") and answers itself. Nothing about your calendar or mail goes to cloud chat."));
+
+        panel.Children.Add(Heading("Calendar"));
+        panel.Children.Add(Hint("Paste your calendar's private iCal link, one per line. Google Calendar: Settings > your calendar > Integrate " +
+                                "calendar > \"Secret address in iCal format\". Outlook: Settings > Calendar > Shared calendars > Publish a calendar > " +
+                                "ICS link. Anyone who has the link can read the calendar, so it is saved encrypted and never written to a log."));
+        var links = new TextBox
+        {
+            Text = edited.CalendarLinks, AcceptsReturn = true, Height = 72, Width = 440, TextWrapping = TextWrapping.NoWrap,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalAlignment = HorizontalAlignment.Left, VerticalContentAlignment = VerticalAlignment.Top,
+        };
+        links.TextChanged += (_, _) =>
+        {
+            edited.CalendarLinks = links.Text.Trim();
+            Changed(needsRestart: true);
+        };
+        panel.Children.Add(links);
+
+        panel.Children.Add(Heading("Mail"));
+        panel.Children.Add(Hint("Your address and an app password (not your normal password). Gmail: Google Account > Security > 2-Step " +
+                                "Verification > App passwords. Yahoo, iCloud, abv.bg and most others have the same. Outlook.com mail can't be " +
+                                "connected this way. The app only reads the list of messages (sender, subject, date): it never opens one, marks " +
+                                "nothing as read and can't send."));
+        var address = new TextBox { Width = 300, Text = edited.MailAddress, HorizontalAlignment = HorizontalAlignment.Left };
+        address.TextChanged += (_, _) =>
+        {
+            edited.MailAddress = address.Text.Trim();
+            Changed(needsRestart: true);
+        };
+        panel.Children.Add(Labeled("Address", address));
+        // App passwords are shown in groups of four; the spaces aren't part of them.
+        panel.Children.Add(Labeled("App password", KeyBox(edited.MailPassword, value => edited.MailPassword = value.Replace(" ", ""))));
+        var server = new TextBox { Width = 300, Text = edited.MailServer, HorizontalAlignment = HorizontalAlignment.Left };
+        server.TextChanged += (_, _) =>
+        {
+            edited.MailServer = server.Text.Trim();
+            Changed(needsRestart: true);
+        };
+        panel.Children.Add(Labeled("Server (optional)", server));
+        panel.Children.Add(Hint("Leave the server empty for Gmail, Yahoo, iCloud, abv.bg and mail.bg; otherwise your provider's IMAP server, " +
+                                "for example imap.example.com. The password is saved encrypted for your Windows account."));
+
+        panel.Children.Add(Heading("Routines"));
+        panel.Children.Add(Hint("Things it asks itself at set times, set up in the chat: \"every morning at 8 tell me what's on my calendar today\", " +
+                                "\"every weekday at 9 any new emails?\". \"My routines\" lists them and \"delete routine 1\" removes one."));
+        return panel;
+    }
+
     // ---- Voice -----------------------------------------------------------------------------------
 
     UIElement VoiceTab()
@@ -609,6 +665,34 @@ public sealed class SettingsWindow : Window
         var panel = new StackPanel();
         panel.Children.Add(Check("Voice on (push-to-talk and spoken replies)", edited.VoiceEnabled,
             value => edited.VoiceEnabled = value, needsRestart: true));
+
+        panel.Children.Add(Heading("Language you speak to it"));
+        string[] languages = ["en", "bg", "auto"];
+        var language = new ComboBox
+        {
+            Width = 220,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            ItemsSource = new[] { "English", "Bulgarian", "English and Bulgarian" },
+        };
+        language.SelectedIndex = Math.Max(0, Array.IndexOf(languages, edited.SpeechLanguage));
+        language.SelectionChanged += (_, _) =>
+        {
+            edited.SpeechLanguage = languages[Math.Max(0, language.SelectedIndex)];
+            Changed(needsRestart: true);
+        };
+        panel.Children.Add(language);
+        panel.Children.Add(Hint("English uses a small speech model (about 140 MB). Bulgarian needs a bigger one (about 466 MB), downloaded " +
+                                "the first time you talk to it, and it is a little slower. Either way your voice is understood on this computer."));
+
+        panel.Children.Add(Heading("Wake word"));
+        string wakePhrase = Assistant.Core.Voice.OnnxWakeWord.Phrase(System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Assistant", "models", "wake"));
+        panel.Children.Add(Check($"Listen for \"{wakePhrase}\", then ask out loud (no keys)", edited.WakeWordEnabled,
+            value => edited.WakeWordEnabled = value, needsRestart: true));
+        panel.Children.Add(Hint("Off unless you turn it on. With it on the microphone stays open, so Windows shows its microphone icon, and the " +
+                                "phrase is listened for on this computer: no sound is saved or sent anywhere. Say the phrase, then your question; " +
+                                "it stops recording when you stop talking. It doesn't listen while a game runs, while the PC is locked, or while " +
+                                "another app is using the microphone (a call)."));
 
         panel.Children.Add(Heading("Which voice"));
         panel.Children.Add(Hint("The natural voices sound much more human. Each is a one-time download and runs on this computer."));

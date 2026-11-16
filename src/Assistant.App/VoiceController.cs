@@ -55,6 +55,7 @@ public sealed class VoiceController : IDisposable
         set
         {
             paused = value;
+            ApplyWakeHold();
             if (!value) return;
             speaker.Stop();
             if (mic.IsRecording) mic.Stop().Wav.Dispose();
@@ -90,6 +91,76 @@ public sealed class VoiceController : IDisposable
     {
         if (!mic.IsRecording) return;
         (MemoryStream wav, TimeSpan length) = mic.Stop();
+        await AskAsync(wav, length);
+    }
+
+    // ---- Wake word ---------------------------------------------------------------------------------------------------
+
+    WakeListener? wake;
+    readonly HashSet<string> wakeHeld = []; // why the wake word's microphone is closed right now
+
+    /// <summary>
+    /// Turns the wake word on: the phrase starts a spoken question, like holding the keys. It doesn't listen while the
+    /// app is talking, while the keys are held or a question is being worked on.
+    /// </summary>
+    public void UseWakeWord(WakeListener listener, string phrase)
+    {
+        wake = listener;
+        listener.Busy = () => speaker.IsSpeaking || mic.IsRecording || working;
+        listener.Woke += () => OnUi(() =>
+        {
+            if (Paused) return;
+            speaker.Stop();
+            mood.Touch();
+            mood.Set(Mood.Listening);
+            DiagnosticLog.Info($"Wake word heard ({listener.Wakes} since the start)"); // a count, never sound or words
+        });
+        listener.Heard += (wav, length) => OnUi(async () =>
+        {
+            if (Paused || working || bubble.IsBusy)
+            {
+                wav.Dispose();
+                mood.Set(Mood.Idle);
+                return;
+            }
+            if (!speechToText.IsModelDownloaded)
+            {
+                wav.Dispose();
+                await DownloadModelAsync();
+                return;
+            }
+            await AskAsync(wav, length);
+        });
+        listener.HeardNothing += () => OnUi(() =>
+        {
+            if (mood.Current == Mood.Listening) mood.Set(Mood.Idle);
+        });
+        ApplyWakeHold();
+        if (!listener.IsListening && wakeHeld.Count == 0 && !paused)
+            Tell($"The wake word is on, but I couldn't open a microphone. Check that one is connected and allowed in Windows' privacy settings.");
+        else
+            DiagnosticLog.Info($"Wake word on ({phrase})");
+    }
+
+    /// <summary>
+    /// Closes the wake word's microphone for a reason ("locked", "call") until the same reason is lifted. Game mode
+    /// closes it too (Paused).
+    /// </summary>
+    public void HoldWake(string reason, bool on)
+    {
+        if (on ? wakeHeld.Add(reason) : wakeHeld.Remove(reason)) ApplyWakeHold();
+    }
+
+    void ApplyWakeHold()
+    {
+        if (wake is not null) wake.Paused = paused || wakeHeld.Count > 0;
+    }
+
+    void OnUi(Action action) => character.Dispatcher.BeginInvoke(action);
+
+    // What was said, from the keys or after the wake word: transcribed here, asked like a typed question, read aloud.
+    async Task AskAsync(MemoryStream wav, TimeSpan length)
+    {
         using (wav)
         {
             if (length < TooShort)
@@ -176,6 +247,7 @@ public sealed class VoiceController : IDisposable
     public void Dispose()
     {
         hotkey.Dispose();
+        wake?.Dispose();
         mic.Dispose();
         speechToText.Dispose();
         speaker.Dispose();

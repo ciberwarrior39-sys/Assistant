@@ -51,6 +51,29 @@ public sealed class AppConfig
     // The searches go through Groq's search partner; everything sent is still logged in the sent folder.
     public bool CloudWebSearch { get; set; } = true;
 
+    // Calendar and mail (Settings > Calendar and mail). The calendar links are keys to the calendar and the password
+    // opens the inbox, so all of it is saved encrypted for this Windows user, like the cloud keys.
+    // calendarLinks: private iCal (.ics) links, one per line. mailAddress + mailPassword: an app password, read-only
+    // use over IMAP. mailServer: only when the provider's server can't be guessed from the address.
+    [JsonIgnore] public string CalendarLinks { get; set; } = "";
+    public string MailAddress { get; set; } = "";
+    [JsonIgnore] public string MailPassword { get; set; } = "";
+    public string MailServer { get; set; } = "";
+
+    [JsonPropertyName("calendarLinks")]
+    public string CalendarLinksStored
+    {
+        get => Secrets.Protect(CalendarLinks);
+        set => CalendarLinks = Secrets.Unprotect(value);
+    }
+
+    [JsonPropertyName("mailPassword")]
+    public string MailPasswordStored
+    {
+        get => Secrets.Protect(MailPassword);
+        set => MailPassword = Secrets.Unprotect(value);
+    }
+
     [JsonPropertyName("groqApiKey")]
     public string GroqApiKeyStored
     {
@@ -91,6 +114,18 @@ public sealed class AppConfig
     public string PushToTalkKey { get; set; } = "Ctrl+Alt+Space";
     public string VoiceName { get; set; } = "";
     public int VoiceRate { get; set; } = 0;
+
+    // The language spoken to it: "en", "bg", or "auto" for both. Anything but English downloads a bigger speech
+    // model (about 466 MB) the first time voice is used.
+    public string SpeechLanguage { get; set; } = "en";
+
+    // Wake word: off unless turned on. With it, the microphone stays open and the phrase ("Hey Assistant") starts a
+    // spoken question without the keys. Heard on this computer only; closed during games, a locked PC and calls.
+    public bool WakeWordEnabled { get; set; }
+
+    // How sure the wake word has to be, 0.2 to 0.9. Lower hears a quiet or accented phrase more easily and wakes by
+    // mistake more often.
+    public double WakeWordThreshold { get; set; } = 0.5;
 
     // Screensaver: the character bounces around the screen a few minutes before Windows turns the screen off
     // (Settings > Power > "Turn off my screen after"). If that is set to never, it starts after the fallback minutes.

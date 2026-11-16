@@ -64,10 +64,13 @@ cloud>offer [Downloads] or action [Downloads] or tool:search_files | show me the
 cloud>offer [Play] or action [PlayPause] | pause the music for a sec
 
 # ---- Things the app can't do: an honest answer, no made-up button --------------------------------------------------
-cloud | shut down my computer
-cloud | restart my pc
-cloud | what's my battery level?
-cloud | close chrome
+action [PowerOff] | shut down my computer
+action [Restart = True] | restart my pc
+action [BatteryLevel] | what's my battery level?
+action [CloseNamed] | close chrome
+cloud>offer [Shut down] | I'm done for today, turn everything off
+cloud>offer [Close] | I don't need spotify open anymore
+cloud>offer [battery] | do I need to plug in my laptop soon?
 cloud | delete system32
 cloud or cloud>offer [Search] | what's the weather like today?
 
@@ -97,3 +100,8 @@ cloud+lookup | who wrote under the yoke | Vazov
 cloud+lookup | Кой е написал Под игото? | Вазов
 cloud+lookup | Who was the first president of the United States? | Washington
 cloud+lookup | When did the Second World War end? | 1945
+
+# ---- Show me where to click (the stand-in window, cases\windows\editor.json; nothing here goes to the cloud) --------
+guide | where is the save button?
+guide | where do I click to print this?
+guide | къде е бутонът за настройки?

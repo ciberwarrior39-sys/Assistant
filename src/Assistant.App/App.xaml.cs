@@ -327,8 +327,10 @@ public partial class App : Application
                 bubble.Say($"Push-to-talk is off: {config.PushToTalkKey} is already used by another app or isn't a valid key. " +
                            "Change pushToTalkKey in config.json and restart.");
             }
-            voice = new VoiceController(hotkey, new SpeechToText(speechModels, profile.SpeechModel), new Speaker(config.VoiceName, config.VoiceRate, piper),
-                                        bubble, character, mood);
+            voice = new VoiceController(hotkey, new SpeechToText(speechModels, profile.SpeechModel, config.SpeechLanguage),
+                                        new Speaker(config.VoiceName, config.VoiceRate, piper), bubble, character, mood);
+            // Wake word: only when turned on in Settings > Voice. Its models are fetched once, in the background.
+            if (config.WakeWordEnabled) _ = StartWakeWordAsync(voice, bubble, Path.Combine(speechModels, "wake"), config.WakeWordThreshold);
         }
 
         // Custom shortcuts: a key combination runs a command as if typed ("Alt+S" → "open spotify"). Quick results show
@@ -349,6 +351,37 @@ public partial class App : Application
                     character.OpenChat();
                 });
         };
+
+        // Calendar (private iCal links) and mail (read-only IMAP), both answered by code when asked; and routines:
+        // things it asks itself at set times, run like a shortcut. A routine missed while the PC was off, a game ran
+        // or the chat was busy runs once it can, the same day.
+        var calendarHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        assistant.Agenda = new Assistant.Core.Agenda.IcsCalendarSource(calendarHttp,
+            () => config.CalendarLinks.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        assistant.Inbox = new Assistant.Core.Mail.ImapMailbox(() => (config.MailAddress, config.MailPassword, config.MailServer));
+        var routines = new RoutineStore(Path.Combine(data.Root, "routines.json"));
+        assistant.Routines = routines;
+        var routineTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        routineTimer.Tick += async (_, _) =>
+        {
+            if (windowCapture.GameMode || bubble.IsBusy) return;
+            foreach (Routine due in routines.TakeDue(DateTime.Now))
+            {
+                mood.Touch();
+                DiagnosticLog.Info("Running a routine"); // never what it asks
+                await bubble.RunShortcutAsync($"{due.DaysText}, {due.TimeText}", due.Prompt,
+                    showNote: note =>
+                    {
+                        if (character.IsVisible) character.ShowNote(note, TimeSpan.FromSeconds(6));
+                    },
+                    openChat: () =>
+                    {
+                        character.ShowAgain();
+                        character.OpenChat();
+                    });
+            }
+        };
+        routineTimer.Start();
 
         // Screensaver: bounces around a few minutes before Windows turns the screen off.
         var screensaver = new Screensaver(character, mood, bubble, config);
@@ -460,6 +493,8 @@ public partial class App : Application
         // Doing things on the PC: "open Spotify", "volume to 30", "take a screenshot", "empty the recycle bin" (asks first).
         // For a screenshot, the character and the bubble step out of the picture for a moment.
         bool bubbleWasOpen = false;
+        // "Where is the save button?": looks at the window the user was in and rings the control. Never clicks.
+        assistant.Guide = new ScreenGuide(windowCapture, character);
         assistant.Actions = new WindowsActions(
             searchEngine: () => config.SearchEngine,
             placeFacts: () => memory.Facts(MemoryKind.Places).Select(fact => fact.Text),
@@ -758,6 +793,71 @@ public partial class App : Application
         catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception)
         {
             DiagnosticLog.Error("The app's Ollama didn't start", ex);
+        }
+    }
+
+    /// <summary>
+    /// Wake word: loads its three small models (downloading them the first time) and starts listening for the phrase.
+    /// The microphone is closed again while a game runs (game mode), while the PC is locked and while another app is
+    /// recording (a call). A failure here leaves push-to-talk working as before.
+    /// </summary>
+    async Task StartWakeWordAsync(VoiceController controller, ChatBubbleWindow bubble, string folder, double threshold)
+    {
+        try
+        {
+            if (!OnnxWakeWord.IsDownloaded(folder))
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+                await OnnxWakeWord.EnsureDownloadedAsync(folder, http, CancellationToken.None);
+            }
+            OnnxWakeWord models = await Task.Run(() => OnnxWakeWord.Load(folder));
+            models.Detector.Threshold = (float)Math.Clamp(threshold, 0.2, 0.9);
+            var listener = new WakeListener(models.Detector);
+            listener.TryStart();
+            controller.UseWakeWord(listener, OnnxWakeWord.Phrase(folder));
+
+            Microsoft.Win32.SystemEvents.SessionSwitch += (_, e) =>
+            {
+                if (e.Reason is Microsoft.Win32.SessionSwitchReason.SessionLock or Microsoft.Win32.SessionSwitchReason.SessionLogoff)
+                    controller.HoldWake("locked", true);
+                else if (e.Reason is Microsoft.Win32.SessionSwitchReason.SessionUnlock or Microsoft.Win32.SessionSwitchReason.SessionLogon)
+                    controller.HoldWake("locked", false);
+            };
+
+            // Every 5 seconds: did another program start recording (a call)? From Windows' list of audio sessions, and
+            // only which programs, never sound. Whatever already had the microphone open when listening began (noise
+            // removal, headset software) is "the usual" and doesn't count, or the wake word would never listen.
+            HashSet<uint> usual = await Task.Run(MicInUse.ActiveApps);
+            if (usual.Count > 0) DiagnosticLog.Info($"Wake word: {usual.Count} other program(s) keep the microphone open; not treated as a call");
+            bool inCall = false;
+            int ticks = 0;
+            var callWatch = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            callWatch.Tick += async (_, _) =>
+            {
+                HashSet<uint> active = await Task.Run(MicInUse.ActiveApps);
+                usual.IntersectWith(active); // one of the usual closed the microphone: next time it opens, it counts
+                bool now = active.Any(program => !usual.Contains(program));
+                if (now != inCall)
+                {
+                    inCall = now;
+                    DiagnosticLog.Info(now ? "Wake word paused: another app started using the microphone" : "Wake word listening again");
+                    controller.HoldWake("call", now);
+                }
+                // Once a minute, for tuning: how loud it got and how close anything came to the phrase. Numbers only.
+                if (++ticks % 12 == 0 && listener.IsListening)
+                {
+                    (double loudest, float closest, double gain) = listener.TakeStats();
+                    DiagnosticLog.Info($"Wake word listening: loudest {loudest:0} of 32768 (turned up {gain:0.0}x), closest to the phrase {closest:0.00} (wakes at {models.Detector.Threshold:0.00})");
+                }
+            };
+            callWatch.Start();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or InvalidOperationException
+                                       or DllNotFoundException or Microsoft.ML.OnnxRuntime.OnnxRuntimeException)
+        {
+            DiagnosticLog.Error("The wake word couldn't start", ex);
+            bubble.Say("The wake word couldn't start (its small models may not have downloaded). Push-to-talk still works; " +
+                       "I'll try the wake word again the next time I start.");
         }
     }
 

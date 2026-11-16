@@ -22,12 +22,19 @@ public sealed partial class SpeechToText : IDisposable
     readonly Timer unload;
     WhisperFactory? factory;
 
-    /// <param name="modelName">base.en or tiny.en.</param>
-    public SpeechToText(string modelFolder, string modelName = "base.en")
+    readonly string language;
+
+    /// <param name="modelName">base.en or tiny.en, for English.</param>
+    /// <param name="language">
+    /// "en" (the small English-only models above), "bg", or "auto" for either language. Anything but English needs
+    /// the multilingual "small" model (about 466 MB): the English ones can't hear Bulgarian at all.
+    /// </param>
+    public SpeechToText(string modelFolder, string modelName = "base.en", string language = "en")
     {
         this.modelFolder = modelFolder;
-        (model, modelFile, DownloadMegabytes) = modelName == "tiny.en"
-            ? (GgmlType.TinyEn, "ggml-tiny.en.bin", 75)
+        this.language = language is "bg" or "auto" ? language : "en";
+        (model, modelFile, DownloadMegabytes) = this.language != "en" ? (GgmlType.Small, "ggml-small.bin", 466)
+            : modelName == "tiny.en" ? (GgmlType.TinyEn, "ggml-tiny.en.bin", 75)
             : (GgmlType.BaseEn, "ggml-base.en.bin", 140);
         unload = new Timer(_ => Unload(), null, Timeout.Infinite, Timeout.Infinite);
     }
@@ -68,7 +75,7 @@ public sealed partial class SpeechToText : IDisposable
             WhisperFactory loaded = factory ??= WhisperFactory.FromPath(ModelPath); // kept loaded for a follow-up question
             return await Task.Run(async () =>
             {
-                await using WhisperProcessor processor = loaded.CreateBuilder().WithLanguage("en").Build();
+                await using WhisperProcessor processor = loaded.CreateBuilder().WithLanguage(language).Build();
                 var text = new StringBuilder();
                 await foreach (var segment in processor.ProcessAsync(wav, ct))
                     text.Append(segment.Text);

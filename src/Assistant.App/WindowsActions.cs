@@ -63,6 +63,10 @@ public sealed partial class WindowsActions(
                 MediaCommand media => Media(media.Op, ownWindow()),
                 OpenSettings settings => Settings(settings),
                 LockPc => Lock(),
+                PowerOff power => Power(power),
+                CancelPowerOff => CancelPower(),
+                BatteryLevel => Battery(),
+                CloseNamed named => await CheckUp.CloseByNameAsync(named.Name, gameMode(), ct),
                 SetTheme theme => Theme(theme.Dark),
                 SwitchTheme => Theme(!IsDark()),
                 TakeScreenshot => await ScreenshotAsync(ct),
@@ -420,6 +424,52 @@ public sealed partial class WindowsActions(
     {
         if (!LockWorkStation()) throw new Win32Exception(Marshal.GetLastWin32Error());
         return new ActionReply("Locked.");
+    }
+
+    const int PowerOffSeconds = 20;
+
+    // Windows' own shutdown, with its countdown notice, so there is time to stop it. Nothing is forced: an app with
+    // unsaved work holds it up and asks, the same as Start > Power.
+    static ActionReply Power(PowerOff power)
+    {
+        string what = power.Restart ? "Restart" : "Shut down";
+        if (!power.Confirmed)
+        {
+            return new ActionReply($"{what} the PC? Save your work first: everything that's open gets closed.")
+            {
+                Options = [new ActionOption(what, power with { Confirmed = true }), new ActionOption("Cancel", null)],
+            };
+        }
+        RunShutdown($"{(power.Restart ? "/r" : "/s")} /t {PowerOffSeconds}");
+        DiagnosticLog.Info(power.Restart ? "Restart asked for from the chat" : "Shut down asked for from the chat");
+        return new ActionReply($"{(power.Restart ? "Restarting" : "Shutting down")} in {PowerOffSeconds} seconds.")
+        {
+            Options = [new ActionOption("Stop it", new CancelPowerOff())],
+        };
+    }
+
+    static ActionReply CancelPower()
+    {
+        RunShutdown("/a");
+        return new ActionReply("Stopped. The PC stays on.");
+    }
+
+    static void RunShutdown(string arguments)
+    {
+        using Process? process = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "shutdown.exe"), arguments)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        });
+    }
+
+    static ActionReply Battery()
+    {
+        (bool hasBattery, bool pluggedIn, int percent) = Assistant.Core.Activity.Power.Battery();
+        if (!hasBattery) return new ActionReply("This PC has no battery: it runs straight from the socket.");
+        return new ActionReply(pluggedIn
+            ? $"The battery is at {percent}% and plugged in."
+            : $"The battery is at {percent}%, running on battery{(percent <= 20 ? ". Time to plug it in." : ".")}");
     }
 
     const string ThemeKey = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";

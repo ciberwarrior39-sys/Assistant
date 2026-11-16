@@ -110,6 +110,35 @@ finds files on your computer, and optional free cloud chat handles conversation.
   (3 times in 5 minutes), or switching windows a lot and then sitting still in one. Open the chat to see why; ignored,
   it lowers after 30 seconds. Every hand-raise is logged in `feedback\<date>.jsonl`; after 3 ignores in a row,
   `searchLoopTrips` or `stuckSwitches` in `config.json` goes up by one. Turn it off with `"handRaiseEnabled": false`.
+- **Calendar** (Settings > Calendar and mail; English and Bulgarian): "what's on my calendar today?", "what do I have
+  tomorrow?", "am I free on Friday?", "when is my next meeting?" (`какво имам утре в календара?`). The app fetches the
+  calendar's private iCal link (Google Calendar's "Secret address in iCal format", Outlook's published ICS link; HTTPS
+  only, kept 10 minutes) and answers by code (`IcsCalendar`, `CalendarAnswers`): timed and all-day events, time zones,
+  daily/weekly/monthly/yearly repeats with skipped dates. Not handled: single moved occurrences of a repeating event
+  and rules like "last Friday of the month". Read-only by nature.
+- **Mail** (same page): "any new emails?", "did Ivan reply?", "emails from the bank" (`имам ли нова поща?`,
+  `писа ли ми Иван?`). Read-only IMAP through [MailKit](https://github.com/jstedfast/MailKit) with an app password
+  (Gmail, Yahoo, iCloud, abv.bg, mail.bg and most others; **not Outlook.com**, which no longer allows app passwords).
+  Only envelopes are fetched (sender, subject, date); no message is opened or marked as read, and nothing can be sent.
+  "Did Ivan reply?" only counts as a mail question while a mailbox is connected.
+  Calendar links and the mail password are saved encrypted (DPAPI) in `config.json`; neither is ever logged, and
+  calendar and mail answers never go to cloud chat.
+- **Routines:** "every morning at 8 tell me what's on my calendar today", "every weekday at 9: any new emails?",
+  "every friday at 17:00 back up my files" (`всеки ден в 8 кажи ми какво имам днес`); "my routines", "delete routine 2".
+  At that time the question is asked as if typed (anything the assistant can do) and the answer shows as a note or in
+  the chat. Once a day each; missed because the PC was off, a game was running or the chat was busy, it runs when it
+  can the same day, and yesterday's is skipped. Kept in `routines.json`.
+- **Wake word** (off by default; Settings > Voice): say the phrase, then the question, and it is asked like a
+  push-to-talk question; recording stops when you stop talking (0.9 s of quiet, 15 s at most). It runs
+  [openWakeWord](https://github.com/dscripka/openWakeWord)'s small ONNX models with ONNX Runtime on one CPU thread
+  (`WakeWordDetector`, `OnnxWakeWord`, `WakeListener`): 80 ms of sound at a time, nothing kept beyond the last 1.3 s,
+  nothing written to disk, and the log only counts wakes. The microphone is closed, not just ignored, in game mode,
+  while the PC is locked and while another app is recording (a call), and it doesn't listen to its own voice.
+  The phrase is **"Hey Jarvis"** (openWakeWord's ready-made model, downloaded on first use with the two shared
+  models, about 3 MB; that model's licence is CC BY-NC-SA 4.0, so it is not part of this repository) until the app's
+  own **"Hey Assistant"** model is trained: see `docs\wake-word-training.md`. **Speaking Bulgarian:** Settings > Voice >
+  Language you speak to it switches Whisper to the multilingual `small` model (about 466 MB, downloaded on first use);
+  the English models can't hear Bulgarian.
 - **Voice:** hold **Ctrl+Alt+Space** while talking and let go when done. Speech is turned into text on this computer
   (Whisper base.en on the CPU; the ~140 MB model downloads to `%LocalAppData%\Assistant\models` on the first press),
   and the reply is read aloud: with a natural Piper voice (US female, US male or UK female; Settings > Voice
@@ -184,6 +213,19 @@ finds files on your computer, and optional free cloud chat handles conversation.
   next to anything already there ("CV (copy).pdf"); buttons when several files match; Desktop, Documents, Downloads
   (small typos are fine), saved places, "the USB", a drive letter or a full path. Nothing goes online. Tested in `tests\Assistant.Checks`
   on real folders: changes, deletions, a missing folder and old versions expiring.
+- **Show me where to click** (English and Bulgarian): "where is the save button?", "I can't find the share button",
+  "where do I click to change the font?", "how do I make the text bigger in this app?" (`къде е бутонът за запазване?`,
+  `покажи ми къде да натисна, за да сменя шрифта`). The app reads the controls of the window you were using through
+  UI Automation (what screen readers use; at most 1,500 controls or 2 seconds) and draws a pulsing ring around the right
+  one for 12 seconds. The ring is a click-through window that never takes focus, and **nothing is ever clicked or typed
+  for you**. A name is matched by code (`GuideMatch`: the same name, its start, a typo, or the word in the other
+  language, so "запазване" finds "Save"); two that fit become buttons to choose from. A task is given to the local
+  model with the names of the controls, and it picks where to start; **Next step** looks again after you clicked.
+  When that gives nothing, cloud chat is offered with a card showing exactly which names would be sent (delete any
+  line first); nothing goes until **Send**. **I can't see it** sends the character over to stand next to the control.
+  Games, fullscreen windows and anything in `exclusions.json` are never looked at, programs running as administrator
+  can't be read, and a menu that is closed can't be seen into (open it, then ask). Tested in `tests\Assistant.Checks`
+  on a made-up window (`cases\windows\editor.json`).
 - **Notes, to-do list and reminders** (English and Bulgarian, answered by code, private like memory, never sent to the cloud):
   - "note: the wifi password is on the router", "show my notes", "notes about wifi", "delete the note about wifi"
     (`бележка: …`, `покажи бележките`). Kept in `notes.md`, one dated line each.

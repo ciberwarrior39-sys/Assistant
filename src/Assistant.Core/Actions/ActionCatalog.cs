@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Assistant.Core.Guide;
 using Assistant.Core.Llm;
 
 namespace Assistant.Core.Actions;
@@ -67,7 +68,28 @@ public static class ActionCatalog
             Schema(["page"], Text("page", "One or two words: bluetooth, wi-fi, display, sound, storage, apps, update, mouse, keyboard, language, time, background, privacy, accounts, printers, battery, notifications")),
             arguments => Words(arguments, "page") is { } page ? ActionParser.SettingsPage(page) : null),
 
+        new("show_where", "Show the user where a button, menu or option is in the app window they are using, by putting a ring around it. " +
+                          "For \"where is…\", \"I can't find…\", \"point at…\" about something in an app. Never for opening the app.",
+            Schema(["what"], Text("what", "The control's name or what it does, in a few words: bold, sum, save as, font size")),
+            arguments => Words(arguments, "what") is { } what ? new GuideShow(what) : null),
+
         new("lock_pc", "Lock the PC.", Schema([]), _ => new LockPc()),
+
+        // Asks again before anything happens.
+        new("power", "Shut down or restart the PC.",
+            Schema(["what"], Choice("what", "What to do", "shut_down", "restart")),
+            arguments => Word(arguments, "what") switch
+            {
+                "shut_down" => new PowerOff(Restart: false, Confirmed: false),
+                "restart" => new PowerOff(Restart: true, Confirmed: false),
+                _ => null,
+            }),
+
+        new("close_app", "Close an app that is open, by name (it can still ask to save).",
+            Schema(["name"], Text("name", "The app's name")),
+            arguments => Words(arguments, "name") is { } name ? new CloseNamed(name) : null),
+
+        new("battery", "Show the battery level and whether it is charging.", Schema([]), _ => new BatteryLevel()),
 
         new("set_theme", "Switch Windows to dark or light mode.",
             Schema(["mode"], Choice("mode", "other when the user didn't say which", "dark", "light", "other")),
@@ -162,7 +184,12 @@ public static class ActionCatalog
         MediaCommand { Op: MediaOp.Next } => "Next track",
         MediaCommand { Op: MediaOp.Previous } => "Previous track",
         OpenSettings settings => $"Open {settings.Page} settings",
+        GuideShow show => $"Show me where \"{show.What}\" is",
         LockPc => "Lock the PC",
+        PowerOff { Restart: true } => "Restart the PC…",
+        PowerOff => "Shut down the PC…",
+        CloseNamed close => $"Close {close.Name}",
+        BatteryLevel => "Check the battery",
         SetTheme theme => theme.Dark ? "Switch to dark mode" : "Switch to light mode",
         SwitchTheme => "Switch between dark and light mode",
         TakeScreenshot => "Take a screenshot",

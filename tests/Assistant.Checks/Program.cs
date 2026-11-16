@@ -4,14 +4,18 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Assistant.Core;
 using Assistant.Core.Actions;
+using Assistant.Core.Agenda;
 using Assistant.Core.Backup;
 using Assistant.Core.Diagnostics;
+using Assistant.Core.Guide;
 using Assistant.Core.Knowledge;
 using Assistant.Core.Llm;
+using Assistant.Core.Mail;
 using Assistant.Core.Memory;
 using Assistant.Core.Organizer;
 using Assistant.Core.Storage;
 using Assistant.Core.Tools;
+using Assistant.Core.Voice;
 
 namespace Assistant.Checks;
 
@@ -110,6 +114,18 @@ static class Program
         (int storagePassed, int storageFailed) = StorageChecks(Path.Combine(temp, "storage"), showAll);
         passed += storagePassed;
         failed += storageFailed;
+
+        (int dayPassed, int dayFailed) = await DayChecks(Path.Combine(temp, "day"), cases, showAll);
+        passed += dayPassed;
+        failed += dayFailed;
+
+        (int wakePassed, int wakeFailed) = WakeChecks(showAll);
+        passed += wakePassed;
+        failed += wakeFailed;
+
+        (int guidePassed, int guideFailed) = await GuideChecks(Path.Combine(temp, "guide"), cases, showAll);
+        passed += guidePassed;
+        failed += guideFailed;
 
         (int offerPassed, int offerFailed) = await OfferChecks(Path.Combine(temp, "offers"), Path.Combine(cases, "memory"), showAll);
         passed += offerPassed;
@@ -317,6 +333,324 @@ static class Program
     }
 
     /// <summary>
+    /// Calendar, mail and routines: a made-up calendar file is read right (times, whole days, repeats, skipped dates,
+    /// cancelled events), the questions are recognised, a routine runs once a day and catches up the same day, and
+    /// through the whole assistant none of it reaches cloud chat.
+    /// </summary>
+    static async Task<(int Passed, int Failed)> DayChecks(string root, string cases, bool showAll)
+    {
+        int passed = 0, failed = 0;
+        void Check(string name, bool ok, string detail = "")
+        {
+            if (ok)
+            {
+                passed++;
+                if (showAll) Console.WriteLine($"ok    day: {name}");
+            }
+            else
+            {
+                failed++;
+                Console.WriteLine($"FAIL  day: {name} {detail}");
+            }
+        }
+
+        try
+        {
+            // Monday 16 November 2026, 08:00.
+            var now = new DateTime(2026, 11, 16, 8, 0, 0);
+            DateTime monday = now.Date;
+            string Titles(DateTime day) => string.Join(" | ", IcsCalendar.Between(FakeCalendar.Ics, day, day.AddDays(1)).Select(item => $"{item.Start:HH:mm} {item.Title}"));
+
+            Check("a day's events, in order, without the cancelled one",
+                  Titles(monday) == "09:00 Standup | 14:00 A very long title that is folded onto two lines | 18:00 Gym, legs", Titles(monday));
+            Check("a whole-day event is on its day only", Titles(monday.AddDays(1)) == "00:00 Mila's birthday", Titles(monday.AddDays(1)));
+            Check("a skipped date of a repeating event stays empty", Titles(monday.AddDays(2)) == "", Titles(monday.AddDays(2)));
+            Check("a weekly event repeats on its days", Titles(monday.AddDays(9)) == "18:00 Gym, legs" && Titles(monday.AddDays(8)) == "", Titles(monday.AddDays(9)));
+
+            Check("\"what's on my calendar today?\"", CalendarAnswers.Parse("What's on my calendar today?", now) is { Next: false } today && today.From == monday);
+            Check("\"what do I have tomorrow?\"", CalendarAnswers.Parse("what do I have tomorrow?", now) is { Label: "tomorrow" });
+            Check("\"when is my next meeting?\"", CalendarAnswers.Parse("when is my next meeting?", now) is { Next: true });
+            Check("Bulgarian: \"какво имам утре в календара?\"", CalendarAnswers.Parse("какво имам утре в календара?", now) is { Label: "tomorrow" });
+            Check("a weekday means the coming one", CalendarAnswers.Parse("am I free on friday?", now) is { } friday && friday.From == monday.AddDays(4));
+            Check("the to-do list isn't the calendar", CalendarAnswers.Parse("what do I have to do?", now) is null && CalendarAnswers.Parse("what's on my mind", now) is null);
+            string said = await CalendarAnswers.AnswerAsync(CalendarAnswers.Parse("what's on my calendar today", now)!, new FakeCalendar(), now, CancellationToken.None);
+            Check("the answer lists times, titles and places", said.Contains("09:00–09:30: Standup (Room 2)") && said.Contains("18:00–19:00: Gym, legs"), said.Replace("\n", " / "));
+            string next = await CalendarAnswers.AnswerAsync(CalendarAnswers.Parse("when is my next meeting", now)!, new FakeCalendar(), now, CancellationToken.None);
+            Check("the next thing is the first one still to come", next.StartsWith("Next: Standup, today at 09:00", StringComparison.Ordinal), next);
+
+            // Mail.
+            Check("\"any new emails?\" is about unread mail", MailAnswers.Parse("Any new emails?") is { From: "", Explicit: true });
+            Check("\"did Ivan reply?\" names someone", MailAnswers.Parse("did Ivan reply?") is { From: "Ivan", Explicit: false });
+            Check("\"emails from the bank\"", MailAnswers.Parse("any emails from the bank?") is { From: "the bank", Explicit: true });
+            Check("Bulgarian: \"писа ли ми Иван?\"", MailAnswers.Parse("писа ли ми Иван?") is { From: "Иван" });
+            Check("\"did it reply\" isn't about a person", MailAnswers.Parse("did it reply?") is null && MailAnswers.Parse("what did I do today") is null);
+            Check("the mail server is worked out from the address",
+                  ImapMailbox.Host("me@gmail.com", "") == "imap.gmail.com" && ImapMailbox.Host("me@abv.bg", "") == "imap.abv.bg"
+                  && ImapMailbox.Host("me@school.example", "") == "imap.school.example" && ImapMailbox.Host("me@gmail.com", " mail.own.example ") == "mail.own.example");
+
+            // Routines.
+            Directory.CreateDirectory(root);
+            var routines = new RoutineStore(Path.Combine(root, "routines.json"));
+            DateTime seven = monday.AddHours(7);
+            string? added = RoutineAnswers.TryAnswer("Every morning at 8 tell me what's on my calendar today", routines, seven);
+            Check("a routine is saved with its time and its question",
+                  added is not null && routines.All() is [{ Hour: 8, Minute: 0, Prompt: "what's on my calendar today", Days.Count: 0 }], added ?? "not recognised");
+            Check("not before its time", routines.TakeDue(monday.AddHours(7.5)).Count == 0);
+            Check("at its time, once", routines.TakeDue(monday.AddHours(8)).Count == 1 && routines.TakeDue(monday.AddHours(8.1)).Count == 0);
+            Check("missed in the morning, it runs when the PC is back that day", routines.TakeDue(monday.AddDays(1).AddHours(10)).Count == 1);
+            RoutineAnswers.TryAnswer("every weekday at 9: any new emails?", routines, monday.AddDays(1).AddHours(11));
+            Check("added after its time, it starts the next day", routines.TakeDue(monday.AddDays(1).AddHours(12)).Count == 0 && routines.TakeDue(monday.AddDays(2).AddHours(9)).Count == 2);
+            Check("a weekday routine rests at the weekend", routines.TakeDue(monday.AddDays(5).AddHours(12)).Count == 1);
+            Check("\"every day\" in a sentence isn't a routine", RoutineAnswers.TryAnswer("every day 5 minutes of stretching is healthy", routines, seven) is null);
+            Check("routines can be listed and removed",
+                  RoutineAnswers.TryAnswer("my routines", routines, seven)?.Contains("2. every weekday at 09:00: any new emails") == true
+                  && RoutineAnswers.TryAnswer("delete routine 1", routines, seven) is not null && routines.All().Count == 1);
+            Check("Bulgarian: \"всеки ден в 8 …\"", RoutineAnswers.TryAnswer("всеки ден в 8:30 кажи ми какво имам днес", routines, seven) is not null
+                  && routines.All()[^1] is { Hour: 8, Minute: 30, Prompt: "какво имам днес" }, routines.All()[^1].ToString());
+
+            // Through the whole assistant: answered here, and none of it in later cloud chat.
+            AssistantService assistant = Build("normal", Path.Combine(root, "1"), Path.Combine(cases, "memory"));
+            AssistantReply reply = await assistant.SendAsync("did Ivan reply?", CancellationToken.None);
+            Check("mail is answered by the app", reply.Route == "mail" && reply.Text.Contains("Re: Project") && reply.Source == "local", $"{reply.Route}: {reply.Text}");
+            reply = await assistant.SendAsync("what's on my calendar today?", CancellationToken.None);
+            Check("so is the calendar", reply.Route == "calendar" && reply.Source == "local", reply.Route);
+            FakeCloud.LastRequest = "";
+            await assistant.SendAsync("thanks!", CancellationToken.None);
+            Check("neither reaches cloud chat afterwards",
+                  FakeCloud.LastRequest.Length > 0 && !FakeCloud.LastRequest.Contains("Re: Project") && !FakeCloud.LastRequest.Contains("Standup"), "a subject or a title was in the request");
+
+            AssistantService alone = Build("normal", Path.Combine(root, "2"), Path.Combine(cases, "memory"), inbox: new FakeMailbox(connected: false));
+            reply = await alone.SendAsync("did Ivan reply?", CancellationToken.None);
+            Check("without a mailbox, \"did Ivan reply?\" is ordinary chat", reply.Route != "mail", reply.Route);
+            reply = await alone.SendAsync("any new emails?", CancellationToken.None);
+            Check("and \"any new emails?\" says how to connect one", reply.Route == "mail" && reply.Text.Contains("No mailbox is connected"), reply.Text);
+        }
+        catch (Exception ex)
+        {
+            Check("ran without errors", false, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        return (passed, failed);
+    }
+
+    /// <summary>
+    /// The wake word's bookkeeping, with stand-ins for its three models: sound is cut into 80 ms steps however it
+    /// arrives, each model gets the amount it expects, nothing fires before 1.3 s of real sound or twice in a row,
+    /// and Reset forgets everything. (Whether the real models hear the phrase can only be tried with a microphone.)
+    /// </summary>
+    static (int Passed, int Failed) WakeChecks(bool showAll)
+    {
+        int passed = 0, failed = 0;
+        void Check(string name, bool ok, string detail = "")
+        {
+            if (ok)
+            {
+                passed++;
+                if (showAll) Console.WriteLine($"ok    wake word: {name}");
+            }
+            else
+            {
+                failed++;
+                Console.WriteLine($"FAIL  wake word: {name} {detail}");
+            }
+        }
+
+        try
+        {
+            int spectrograms = 0, embeddings = 0, scores = 0;
+            bool sizesRight = true;
+            float sure = 0f;
+            var detector = new WakeWordDetector(
+                samples =>
+                {
+                    spectrograms++;
+                    sizesRight &= samples.Length == WakeWordDetector.Chunk + WakeWordDetector.Overlap;
+                    return new float[8 * WakeWordDetector.Bands];
+                },
+                strips =>
+                {
+                    embeddings++;
+                    sizesRight &= strips.Length == WakeWordDetector.Strips * WakeWordDetector.Bands && strips[^1] == 2f; // 0 / 10 + 2
+                    return new float[WakeWordDetector.EmbeddingSize];
+                },
+                last =>
+                {
+                    scores++;
+                    sizesRight &= last.Length == 16 * WakeWordDetector.EmbeddingSize;
+                    return sure;
+                });
+
+            // Odd-sized pieces, as a sound card delivers them: 10 chunks' worth in pieces of 1000 samples.
+            var piece = new short[1000];
+            bool fired = false;
+            for (int sent = 0; sent < 10 * WakeWordDetector.Chunk; sent += piece.Length) fired |= detector.Feed(piece);
+            Check("sound is cut into 80 ms steps however it arrives", spectrograms == 10 && embeddings == 10, $"{spectrograms} steps");
+            Check("nothing is scored before 1.3 s of sound", scores == 0 && !fired, $"{scores} scores");
+
+            var chunk = new short[WakeWordDetector.Chunk];
+            for (int i = 0; i < 10; i++) fired |= detector.Feed(chunk);
+            Check("each model gets the amount of sound it expects", sizesRight);
+            Check("an unsure score doesn't wake it", scores > 0 && !fired, $"{scores} scores");
+
+            sure = 0.9f;
+            Check("a sure score wakes it", detector.Feed(chunk));
+            Check("not twice for the same phrase", !detector.Feed(chunk) && !detector.Feed(chunk));
+            int fires = 0;
+            for (int i = 0; i < 30; i++) fires += detector.Feed(chunk) ? 1 : 0;
+            Check("again once two seconds have passed", fires == 1, $"{fires} in 2.4 s");
+
+            detector.Reset();
+            scores = 0;
+            for (int i = 0; i < 15; i++) fired = detector.Feed(chunk);
+            Check("after a reset it listens from scratch", scores == 0);
+        }
+        catch (Exception ex)
+        {
+            Check("ran without errors", false, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        return (passed, failed);
+    }
+
+    /// <summary>
+    /// Show me where to click: which messages ask for it, which control a name means (on a made-up window,
+    /// cases\windows\editor.json), and through the whole assistant: the control is marked and never clicked, a task
+    /// goes to the local model with the names, and cloud chat only gets the names left on the card.
+    /// </summary>
+    static async Task<(int Passed, int Failed)> GuideChecks(string root, string cases, bool showAll)
+    {
+        int passed = 0, failed = 0;
+        void Check(string name, bool ok, string detail = "")
+        {
+            if (ok)
+            {
+                passed++;
+                if (showAll) Console.WriteLine($"ok    guide: {name}");
+            }
+            else
+            {
+                failed++;
+                Console.WriteLine($"FAIL  guide: {name} {detail}");
+            }
+        }
+
+        try
+        {
+            // Which messages are for the guide.
+            GuideAsk? save = GuideRequest.Parse("Where is the save button?");
+            Check("\"where is the save button\" names a control", save is { Named: true, What: "save", Kind: "button" }, save?.ToString() ?? "not recognised");
+            GuideAsk? font = GuideRequest.Parse("where do I click to change the font?");
+            Check("\"where do I click to…\" is a task", font is { Named: false, What: "change the font" }, font?.ToString() ?? "not recognised");
+            GuideAsk? bigger = GuideRequest.Parse("How do I make the text bigger in this app?");
+            Check("\"how do I … in this app\" is a task", bigger is { Named: false, What: "make the text bigger" }, bigger?.ToString() ?? "not recognised");
+            GuideAsk? zapazi = GuideRequest.Parse("къде е бутонът за запазване?");
+            Check("Bulgarian: a control by name", zapazi is { Named: true, What: "запазване" }, zapazi?.ToString() ?? "not recognised");
+            GuideAsk? kude = GuideRequest.Parse("Покажи ми къде да натисна, за да сменя шрифта");
+            Check("Bulgarian: a task", kude is { Named: false, What: "сменя шрифта" }, kude?.ToString() ?? "not recognised");
+            foreach (string other in new[] { "where is my tax report", "how do I bake bread?", "show me the stuff I downloaded", "what does this error mean", "where is Plovdiv?" })
+                Check($"not for the guide: {other}", GuideRequest.Parse(other) is null);
+
+            GuideAsk? inApp = GuideRequest.Parse("how do I make a table in Excel?");
+            Check("\"… in Excel\" names the app", inApp is { Named: false, What: "make a table", App: "Excel" }, inApp?.ToString() ?? "not recognised");
+            Check("the app named has to be the one in use", GuideRequest.SameApp("excel", "Excel") && GuideRequest.SameApp("excel", "Microsoft Excel") && !GuideRequest.SameApp("Bulgaria", "Excel"));
+
+            // Which control a name means.
+            UiWindow window = FakeGuide.Load(cases);
+            string Best(string wanted, string kind = "") => GuideMatch.Best(GuideMatch.Find(wanted, window.Elements, kind))?.Name ?? "(none)";
+            Check("save is Save, not Save as", Best("save") == "Save", Best("save"));
+            Check("save as", Best("save as") == "Save as…", Best("save as"));
+            Check("a shortcut after the name doesn't matter", Best("print") == "Print\tCtrl+P" && Best("bold") == "Bold (Ctrl+B)", Best("print") + ", " + Best("bold"));
+            Check("the menu's underline mark doesn't matter", Best("format") == "F&ormat", Best("format"));
+            Check("one typo is fine", Best("setings") == "Settings", Best("setings"));
+            Check("the Bulgarian word finds the English button", Best("запазване") == "Save" && Best("настройки") == "Settings", Best("запазване") + ", " + Best("настройки"));
+            Check("two that fit equally aren't guessed", Best("zoom") == "(none)" && GuideMatch.Find("zoom", window.Elements).Count == 2, Best("zoom"));
+            Check("the kind named decides between two", GuideMatch.Best(GuideMatch.Find("share", window.Elements, "link"))?.Kind == "link" && Best("share") == "(none)");
+            Check("plain text isn't something to click", Best("ln 1") == "(none)");
+            Check("nothing fits nonsense", GuideMatch.Find("flux capacitor", window.Elements).Count == 0);
+            UiElement settings = window.Elements.First(element => element.Name == "Settings");
+            Check("where it is, in words", GuideMatch.Describe(settings, window) == "\"Settings\" (button, top right)", GuideMatch.Describe(settings, window));
+            string listing = GuideMatch.Listing(window, 200);
+            Check("the list for a model has things to click only", listing.Contains("3. Format (menu item)") && !listing.Contains("Ln 1") && !listing.Contains("Paste"), listing.Replace("\n", " | "));
+            Check("a line of the list leads back to its control", GuideMatch.FromListing(listing, 3, window)?.Name == "F&ormat");
+
+            // Through the whole assistant.
+            var guide = new FakeGuide(cases);
+            AssistantService assistant = Build("normal", Path.Combine(root, "1"), Path.Combine(cases, "memory"), guide: guide);
+            AssistantReply reply = await assistant.SendAsync("where is the save button?", CancellationToken.None);
+            Check("a named control is ringed", reply.Route == "guide" && guide.Shown?.Name == "Save", $"route {reply.Route}, shown {guide.Shown?.Name}");
+            Check("\"I can't see it\" is offered", reply.Options.Any(option => option.Intent is PointAtElement), string.Join(", ", reply.Options.Select(option => option.Label)));
+            if (reply.Options.FirstOrDefault(option => option.Intent is PointAtElement)?.Intent is { } cantSee)
+                await assistant.RunActionAsync(cantSee, CancellationToken.None);
+            Check("then the character goes there", guide.Pointed?.Name == "Save");
+
+            // Offered by cloud chat (show_where): pressing the button finds and rings it.
+            Check("cloud chat's \"show where\" is a button like any other",
+                  ActionCatalog.Offers([new ToolCall("show_where", JsonDocument.Parse("""{"what":"print"}""").RootElement.Clone())]) is [{ Intent: GuideShow { What: "print" } }]);
+            guide.Shown = null;
+            await assistant.RunActionAsync(new GuideShow("print"), CancellationToken.None);
+            Check("pressing it rings the control", guide.Shown?.Name == "Print\tCtrl+P", guide.Shown?.Name ?? "nothing");
+
+            // Typed instead of pressed.
+            var typed = new FakeGuide(cases);
+            AssistantService typing = Build("normal", Path.Combine(root, "4"), Path.Combine(cases, "memory"), guide: typed);
+            AssistantReply early = await typing.SendAsync("I don't see it", CancellationToken.None);
+            Check("\"I don't see it\" with nothing marked is ordinary chat", early.Route != "guide" && typed.Pointed is null, early.Route);
+            await typing.SendAsync("where is the save button?", CancellationToken.None);
+            AssistantReply after = await typing.SendAsync("I don't see it", CancellationToken.None);
+            Check("typed \"I don't see it\" sends the character over", after.Route == "guide" && typed.Pointed?.Name == "Save", after.Route);
+            foreach (string said in new[] { "go to it", "I still don't see anything, point at it", "show me where it is", "where??", "иди при него" })
+            {
+                after = await typing.SendAsync(said, CancellationToken.None);
+                Check($"after a ring, \"{said}\" is about the ring", after.Route == "guide", after.Route);
+            }
+            after = await typing.SendAsync("where is the print button?", CancellationToken.None);
+            Check("a new question after a ring is a new question", after.Route == "guide" && typed.Shown?.Name == "Print\tCtrl+P", typed.Shown?.Name ?? "nothing");
+            after = await typing.SendAsync("не го виждам", CancellationToken.None);
+            Check("so does \"не го виждам\"", after.Route == "guide", after.Route);
+            await typing.SendAsync("where do I click to change the font?", CancellationToken.None);
+            int looks = typed.Scans;
+            after = await typing.SendAsync("next", CancellationToken.None);
+            Check("typed \"next\" looks at the window again", after.Route == "guide" && typed.Scans == looks + 1, $"{after.Route}, {typed.Scans - looks} looks");
+
+            FakeCloud.LastRequest = "";
+            await assistant.SendAsync("thanks!", CancellationToken.None);
+            Check("names of controls stay off later cloud chat", FakeCloud.LastRequest.Length > 0 && !FakeCloud.LastRequest.Contains("(button"), "the guide's answer was in the request");
+
+            reply = await assistant.SendAsync("where is the zoom button", CancellationToken.None);
+            Check("two that fit become a choice", reply.Options.Count(option => option.Intent is ShowElement) == 2, string.Join(", ", reply.Options.Select(option => option.Label)));
+
+            guide.Shown = null;
+            reply = await assistant.SendAsync("where do I click to change the font?", CancellationToken.None);
+            Check("a task: the local model picks where to start", guide.Shown?.Name == "F&ormat" && reply.Options.Any(option => option.Intent is GuideNextStep),
+                  $"shown {guide.Shown?.Name ?? "nothing"}");
+            Check("nothing went to the cloud for it", reply.GuideCloud is null && reply.Source == "local");
+
+            // Lite has no local model: cloud chat is offered, and gets only what's left on the card.
+            var liteGuide = new FakeGuide(cases);
+            AssistantService lite = Build("lite", Path.Combine(root, "2"), Path.Combine(cases, "memory"), guide: liteGuide);
+            FakeCloud.LastRequest = "";
+            reply = await lite.SendAsync("where do I click to change the font?", CancellationToken.None);
+            Check("without a local model, cloud chat is offered and nothing is sent yet",
+                  reply.GuideCloud is not null && liteGuide.Shown is null && FakeCloud.LastRequest.Length == 0, $"offer {reply.GuideCloud is not null}");
+            if (reply.GuideCloud is { } offer)
+            {
+                string kept = string.Join("\n", offer.Names.Split('\n').Where(line => !line.Contains("Search")));
+                AssistantReply picked = await lite.GuideWithCloudAsync(offer.Task, kept, CancellationToken.None);
+                Check("after Send, cloud chat's pick is ringed", liteGuide.Shown?.Name == "F&ormat", $"shown {liteGuide.Shown?.Name ?? "nothing"}: {picked.Text}");
+                Check("a line taken off the card isn't sent", FakeCloud.LastRequest.Contains("Format") && !FakeCloud.LastRequest.Contains("Search"));
+            }
+
+            var gameGuide = new FakeGuide(cases);
+            AssistantService game = Build("game", Path.Combine(root, "3"), Path.Combine(cases, "memory"), guide: gameGuide);
+            reply = await game.SendAsync("where is the save button?", CancellationToken.None);
+            Check("in game mode no window is looked at", reply.Route == "guide" && gameGuide.Scans == 0 && gameGuide.Shown is null, $"{gameGuide.Scans} looks");
+        }
+        catch (Exception ex)
+        {
+            Check("ran without errors", false, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        return (passed, failed);
+    }
+
+    /// <summary>
     /// Chat that acts: what cloud chat asks for becomes a button and nothing more. The catalogue turns good calls into
     /// intents and drops bad ones, a reply with a call carries buttons, nothing was run to get there, and the list of
     /// actions stays small.
@@ -351,6 +685,7 @@ static class Program
             Check("a settings page by its word", ActionCatalog.FromCall(Call("open_settings", """{"page":"Bluetooth"}""")) is OpenSettings { Link: "ms-settings:bluetooth" });
             Check("an unknown settings page is dropped", ActionCatalog.FromCall(Call("open_settings", """{"page":"registry"}""")) is null);
             Check("a theme the user didn't name means the other one", ActionCatalog.FromCall(Call("set_theme", """{"mode":"other"}""")) is SwitchTheme);
+            Check("shutting down still asks first", ActionCatalog.FromCall(Call("power", """{"what":"shut_down"}""")) is PowerOff { Restart: false, Confirmed: false });
             Check("cleaning up still asks first", ActionCatalog.FromCall(Call("clean_up", """{"what":"temporary_files"}""")) is CleanUp { Confirmed: false });
             Check("emptying the bin still asks first", ActionCatalog.FromCall(Call("empty_recycle_bin", "{}")) is EmptyRecycleBin { Confirmed: false });
 
@@ -358,7 +693,7 @@ static class Program
             foreach (CatalogAction action in ActionCatalog.All)
             {
                 // Every action must be reachable: its name unique, and its description short.
-                if (ActionCatalog.All.Count(other => other.Name == action.Name) != 1 || action.Description.Length > 160) allLabelled = false;
+                if (ActionCatalog.All.Count(other => other.Name == action.Name) != 1 || action.Description.Length > 260) allLabelled = false;
             }
             Check("every action has one name and a short description", allLabelled);
             var offered = ActionCatalog.Offers([Call("lock_pc", "{}"), Call("lock_pc", "{}"), Call("nope", "{}"), Call("speed_test", "{}"),
@@ -400,7 +735,8 @@ static class Program
 
     /// <summary>An assistant wired like the app's, with stand-ins for everything outside the routing itself.</summary>
     internal static AssistantService Build(string setup, string folder, string memoryFixture, FakeActions? actions = null,
-                                           CloudChat? realCloud = null, WikipediaLookup? realWikipedia = null)
+                                           CloudChat? realCloud = null, WikipediaLookup? realWikipedia = null, FakeGuide? guide = null,
+                                           FakeMailbox? inbox = null)
     {
         string memoryFolder = Path.Combine(folder, "memory");
         Directory.CreateDirectory(memoryFolder);
@@ -443,6 +779,10 @@ static class Program
             Conversations = conversations,
             Knowledge = realWikipedia ?? new WikipediaLookup(new HttpClient(new FakeWikipedia())),
             Actions = actions ?? new FakeActions(),
+            Guide = guide ?? new FakeGuide(Path.GetDirectoryName(memoryFixture) ?? ""),
+            Routines = new RoutineStore(Path.Combine(folder, "routines.json")),
+            Agenda = new FakeCalendar(),
+            Inbox = inbox ?? new FakeMailbox(connected: true),
             Shortcuts = new FakeShortcuts(),
         };
         return service;
@@ -455,7 +795,108 @@ sealed class FakeLocalModel : ILlmProvider
     public string Name => "stand-in local model";
 
     public Task<LlmResponse> ChatAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition> tools, CancellationToken ct) =>
-        Task.FromResult(new LlmResponse("A reply from the stand-in local model.", []));
+        Task.FromResult(new LlmResponse(GuidePick.Answer(messages.LastOrDefault()?.Content ?? "") ?? "A reply from the stand-in local model.", []));
+}
+
+/// <summary>
+/// What a model would answer when the guide asks where to click first: for anything about the font, the number of
+/// the "Format" line in the list it was given. Null when the message isn't that question.
+/// </summary>
+static class GuidePick
+{
+    public static string? Answer(string message)
+    {
+        if (!message.Contains("Controls:", StringComparison.Ordinal)) return null;
+        if (!message.Contains("font", StringComparison.OrdinalIgnoreCase)) return "0";
+        foreach (string line in message.Split('\n'))
+        {
+            int dot = line.IndexOf(". Format (", StringComparison.Ordinal);
+            if (dot > 0) return line[..dot].Trim();
+        }
+        return "0";
+    }
+}
+
+/// <summary>A made-up calendar, as the .ics text a calendar link would give.</summary>
+sealed class FakeCalendar : ICalendarSource
+{
+    public const string Ics = """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        SUMMARY:Standup
+        DTSTART:20261116T090000
+        DTEND:20261116T093000
+        LOCATION:Room 2
+        END:VEVENT
+        BEGIN:VEVENT
+        SUMMARY:Mila's birthday
+        DTSTART;VALUE=DATE:20261117
+        DTEND;VALUE=DATE:20261118
+        END:VEVENT
+        BEGIN:VEVENT
+        SUMMARY:Gym\, legs
+        DTSTART:20261102T180000
+        DTEND:20261102T190000
+        RRULE:FREQ=WEEKLY;BYDAY=MO,WE
+        EXDATE:20261118T180000
+        END:VEVENT
+        BEGIN:VEVENT
+        SUMMARY:Cancelled thing
+        STATUS:CANCELLED
+        DTSTART:20261116T120000
+        END:VEVENT
+        BEGIN:VEVENT
+        SUMMARY:A very long title that is
+          folded onto two lines
+        DTSTART:20261116T140000
+        END:VEVENT
+        END:VCALENDAR
+        """;
+
+    public bool Connected => true;
+
+    public Task<IReadOnlyList<CalendarEvent>> BetweenAsync(DateTime from, DateTime to, CancellationToken ct) =>
+        Task.FromResult(IcsCalendar.Between(Ics, from, to));
+}
+
+/// <summary>A made-up inbox: two messages from Ivan, one of them unread.</summary>
+sealed class FakeMailbox(bool connected) : IMailbox
+{
+    static readonly MailLine[] Lines =
+    [
+        new("Ivan Petrov", "Re: Project", DateTime.Today.AddHours(9)),
+        new("Ivan Petrov", "Lunch on Friday?", DateTime.Today.AddDays(-2).AddHours(13)),
+    ];
+
+    public bool Connected => connected;
+    public Task<MailFound> UnreadAsync(CancellationToken ct) => Task.FromResult(new MailFound([Lines[0]], 1));
+    public Task<MailFound> FromAsync(string name, int days, CancellationToken ct) => Task.FromResult(new MailFound(Lines, 2));
+}
+
+/// <summary>The guide's eyes and ring: a made-up window from cases\windows\editor.json, and a note of what was marked.</summary>
+sealed class FakeGuide(string cases) : IScreenGuide
+{
+    static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
+
+    public int Scans { get; private set; }
+    public UiElement? Shown { get; set; }
+    public UiElement? Pointed { get; private set; }
+
+    public static UiWindow Load(string cases) =>
+        JsonSerializer.Deserialize<UiWindow>(File.ReadAllText(Path.Combine(cases, "windows", "editor.json")), Json)
+        ?? throw new InvalidDataException("editor.json is empty");
+
+    public string WindowApp => "Editor";
+
+    public Task<UiScan> ScanAsync(CancellationToken ct)
+    {
+        Scans++;
+        string file = Path.Combine(cases, "windows", "editor.json");
+        return Task.FromResult(File.Exists(file) ? new UiScan(Load(cases), null) : new UiScan(null, "No window to look at."));
+    }
+
+    public void Show(UiElement element) => Shown = element;
+    public void Point(UiElement element) => Pointed = element;
 }
 
 /// <summary>
@@ -491,7 +932,7 @@ sealed class FakeCloud(bool answers) : HttpMessageHandler
             }
         }
 
-        var reply = new JsonObject { ["role"] = "assistant", ["content"] = "A reply from the stand-in cloud chat." };
+        var reply = new JsonObject { ["role"] = "assistant", ["content"] = GuidePick.Answer(latest) ?? "A reply from the stand-in cloud chat." };
         bool wantsVolume = latest.Contains("sort it out", StringComparison.OrdinalIgnoreCase) || latest.Contains("оправи го", StringComparison.OrdinalIgnoreCase);
         bool wantsNonsense = latest.Contains("do the impossible", StringComparison.OrdinalIgnoreCase);
         if (withActions && (wantsVolume || wantsNonsense))

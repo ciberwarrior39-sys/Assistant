@@ -67,6 +67,21 @@ public sealed record CloseApp(string Name, string ProcessName) : ActionIntent;
 /// </summary>
 public sealed record StartupApp(string Name, string Entry, bool InStartupFolder, bool Enable) : ActionIntent;
 
+/// <summary>"Close chrome": the app is found among the open windows by its name, then closed like CloseApp.</summary>
+public sealed record CloseNamed(string Name) : ActionIntent;
+
+/// <summary>
+/// "Shut down my computer", "restart my pc". Asks first; Confirmed is set by its button, and Windows then counts
+/// down for a few seconds, during which CancelPowerOff stops it.
+/// </summary>
+public sealed record PowerOff(bool Restart, bool Confirmed) : ActionIntent;
+
+/// <summary>Stops a shut down or restart that is counting down.</summary>
+public sealed record CancelPowerOff : ActionIntent;
+
+/// <summary>"What's my battery level?"</summary>
+public sealed record BatteryLevel : ActionIntent;
+
 public enum CleanUpKind { TempFiles, OldInstallers }
 
 /// <summary>

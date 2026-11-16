@@ -71,7 +71,7 @@ public sealed class MicRecorder : IDisposable
     }
 
     // A 44-byte WAV header in front of the raw samples.
-    static MemoryStream ToWav(byte[] pcm)
+    internal static MemoryStream ToWav(byte[] pcm)
     {
         var wav = new MemoryStream(44 + pcm.Length);
         using (var writer = new BinaryWriter(wav, System.Text.Encoding.ASCII, leaveOpen: true))

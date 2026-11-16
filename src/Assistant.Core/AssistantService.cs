@@ -2,9 +2,12 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Assistant.Core.Actions;
+using Assistant.Core.Agenda;
 using Assistant.Core.Diagnostics;
+using Assistant.Core.Guide;
 using Assistant.Core.Knowledge;
 using Assistant.Core.Llm;
+using Assistant.Core.Mail;
 using Assistant.Core.Memory;
 using Assistant.Core.Organizer;
 using Assistant.Core.Search;
@@ -32,6 +35,9 @@ public sealed record AssistantReply(string Text, IReadOnlyList<FileHit> Files, i
     /// off the kept screenshot first.
     /// </summary>
     public string? CloudText { get; init; }
+
+    /// <summary>"Show me where to click" needs cloud chat to pick: the card with what would be sent (see GuideCloudOffer).</summary>
+    public GuideCloudOffer? GuideCloud { get; init; }
 
     /// <summary>Show the to-do checklist under the reply.</summary>
     public bool ShowTodos { get; init; }
@@ -268,6 +274,27 @@ public sealed partial class AssistantService
             return Finish(quick, files, notes, 0, "local");
         }
 
+        // Typed right after a control was marked, instead of pressing its buttons: "I don't see it" sends the
+        // character over, "next" looks for the following step.
+        // A new "where is the … button" is a new question, not a follow-up.
+        if (Guide is not null && guideShown is { } marked && DateTime.UtcNow - guideShownAt < GuideFollowUp
+            && GuideFor(userText) is null)
+        {
+            if (GuideRequest.CantSee(userText))
+            {
+                MarkPrivate("guide");
+                Guide.Point(marked);
+                guideShownAt = DateTime.UtcNow;
+                return Finish($"I'm standing right next to \"{GuideMatch.Shown(marked.Name)}\".", files, notes, 0, "local");
+            }
+            if (guideTask is { } unfinished && GuideRequest.Next(userText))
+            {
+                MarkPrivate("guide");
+                AssistantReply step = await GuideAsync(unfinished, named: false, kind: "", guideDone, ct);
+                return Finish(step.Text, files, notes, 0, "local") with { Options = step.Options, GuideCloud = step.GuideCloud };
+            }
+        }
+
         // "make Alt+S open Spotify", "my shortcuts": by code.
         if (Shortcuts is not null && ShortcutRequests.FromMessage(userText) is { } shortcut)
         {
@@ -296,6 +323,24 @@ public sealed partial class AssistantService
             return Finish(organized.Text, files, notes, 0, "local") with { ShowTodos = organized.ShowTodos };
         }
 
+        // Routines ("every morning at 8 tell me …"), the calendar and the inbox: by code, and private like notes.
+        if (Routines is not null && RoutineAnswers.TryAnswer(userText, Routines, DateTime.Now) is { } routine)
+        {
+            MarkPrivate("routine");
+            return Finish(routine, files, notes, 0, "local");
+        }
+        if (Agenda is not null && CalendarAnswers.Parse(userText, DateTime.Now) is { } calendarAsk)
+        {
+            MarkPrivate("calendar");
+            return Finish(await CalendarAnswers.AnswerAsync(calendarAsk, Agenda, DateTime.Now, ct), files, notes, 0, "local");
+        }
+        // "Did Ivan reply?" names no mail: it is only about the inbox when one is connected.
+        if (Inbox is not null && MailAnswers.Parse(userText) is { } mailAsk && (mailAsk.Explicit || Inbox.Connected))
+        {
+            MarkPrivate("mail");
+            return Finish(await MailAnswers.AnswerAsync(mailAsk, Inbox, DateTime.Now, ct), files, notes, 0, "local");
+        }
+
         // "open Spotify", "volume to 30", "take a screenshot": done by the app. "open my CV" isn't an app, folder or
         // site, so the runner passes and file search answers it below.
         if (Actions is not null && ActionParser.Parse(userText) is { } intent && await Actions.RunAsync(intent, ct) is { } done)
@@ -303,6 +348,15 @@ public sealed partial class AssistantService
             MarkPrivate("action");
             files.AddRange(done.Files);
             return Finish(done.Text, files, notes, 0, "local") with { Options = done.Options };
+        }
+
+        // "Where is the save button?", "where do I click to change the font?": the app looks at the window the user
+        // was in and marks the control. Names of controls stay on this computer unless the user sends them (GuideCloud).
+        if (GuideFor(userText) is { } ask)
+        {
+            MarkPrivate("guide");
+            AssistantReply shown = await GuideAsync(ask.What, ask.Named, ask.Kind, done: "", ct);
+            return Finish(shown.Text, files, notes, 0, "local") with { Options = shown.Options, GuideCloud = shown.GuideCloud };
         }
 
         var replies = new List<string>();
@@ -600,10 +654,191 @@ public sealed partial class AssistantService
     /// <summary>A button under an action reply was pressed (an app chosen, or "Empty the Recycle Bin").</summary>
     public async Task<AssistantReply> RunActionAsync(ActionIntent intent, CancellationToken ct)
     {
+        // The guide's own buttons: none of these is added to the chat history.
+        if (Guide is not null)
+        {
+            switch (intent)
+            {
+                case GuideShow find:
+                    return await GuideAsync(find.What, named: true, kind: "", done: "", ct);
+                case ShowElement show:
+                    Mark(show.Element);
+                    return GuideReply($"Marked \"{GuideMatch.Shown(show.Element.Name)}\" with a ring.", [CantSee(show.Element)]);
+                case PointAtElement point:
+                    Guide.Point(point.Element);
+                    return GuideReply($"I'm standing right next to \"{GuideMatch.Shown(point.Element.Name)}\".", []);
+                case GuideNextStep next:
+                    return await GuideAsync(next.Task, named: false, kind: "", next.Done, ct);
+            }
+        }
+
         ActionReply? done = Actions is null ? null : await Actions.RunAsync(intent, ct);
         return new AssistantReply(done?.Text ?? "I couldn't do that anymore.", done?.Files ?? [], 0, "local")
         {
             Options = done?.Options ?? [],
+        };
+    }
+
+    /// <summary>Things asked by themselves at set times ("every morning at 8 …"). The app runs them; this only keeps them.</summary>
+    public RoutineStore? Routines { get; set; }
+
+    /// <summary>The user's calendars (private iCal links). Null: the feature isn't there.</summary>
+    public ICalendarSource? Agenda { get; set; }
+
+    /// <summary>The user's inbox, read-only. Null: the feature isn't there.</summary>
+    public IMailbox? Inbox { get; set; }
+
+    // ---- Show me where to click ---------------------------------------------------------------------------------------
+
+    /// <summary>Looks at windows and marks controls (the app's ScreenGuide). Null: the feature isn't there.</summary>
+    public IScreenGuide? Guide { get; set; }
+
+    // The control marked last, for a typed "I don't see it" or "next" in the minutes after.
+    static readonly TimeSpan GuideFollowUp = TimeSpan.FromMinutes(3);
+    UiElement? guideShown;
+    DateTime guideShownAt;
+    string? guideTask;      // set while a task is being walked through step by step
+    string guideDone = "";
+
+    // A message for the guide. One that names an app ("…in Excel") only counts while that app's window is in use.
+    GuideAsk? GuideFor(string message) =>
+        Guide is not null && GuideRequest.Parse(message) is { } ask && (ask.App.Length == 0 || GuideRequest.SameApp(ask.App, Guide.WindowApp))
+            ? ask
+            : null;
+
+    void Mark(UiElement element, string? task = null, string done = "")
+    {
+        Guide!.Show(element);
+        guideShown = element;
+        guideShownAt = DateTime.UtcNow;
+        guideTask = task;
+        guideDone = done;
+    }
+
+    const int GuideLocalChoices = 90;  // what the small local model can read at once
+    const int GuideCloudChoices = 200;
+
+    const string GuidePickPrompt = """
+        You help someone find where to click in a Windows app. You get what they want to do and a numbered list of the
+        controls in the window they have open. Answer with the number of the ONE control to click first to get there
+        (for example the menu or tab that leads to it), and nothing else. If no control in the list leads there, answer 0.
+        """;
+
+    static AssistantReply GuideReply(string text, IReadOnlyList<ActionOption> options) =>
+        new(text, [], 0, "local") { Options = options, Route = "guide" };
+
+    static ActionOption CantSee(UiElement element) => new("I can't see it", new PointAtElement(element));
+
+    /// <summary>
+    /// Finds what was asked for in the window the user was in and marks it. A name is matched by code; a task ("change
+    /// the font") is given to the local model with the names of the controls, and when that gives nothing, cloud chat
+    /// is offered, with a card that shows exactly which names would go.
+    /// </summary>
+    async Task<AssistantReply> GuideAsync(string what, bool named, string kind, string done, CancellationToken ct)
+    {
+        if (CloudOnly) return GuideReply("Game mode is on, so I don't look at other windows until the game is closed.", []);
+        UiScan scan = await Guide!.ScanAsync(ct);
+        if (scan.Window is not { } window) return GuideReply(scan.Problem ?? "I couldn't look at that window.", []);
+        if (window.Elements.Count == 0)
+            return GuideReply($"{window.App} doesn't tell Windows what's in its window, so I can't see its buttons. " +
+                              "Games and a few older programs are like that.", []);
+        DiagnosticLog.Info($"Guide: {window.Elements.Count} controls read{(window.Complete ? "" : " (cut short)")}");
+
+        IReadOnlyList<GuideCandidate> candidates = GuideMatch.Find(what, window.Elements, kind);
+        if (GuideMatch.Best(candidates) is { } best)
+        {
+            Mark(best);
+            return GuideReply($"It's here in {window.App}: {GuideMatch.Describe(best, window)}. I've put a ring around it.", [CantSee(best)]);
+        }
+        if (candidates.Count > 1 && candidates[0].Score >= GuideMatch.Sure)
+        {
+            return GuideReply($"A few things in {window.App} fit. Which one?",
+                              [.. candidates.Take(4).Select(candidate => new ActionOption(GuideMatch.Describe(candidate.Element, window), new ShowElement(candidate.Element))),
+                               new ActionOption("None of these", null)]);
+        }
+
+        // No control has that name: it may sit behind a menu or a tab. A model picks where to start.
+        string task = named ? $"find {what}" : what;
+        if (LocalModelEnabled && await GuidePickAsync(task, done, window, GuideLocalChoices, cloudText: null, ct) is { } first)
+            return GuideStep(first, window, task, done);
+
+        if (cloud is { IsConfigured: true })
+        {
+            string names = GuideMatch.Listing(window, GuideCloudChoices);
+            if (names.Length > 0)
+            {
+                return GuideReply($"I don't see a control named like that in {window.App}, and I couldn't work out where to start. " +
+                                  "Cloud chat can pick from the names of the buttons in that window. Here is exactly what would be sent:", [])
+                    with { GuideCloud = new GuideCloudOffer(Steps(task, done), names) };
+            }
+        }
+        return GuideReply($"I couldn't find that in {window.App}. If it's inside a menu, open the menu and ask me again.", []);
+    }
+
+    AssistantReply GuideStep(UiElement element, UiWindow window, string task, string done)
+    {
+        string clicked = done.Length == 0 ? GuideMatch.Shown(element.Name) : $"{done}, then {GuideMatch.Shown(element.Name)}";
+        Mark(element, task, clicked);
+        return GuideReply($"{(done.Length == 0 ? "Start here" : "Now here")}: {GuideMatch.Describe(element, window)}. I've put a ring around it. " +
+                          "Click it yourself, then press Next step (or type \"next\") if there is more to do.",
+                          [new ActionOption("Next step", new GuideNextStep(task, clicked)), CantSee(element)]);
+    }
+
+    static string Steps(string task, string done) => done.Length == 0 ? task : $"{task} (already clicked: {done})";
+
+    // Asks a model for the number of the control to click first. cloudText: the listing the user approved, for cloud chat.
+    async Task<UiElement?> GuidePickAsync(string task, string done, UiWindow window, int max, string? cloudText, CancellationToken ct)
+    {
+        string listing = cloudText ?? GuideMatch.Listing(window, max);
+        if (listing.Length == 0) return null;
+        var messages = new List<ChatMessage>
+        {
+            ChatMessage.ForSystem(GuidePickPrompt),
+            ChatMessage.ForUser($"App: {window.App}\nI want to: {Steps(task, done)}\n\nControls:\n{listing}"),
+        };
+        string answer;
+        if (cloudText is null)
+        {
+            try
+            {
+                answer = (await llm.ChatAsync(messages, [], ct)).Content;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or LlmException or TaskCanceledException)
+            {
+                DiagnosticLog.Error("The local model couldn't pick a control", ex);
+                return null;
+            }
+        }
+        else
+        {
+            answer = (await cloud!.AskAsync(messages, new CloudRequest(600, 0.1), ct))?.Text ?? "";
+        }
+        Match number = Regex.Match(answer, @"\d+");
+        return number.Success && int.TryParse(number.Value, out int picked) && picked > 0
+            ? GuideMatch.FromListing(listing, picked, window)
+            : null;
+    }
+
+    /// <summary>
+    /// After Send on the guide's card: the task and the names the user left on the card go to cloud chat (logged in
+    /// sent\ like every cloud message), and the control it picks is found again in the window and marked.
+    /// </summary>
+    public async Task<AssistantReply> GuideWithCloudAsync(string task, string names, CancellationToken ct)
+    {
+        if (Guide is null || cloud is not { IsConfigured: true })
+            return new AssistantReply("Cloud chat isn't connected. Settings > Privacy and cloud can connect it.", [], 0, "local");
+        UiScan scan = await Guide.ScanAsync(ct);
+        if (scan.Window is not { } window) return GuideReply(scan.Problem ?? "I couldn't look at that window anymore.", []);
+
+        UiElement? picked = await GuidePickAsync(task.Trim(), done: "", window, GuideCloudChoices, names.Trim(), ct);
+        if (picked is null)
+            return GuideReply($"Cloud chat didn't find a place to start in {window.App} either. If it's inside a menu, open the menu and ask me again.", []);
+        Mark(picked, task.Trim(), GuideMatch.Shown(picked.Name));
+        return new AssistantReply($"Start here: {GuideMatch.Describe(picked, window)}. I've put a ring around it. " +
+                                  "Click it yourself, then press Next step if there is more to do.", [], 0, "cloud chat")
+        {
+            Route = "guide",
+            Options = [new ActionOption("Next step", new GuideNextStep(task.Trim(), GuideMatch.Shown(picked.Name))), CantSee(picked)],
         };
     }
 

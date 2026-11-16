@@ -5,7 +5,12 @@ Each version starts with a line "## <version> (<month> <year>)", and each change
 The first three lines of a version are the highlights shown after an update.
 
 ## 0.8.0 (November 2026)
+- **Show me where to click:** ask "where is the save button?" or "where do I click to change the font?" and a ring appears around the right control in the window you were using. It only points: it never clicks for you. Still can't see it? One button and the character walks over and stands next to it.
 - **Chat that acts:** say what you want in your own words ("it's too quiet in here") and cloud chat can offer the matching action as a button: open an app, change the volume, check the PC, start a backup. Nothing runs until you press it.
+- **Wake word (off until you turn it on):** say the wake phrase and then your question, no keys needed. It is heard on this computer only, and the microphone closes during games, calls and while the PC is locked. Settings > Voice also has a new choice for speaking Bulgarian.
+- **Calendar and mail:** "what's on my calendar today?", "when is my next meeting?", "any new emails?", "did Ivan reply?". Connect them in Settings > Calendar and mail with your calendar's private link and a mail app password. Read-only, answered on your computer, never sent to cloud chat.
+- **Routines:** "every morning at 8 tell me what's on my calendar today" and it asks itself at that time and shows you the answer. If the PC was off, it runs when you're back the same day.
+- **New things to ask for:** "shut down my computer" and "restart my pc" (both ask first and can be stopped), "close chrome", "what's my battery level?", "clear my to-do list".
 - **Safer saving:** settings, notes, to-dos and reminders can no longer be left empty by a crash or power cut mid-save, and settings keep a spare copy that comes back by itself.
 - **Quieter logs:** the app's logs no longer contain file paths, file names or the names of apps you closed.
 - **Scam check:** catches look-alike addresses such as "arnazon" and no longer flags real sites that merely contain a brand's name.

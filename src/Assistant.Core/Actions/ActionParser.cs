@@ -63,7 +63,12 @@ public static partial class ActionParser
         if (First(text, OtherTheme)) return new SwitchTheme();
         if (First(text, Screenshot)) return new TakeScreenshot();
         if (First(text, EmptyBin)) return new EmptyRecycleBin(false);
+        if (First(text, ShutDown)) return new PowerOff(Restart: false, Confirmed: false);
+        if (First(text, Restart)) return new PowerOff(Restart: true, Confirmed: false);
+        if (First(text, Battery)) return new BatteryLevel();
         if (Settings(text) is { } settings) return settings;
+        if (Find(text, Close) is { } close && !NotAnApp().IsMatch(close.Groups["x"].Value.Trim()))
+            return new CloseNamed(close.Groups["x"].Value.Trim());
         if (Find(text, Search) is { } search) return new WebSearch(search.Groups["q"].Value.Trim());
         if (Find(text, Open) is { } open) return Target(open.Groups["x"].Value);
         return null;
@@ -351,6 +356,38 @@ public static partial class ActionParser
         new($@"^{Polite}lock\s+(?:my\s+|the\s+)?(?:pc|computer|screen|laptop)$", Options),
         new(@"^заключи\s+(?:компютъра|екрана|лаптопа)$", Options),
     ];
+
+    const string Machine = @"(?:pc|computer|laptop|machine|windows)";
+
+    static readonly Regex[] ShutDown =
+    [
+        new($@"^{Polite}(?:shut\s*down|turn\s+off|power\s+off|switch\s+off)(?:\s+(?:my\s+|the\s+|this\s+)?{Machine})?$", Options),
+        new(@"^(?:изключи|загаси|угаси|изгаси)\s+(?:компютъра|лаптопа)$", Options),
+    ];
+
+    static readonly Regex[] Restart =
+    [
+        new($@"^{Polite}(?:restart|reboot)(?:\s+(?:my\s+|the\s+|this\s+)?{Machine})?$", Options),
+        new(@"^рестартирай(?:\s+(?:компютъра|лаптопа))?$", Options),
+    ];
+
+    static readonly Regex[] Battery =
+    [
+        new(@"^(?:what(?:'s|’s|\s+is)\s+|show\s+(?:me\s+)?|check\s+)?(?:my\s+|the\s+)?battery(?:\s+(?:level|percentage|percent|status|life|charge))?(?:\s+(?:at|left))?$", Options),
+        new(@"^how\s+much\s+(?:battery|charge)(?:\s+(?:do\s+i\s+have|is|have\s+i\s+got))?(?:\s+left)?$", Options),
+        new(@"^is\s+(?:my\s+|the\s+)?(?:laptop|pc|computer|battery)\s+(?:charging|plugged\s+in)$", Options),
+        new(@"^(?:колко\s+(?:е\s+)?батери\w*(?:\s+(?:имам|остава|ми\s+остава))?|(?:каква\s+е\s+|покажи\s+)?батерията(?:\s+ми)?|колко\s+(?:процента\s+)?е\s+батерията|зарежда\s+ли\s+се\s+(?:лаптопът|батерията))$", Options),
+    ];
+
+    // "close chrome", "quit spotify", "затвори chrome". Not "close the window": that needs to know which.
+    static readonly Regex[] Close =
+    [
+        new($@"^{Polite}(?:close|quit|exit)\s+(?:the\s+|my\s+)?(?<x>[\p{{L}}\p{{N}}][\p{{L}}\p{{N}} .+&'-]{{0,40}})$", Options),
+        new(@"^затвори\s+(?<x>[\p{L}\p{N}][\p{L}\p{N} .+&'-]{0,40})$", Options),
+    ];
+
+    [GeneratedRegex(@"^(?:(?:this|that|the|current|all|every|my)\s+)*(?:it|this|that|window|windows|tab|tabs|app|apps|program|programs|everything|all|file|document|folder|door|chat|you|yourself|това|прозореца|прозорците|таба|всичко|чата|приложението|програмата)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NotAnApp();
 
     static readonly Regex[] DarkMode =
     [
