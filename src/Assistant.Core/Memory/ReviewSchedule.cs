@@ -117,7 +117,7 @@ public sealed class ReviewSchedule(string path)
     {
         try
         {
-            File.WriteAllText(path, JsonSerializer.Serialize(state, Options));
+            Assistant.Core.Storage.SafeFile.WriteAllText(path, JsonSerializer.Serialize(state, Options));
         }
         catch (IOException ex)
         {

@@ -60,6 +60,7 @@ public static partial class ActionParser
         if (First(text, Lock)) return new LockPc();
         if (First(text, DarkMode)) return new SetTheme(true);
         if (First(text, LightMode)) return new SetTheme(false);
+        if (First(text, OtherTheme)) return new SwitchTheme();
         if (First(text, Screenshot)) return new TakeScreenshot();
         if (First(text, EmptyBin)) return new EmptyRecycleBin(false);
         if (Settings(text) is { } settings) return settings;
@@ -150,6 +151,14 @@ public static partial class ActionParser
         string page = match.Groups["p"].Value.Trim().ToLowerInvariant();
         // "open settings" on its own means the assistant's own Settings; "Windows settings" means Windows'.
         if (page.Length == 0) return new OpenSettings("Assistant", AssistantSettings);
+        return SettingsPage(page);
+    }
+
+    /// <summary>The Windows Settings page that words like "bluetooth" or "wi-fi" mean, or null.</summary>
+    public static OpenSettings? SettingsPage(string words)
+    {
+        string page = words.Trim().ToLowerInvariant();
+        if (page.Length == 0) return null;
         foreach (var entry in SettingsPages.OrderByDescending(entry => entry.Words.Max(word => word.Length)))
         {
             if (entry.Words.Any(word => page == word || page.Contains(word, StringComparison.Ordinal)))
@@ -355,6 +364,13 @@ public static partial class ActionParser
         new(@"^(?:(?:включи|пусни|сложи|смени\s+на)\s+)?(?:светъл\s+режим|светла\s+тема|светлия\s+режим|светлата\s+тема)$", Options),
     ];
 
+    // "change the theme", "смени темата": the other one, whichever is on.
+    static readonly Regex[] OtherTheme =
+    [
+        new($@"^{Polite}(?:switch|change|toggle|swap)\s+(?:the\s+|my\s+)?(?:theme|(?:dark|light)\s+mode)$", Options),
+        new(@"^(?:смени|промени|обърни)\s+(?:темата|режима)$", Options),
+    ];
+
     static readonly Regex[] Screenshot =
     [
         new($@"^{Polite}(?:take|make|grab|capture)\s+(?:a\s+)?(?:screenshot|screen\s*shot|screen\s+capture|picture\s+of\s+(?:the|my)\s+screen)(?:\s+of\s+(?:the|my)\s+screen)?$|^screenshot$", Options),
@@ -416,7 +432,7 @@ public static partial class ActionParser
     // A full path after "back up" ("also back up D:\Projects", "архивирай и D:\Снимки").
     static readonly Regex[] BackupAdd =
     [
-        new($@"^{Polite}(?:also\s+)?(?:back\s*up|backup|add)\s+(?:the\s+folder\s+|folder\s+)?(?<path>""?[a-z]:\\.*?""?)(?:\s+(?:too|as\s+well|to\s+(?:the\s+|my\s+)?backups?))?$", Options),
+        new($@"^{Polite}(?:also\s+)?(?:back\s*up|backup|add)\s+(?:the\s+folder\s+|folder\s+)?(?<path>""?[a-z]:\\.*?""?)(?:\s+(?:too|as\s+well|to\s+(?:the\s+|my\s+)?backups?|(?:to|on|onto)\s+(?:[a-z]:\\?|(?:the\s+|my\s+)?(?:usb|flash\s*drive|external\s+drive|backup\s+drive)(?:\s+(?:stick|drive))?)))?$", Options),
         new(@"^(?:архивирай|добави)\s+(?:и\s+)?(?:папката\s+)?(?<path>""?[a-z]:\\.*?""?)(?:\s+(?:също|към\s+резервните\s+копия))?$", Options),
     ];
 

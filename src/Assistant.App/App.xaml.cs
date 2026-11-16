@@ -122,6 +122,14 @@ public partial class App : Application
         // The windows hide instead of closing, so the app ends only through Quit.
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         DispatcherUnhandledException += OnUnhandledException;
+        // Errors outside the window thread: logged, so a silent failure or a crash leaves a trace.
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            DiagnosticLog.Error("A background task failed", args.Exception);
+            args.SetObserved();
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            DiagnosticLog.Error("Crash outside the window thread", args.ExceptionObject as Exception);
         DiagnosticLog.Info("Starting");
 
         DataFolder data = DataFolder.Default();
@@ -727,13 +735,18 @@ public partial class App : Application
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern bool SetForegroundWindow(IntPtr window);
 
+    DateTime lastErrorShown = DateTime.MinValue;
+
     void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         DiagnosticLog.Error("Unhandled exception", e.Exception);
+        e.Handled = true;
+        // At most one message a minute: an error inside a timer would otherwise bury the screen in boxes.
+        if (DateTime.UtcNow - lastErrorShown < TimeSpan.FromMinutes(1)) return;
+        lastErrorShown = DateTime.UtcNow;
         MessageBox.Show(
             $"Something went wrong: {e.Exception.Message}\n\nDetails are in {DiagnosticLog.FolderPath}",
             "Assistant");
-        e.Handled = true;
     }
 
     static async Task StartEmbeddedOllamaAsync(OllamaRuntime runtime)

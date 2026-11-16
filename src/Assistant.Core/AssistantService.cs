@@ -150,6 +150,18 @@ public sealed partial class AssistantService
         Write maths with plain symbols (√, ², ×, ≤, π), not LaTeX. Put code in fenced blocks with the language named.
         """;
 
+    // Goes with the list of actions (ActionCatalog) when it is sent.
+    const string ActionsNote = """
+        The app can also do some things on this PC: the functions you were given. When the user's latest message asks for
+        one of them, call the function instead of explaining how to do it by hand. The app then shows a button, and the
+        user decides whether to press it, so the button is your question: don't ask "would you like me to…" or say
+        "I can … for you" in words, call the function. A complaint or a wish counts as asking when a function plainly
+        answers it ("it's too quiet", "I can't hear it": volume up; "my eyes hurt from this white": dark mode). If two
+        functions could be meant, call both and let the user pick. A mood or a remark with nothing to act on
+        ("I'm bored", "I'm tired", "nice day") is small talk: answer in words, no function. At most three.
+        You never see what it did, so don't say that anything was done.
+        """;
+
     const string GameModeNote = """
         Game mode is on: the user is playing a game. Screen reading can't be used right now. Files, activity and memory
         still work when asked directly, for example "find my CV", "what did I do today?" or "remember that ...".
@@ -695,6 +707,12 @@ public sealed partial class AssistantService
     /// </summary>
     public bool CloudWebTools { get; set; } = true;
 
+    /// <summary>
+    /// Cloud chat is told what the app can do (ActionCatalog) and may offer an action as a button. The list is the same
+    /// for everyone and says nothing about this computer.
+    /// </summary>
+    public bool OfferActions { get; set; } = true;
+
     /// <summary>Wikipedia, for factual questions going to cloud chat (null: not set up).</summary>
     public WikipediaLookup? Knowledge { get; init; }
 
@@ -718,12 +736,35 @@ public sealed partial class AssistantService
         LookedUp? facts = null;
         if (Knowledge is not null && CloudWebTools && (lookUp || QuestionKind.LooksUpFacts(CurrentUserText)))
             facts = await Knowledge.FindAsync(CurrentUserText, ct);
-        CloudReply? reply = cloud is null ? null : await cloud.AskAsync(BuildCloudMessages(facts), ChatRequest(), ct);
+        // Ordinary chat also carries the list of what the app can do, so the model can offer an action the rules
+        // didn't recognise. Not with a lookup or a worked answer: those are questions, not requests.
+        CloudRequest request = ChatRequest();
+        if (OfferActions && Actions is not null && facts is null && !request.Code && !request.Search)
+            request = request with { Actions = ActionCatalog.Definitions };
+        CloudReply? reply = cloud is null
+            ? null
+            : await cloud.AskAsync(BuildCloudMessages(facts, withActions: request.Actions.Count > 0), request, ct);
+        // Only calls the app can't use and no words: the same as no answer.
+        if (reply is { Text.Length: 0 } && ActionCatalog.Offers(reply.Calls).Count == 0) reply = null;
         return (reply, facts);
     }
 
     AssistantReply FinishCloud(CloudReply reply, LookedUp? facts, List<FileHit> files, List<string> notes, int toolCalls)
     {
+        // An action the model asked for becomes a button, labelled by the app. Nothing runs until it is pressed, and
+        // what it does is not added to the chat that later goes to the cloud.
+        IReadOnlyList<ActionOption> offers = ActionCatalog.Offers(reply.Calls);
+        if (offers.Count > 0)
+        {
+            route = "cloud>offer";
+            DiagnosticLog.Info($"Cloud chat offered {offers.Count} action(s), shown as buttons");
+            bool cyrillic = CurrentUserText.Any(letter => letter is >= '\u0400' and <= '\u04FF');
+            string say = reply.Text.Length > 0 ? reply.Text
+                       : cyrillic ? "Мога да го направя. Натисни бутона:"
+                       : "I can do that. Press the button:";
+            return Finish(say, files, notes, toolCalls, reply.Provider) with { Options = offers };
+        }
+
         route = facts is null ? "cloud" : "cloud+lookup";
         return Finish(reply.Text, files, notes, toolCalls, reply.Provider) with
         {
@@ -959,12 +1000,12 @@ public sealed partial class AssistantService
     /// The conversation as the cloud may see it: only turns that never touched a tool and weren't a
     /// "remember that..." or "forget..." request. A turn that involved your files or memory, including what you typed, never leaves this computer.
     /// </summary>
-    List<ChatMessage> BuildCloudMessages(LookedUp? facts = null)
+    List<ChatMessage> BuildCloudMessages(LookedUp? facts = null, bool withActions = false)
     {
         List<List<ChatMessage>> turns = Turns(history);
 
         string prompt = CloudSystemPrompt + (QuestionKind.NeedsWorking(CurrentUserText) ? "\n" + WorkingNote : "")
-                        + (CloudOnly ? "\n" + GameModeNote : "") + Now() + PreferencesBlock() + CloudAboutMeBlock()
+                        + (CloudOnly ? "\n" + GameModeNote : "") + (withActions ? "\n" + ActionsNote : "") + Now() + PreferencesBlock() + CloudAboutMeBlock()
                         + (facts is null ? "" : "\n\n" + ReferenceNote + "\n\n" + facts.Text);
         var messages = new List<ChatMessage> { ChatMessage.ForSystem(prompt) };
         foreach (List<ChatMessage> turn in turns

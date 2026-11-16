@@ -151,10 +151,18 @@ public static partial class ScamSigns
 
         foreach ((string name, string[] words, string[] sites) in Brands)
         {
-            bool named = parts.Any(part => words.Any(word => word.Length <= 4 ? part == word : part.StartsWith(word, StringComparison.Ordinal)));
-            if (named && !sites.Contains(site, StringComparer.OrdinalIgnoreCase))
+            if (sites.Contains(site, StringComparer.OrdinalIgnoreCase)) continue; // the brand's own site
+            if (parts.Any(part => words.Any(word => Names(part, word))))
             {
                 yield return $"A link has \"{name}\" in it but goes to {host}, which isn't {name}'s own site.";
+                break;
+            }
+            // "steamcommunlty", "paypa1", "arnazon": a letter or two off a brand's name.
+            if (parts.Any(part => words.Any(word => word.Length >= 6 && part != word
+                    && (LookAlike(part) == word
+                        || (Math.Abs(part.Length - word.Length) <= 2 && Distance(part, word) <= (word.Length >= 10 ? 2 : 1))))))
+            {
+                yield return $"A link ({host}) is spelled almost like {name}'s address, but isn't it.";
                 break;
             }
         }
@@ -164,6 +172,45 @@ public static partial class ScamSigns
         if (RiskyEndings.Contains(host[(host.LastIndexOf('.') + 1)..])) yield return $"A link ends in .{host[(host.LastIndexOf('.') + 1)..]}, an address ending that's cheap and common in scams.";
         if (link.Contains('@') && !link.StartsWith("mailto", StringComparison.Ordinal) && Authority(link).Contains('@'))
             yield return "A link hides its real address after an @ sign.";
+    }
+
+    // What scammers add to a brand's name in one word ("paypalsecure", "amazonlogin"). A longer everyday word that only
+    // starts the same ("steamboat", "applebees") isn't the brand.
+    static readonly string[] ScamTails =
+    [
+        "secure", "security", "login", "signin", "verify", "verification", "support", "account", "accounts", "update", "pay",
+        "payment", "help", "service", "services", "bank", "online", "auth", "confirm", "billing", "wallet", "delivery",
+        "track", "tracking", "post", "bg", "eu", "app", "id",
+    ];
+
+    // The word in a link's part: the part is the word ("paypal"), or the word plus a scam's usual addition ("paypalsecure").
+    static bool Names(string part, string word)
+    {
+        if (part == word) return true;
+        if (word.Length <= 4 || !part.StartsWith(word, StringComparison.Ordinal)) return false;
+        string rest = part[word.Length..];
+        return rest.All(char.IsDigit) || ScamTails.Any(tail => rest.StartsWith(tail, StringComparison.Ordinal));
+    }
+
+    // Letters that pass for others at a glance: "rn" for "m", "vv" for "w", 0 for o, 1 for l.
+    static string LookAlike(string part) => part.Replace("rn", "m").Replace("vv", "w").Replace('0', 'o').Replace('1', 'l');
+
+    // How many letters must change, be added or dropped to turn one word into the other.
+    static int Distance(string a, string b)
+    {
+        int[] row = Enumerable.Range(0, b.Length + 1).ToArray();
+        for (int i = 1; i <= a.Length; i++)
+        {
+            int previous = row[0];
+            row[0] = i;
+            for (int j = 1; j <= b.Length; j++)
+            {
+                int saved = row[j];
+                row[j] = Math.Min(Math.Min(row[j] + 1, row[j - 1] + 1), previous + (a[i - 1] == b[j - 1] ? 0 : 1));
+                previous = saved;
+            }
+        }
+        return row[b.Length];
     }
 
     // "https://paypal.com@evil.top/x" → "evil.top"; "www.dhl-paket.top/abc" → "dhl-paket.top".

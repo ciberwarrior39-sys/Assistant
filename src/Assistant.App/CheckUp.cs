@@ -267,7 +267,7 @@ static class CheckUp
                 await Task.Delay(500, ct);
 
             long freed = Math.Max(0, Memory.Now().AvailableBytes - freeBefore);
-            DiagnosticLog.Info($"Closed {app.ProcessName} from the check-up");
+            DiagnosticLog.Info("Closed an app from the check-up");
             if (processes.Any(process => IsRunning(process) && HasVisibleWindow(process)))
                 return new ActionReply($"{app.Name} is still open. It may be asking you something, like whether to save. Have a look at its window.");
             return new ActionReply(freed >= 100L << 20

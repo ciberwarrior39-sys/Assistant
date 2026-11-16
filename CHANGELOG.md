@@ -4,6 +4,13 @@ The newest version is first. The app shows this in Settings > What's new, and ea
 Each version starts with a line "## <version> (<month> <year>)", and each change is one line starting with "- ".
 The first three lines of a version are the highlights shown after an update.
 
+## 0.8.0 (November 2026)
+- **Chat that acts:** say what you want in your own words ("it's too quiet in here") and cloud chat can offer the matching action as a button: open an app, change the volume, check the PC, start a backup. Nothing runs until you press it.
+- **Safer saving:** settings, notes, to-dos and reminders can no longer be left empty by a crash or power cut mid-save, and settings keep a spare copy that comes back by itself.
+- **Quieter logs:** the app's logs no longer contain file paths, file names or the names of apps you closed.
+- **Scam check:** catches look-alike addresses such as "arnazon" and no longer flags real sites that merely contain a brand's name.
+- **Fewer crashes:** a file that is busy, a failed background task or a network hiccup during an action now gives a plain note instead of an error box.
+
 ## 0.7.0 (November 2026)
 - **PC check-up:** ask "why is my PC slow?" and the assistant shows what's using your memory and processor and which apps start with Windows, with buttons to close a heavy app or stop one starting with Windows (and turn it back on).
 - **Backups:** your folders copied to a USB drive or any folder once a day by themselves, as normal files, with older versions of changed or deleted files kept 30 days. Ask "back up my files" to start.

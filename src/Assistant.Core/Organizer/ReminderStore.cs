@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Assistant.Core.Diagnostics;
+using Assistant.Core.Storage;
 
 namespace Assistant.Core.Organizer;
 
@@ -71,7 +72,7 @@ public sealed class ReminderStore
     {
         try
         {
-            File.WriteAllText(file, JsonSerializer.Serialize(new Saved(entries.OrderBy(entry => entry.Due).ToList()), Options));
+            SafeFile.WriteAllText(file, JsonSerializer.Serialize(new Saved(entries.OrderBy(entry => entry.Due).ToList()), Options));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

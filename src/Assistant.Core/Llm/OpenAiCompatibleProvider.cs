@@ -11,7 +11,8 @@ namespace Assistant.Core.Llm;
 /// <summary>
 /// Groq, OpenRouter and other OpenAI-compatible cloud APIs. Used for plain conversation only: it never gets the app's
 /// own tools (files, memory, the screen), only the provider's built-in web search and code runner where offered,
-/// and the caller decides which messages may leave the computer.
+/// and the caller decides which messages may leave the computer. It may be told what the app can do
+/// (CloudRequest.Actions) and ask for one; that comes back as a call for the app to offer, and nothing is run here.
 /// </summary>
 public sealed partial class OpenAiCompatibleProvider(CloudEndpoint endpoint, HttpClient http) : ILlmProvider
 {
@@ -20,6 +21,9 @@ public sealed partial class OpenAiCompatibleProvider(CloudEndpoint endpoint, Htt
     // Set when the provider refuses a request with web search and code (not offered on this key or plan): from then
     // on, until the app restarts, requests go without them, so every answer still arrives.
     bool webToolsRefused;
+
+    // The same for the list of actions: a model or plan without function calling answers without it from then on.
+    bool actionsRefused;
 
     // Reasoning models think before answering, and that thinking needs room too.
     const int MaxReasoningModelTokens = 1024;
@@ -93,6 +97,28 @@ public sealed partial class OpenAiCompatibleProvider(CloudEndpoint endpoint, Htt
             body["tool_choice"] = "auto";
         }
 
+        // What the app can do, as functions. Not together with the provider's own search and code tools.
+        bool actions = request.Actions.Count > 0 && !webTools && !actionsRefused;
+        if (actions)
+        {
+            var functions = new JsonArray();
+            foreach (ToolDefinition action in request.Actions)
+            {
+                functions.Add(new JsonObject
+                {
+                    ["type"] = "function",
+                    ["function"] = new JsonObject
+                    {
+                        ["name"] = action.Name,
+                        ["description"] = action.Description,
+                        ["parameters"] = action.Parameters.DeepClone(),
+                    },
+                });
+            }
+            body["tools"] = functions;
+            body["tool_choice"] = "auto";
+        }
+
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, new Uri(endpoint.BaseAddress, "chat/completions"))
         {
             Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
@@ -111,6 +137,14 @@ public sealed partial class OpenAiCompatibleProvider(CloudEndpoint endpoint, Htt
                 DiagnosticLog.Info($"{endpoint.Name} refused web search and code ({(int)response.StatusCode}: {ExtractError(text)}); answering without them");
                 return await ChatAsync(messages, request with { Search = false, Code = false }, ct);
             }
+            // The same with the list of actions. A call the model wrote badly ("tool_use_failed") is a one-off; any
+            // other refusal means function calling isn't offered here, so the list stays out until the next start.
+            if (actions && (int)response.StatusCode is 400 or 403 or 422)
+            {
+                if (!text.Contains("tool_use_failed", StringComparison.OrdinalIgnoreCase)) actionsRefused = true;
+                DiagnosticLog.Info($"{endpoint.Name} refused the list of actions ({(int)response.StatusCode}: {ExtractError(text)}); answering without it");
+                return await ChatAsync(messages, request with { Actions = [] }, ct);
+            }
             throw new LlmException($"{endpoint.Name} returned {(int)response.StatusCode}: {ExtractError(text)}", (int)response.StatusCode);
         }
 
@@ -119,6 +153,7 @@ public sealed partial class OpenAiCompatibleProvider(CloudEndpoint endpoint, Htt
 
         string content = "";
         var sources = new List<WebSource>();
+        var calls = new List<ToolCall>();
         if (root.TryGetProperty("choices", out JsonElement choices)
             && choices.ValueKind == JsonValueKind.Array
             && choices.GetArrayLength() > 0
@@ -128,6 +163,15 @@ public sealed partial class OpenAiCompatibleProvider(CloudEndpoint endpoint, Htt
                 content = c.GetString() ?? "";
             // What the web search found: anywhere under executed_tools, objects with a title and a web address.
             if (reply.TryGetProperty("executed_tools", out JsonElement executed)) CollectSources(executed, sources);
+            // Actions the model asks for: {"function": {"name": "...", "arguments": "{...}"}}. Only read when the
+            // list was sent; what they mean is decided by ActionCatalog.
+            if (actions && reply.TryGetProperty("tool_calls", out JsonElement requested) && requested.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement item in requested.EnumerateArray())
+                {
+                    if (ReadCall(item) is { } call) calls.Add(call);
+                }
+            }
         }
         // "【3†L10-L14】": the model's markers pointing into its search results; the sources are listed separately.
         content = CitationMarker().Replace(content, "");
@@ -142,7 +186,33 @@ public sealed partial class OpenAiCompatibleProvider(CloudEndpoint endpoint, Htt
 
         string? answeredBy = root.TryGetProperty("model", out JsonElement m) && m.ValueKind == JsonValueKind.String ? m.GetString() : null;
 
-        return new LlmResponse(content.Trim(), []) { Usage = usage, Model = answeredBy, Sources = sources };
+        return new LlmResponse(content.Trim(), calls) { Usage = usage, Model = answeredBy, Sources = sources };
+    }
+
+    static ToolCall? ReadCall(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object
+            || !item.TryGetProperty("function", out JsonElement function) || function.ValueKind != JsonValueKind.Object
+            || !function.TryGetProperty("name", out JsonElement name) || name.ValueKind != JsonValueKind.String)
+            return null;
+
+        string json = "{}";
+        if (function.TryGetProperty("arguments", out JsonElement arguments))
+        {
+            if (arguments.ValueKind == JsonValueKind.String) json = arguments.GetString() is { Length: > 0 } written ? written : "{}";
+            else if (arguments.ValueKind == JsonValueKind.Object) json = arguments.GetRawText();
+        }
+        try
+        {
+            using JsonDocument parsed = JsonDocument.Parse(json);
+            return parsed.RootElement.ValueKind == JsonValueKind.Object
+                ? new ToolCall(name.GetString() ?? "", parsed.RootElement.Clone())
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null; // not JSON: no offer
+        }
     }
 
     static void CollectSources(JsonElement element, List<WebSource> sources)

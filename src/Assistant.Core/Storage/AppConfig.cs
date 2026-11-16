@@ -143,32 +143,62 @@ public sealed class AppConfig
 
     public static AppConfig Load(string path)
     {
+        if (Read(path) is { } config)
+        {
+            // The file as it was read, kept as the last copy known to be good.
+            try
+            {
+                File.Copy(path, path + ".bak", overwrite: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DiagnosticLog.Error("Could not keep a spare copy of config.json", ex);
+            }
+            // Writes back any settings added in newer versions, keeping the user's values.
+            config.Save(path);
+            return config;
+        }
+
+        if (!File.Exists(path)) return new AppConfig();
+
+        // config.json is there but can't be used (a hand edit gone wrong, or cut off by a crash). It is set aside as
+        // config.broken.json, so a later save can't destroy it, and the last good copy takes its place if there is one.
         try
         {
-            if (File.Exists(path))
-            {
-                AppConfig config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(path), Options) ?? new AppConfig();
-                config.Appearance ??= new Appearance();
-                config.Appearance.Repair();
-                config.Upgrade();
-                // Writes back any settings added in newer versions, keeping the user's values.
-                try
-                {
-                    config.Save(path);
-                }
-                catch (IOException ex)
-                {
-                    DiagnosticLog.Error("Could not update config.json", ex);
-                }
-                return config;
-            }
+            File.Copy(path, Path.Combine(Path.GetDirectoryName(path) ?? "", "config.broken.json"), overwrite: true);
         }
-        catch (JsonException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Left untouched so the user can fix their edit.
-            DiagnosticLog.Error("config.json is not valid JSON; using defaults", ex);
+            DiagnosticLog.Error("Could not set the unreadable config.json aside", ex);
         }
+        if (Read(path + ".bak") is { } spare)
+        {
+            DiagnosticLog.Info("config.json could not be read; using the last good copy (the unreadable one is config.broken.json)");
+            spare.Save(path);
+            return spare;
+        }
+        DiagnosticLog.Info("config.json could not be read and there is no spare copy; using defaults");
         return new AppConfig();
+    }
+
+    // The settings in a file, repaired and upgraded; null when it's missing, unreadable or not valid JSON.
+    static AppConfig? Read(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            AppConfig? config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(path), Options);
+            if (config is null) return null;
+            config.Appearance ??= new Appearance();
+            config.Appearance.Repair();
+            config.Upgrade();
+            return config;
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            DiagnosticLog.Error("A settings file could not be read", ex);
+            return null;
+        }
     }
 
     /// <summary>Old defaults that were never changed by hand move to the new ones (the file stores every value).</summary>
@@ -184,7 +214,23 @@ public sealed class AppConfig
         Shortcuts.RemoveAll(shortcut => shortcut is null || string.IsNullOrWhiteSpace(shortcut.Keys));
     }
 
-    public void Save(string path) => File.WriteAllText(path, JsonSerializer.Serialize(this, Options));
+    /// <summary>
+    /// Saves the settings without ever leaving half a file (SafeFile). Never throws: a failed save is logged and the
+    /// settings stay as they are in memory, to be saved the next time. False when it didn't work.
+    /// </summary>
+    public bool Save(string path)
+    {
+        try
+        {
+            SafeFile.WriteAllText(path, JsonSerializer.Serialize(this, Options));
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            DiagnosticLog.Error("Could not save config.json", ex);
+            return false;
+        }
+    }
 
     /// <summary>A separate copy, so the Settings window's Cancel can put everything back.</summary>
     public AppConfig Copy() => JsonSerializer.Deserialize<AppConfig>(JsonSerializer.Serialize(this, Options), Options)!;

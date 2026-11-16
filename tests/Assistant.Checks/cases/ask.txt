@@ -1,0 +1,99 @@
+# Everyday messages for   dotnet run --project tests\Assistant.Checks -- --ask   (real cloud chat; see Ask.cs).
+#
+#   expected | the message | words the reply must contain (optional, / between alternatives)
+#
+# "expected" is the route (as in routing.txt), with a word from the button or the chosen action in [brackets] when
+# one is expected, and " or " between several that are all fine. Nothing here is done to the PC.
+
+# ---- Things a rule should catch (no cloud) -------------------------------------------------------------------------
+action [OpenTarget] | open chrome
+action [Op = Up] | turn the volume up
+action [Percent = 40] | volume 40
+action [TakeScreenshot] | take a screenshot
+action [Speed] | why is my laptop so slow
+action [Internet] | my wifi keeps dropping
+action [SpeedTest] | how fast is my internet
+action [BackupNow] | back up my files
+action [LockPc] | lock the computer
+action [WebSearch] | google cheap flights to london
+action [TempFiles] | delete my temp files
+action [bluetooth] | open bluetooth settings
+action [Next] | next song
+action [Op = Down] | намали звука
+action [SwitchTheme] | change the theme
+quick_answer | what time is it
+quick_answer | what's 15% of 80 | 12
+quick_answer | set a timer for 10 minutes
+quick_answer | flip a coin
+organizer | remind me tomorrow at 9 to call the bank
+organizer | add bread to my list
+organizer | Clear my to-do list
+organizer | note: the wifi password is on the router
+tool:search_files | find my CV
+tool:search_files | where is my tax report
+tool:search_files | open my CV
+tool:get_recent_activity | what did I do today
+tool:remember | remember that my sister's birthday is on 5 May
+tool:recall | what do you know about me
+tool:look_at_screen | what does this error mean
+memory | Who is Kris? | friend
+
+# ---- Said in people's own words: cloud chat should offer the right button ------------------------------------------
+cloud>offer [Volume up] | I can barely hear the video
+cloud>offer [Volume down] | ugh this is way too loud
+cloud>offer [Volume up] | it's way too quiet in here
+cloud>offer [dark] or cloud>offer [Display] or cloud>offer [Night light] | the screen is too bright at night, my eyes hurt
+cloud>offer [Spotify] | I feel like listening to some music on spotify
+cloud>offer [Bluetooth] | my headphones won't connect
+cloud>offer [Mute] or cloud>offer [Volume down] | shh, someone is calling me
+cloud>offer [screenshot] | capture what's on my display right now
+cloud>offer [Lock] | I'm stepping away, don't let anyone use my pc
+cloud>offer [Recycle] | get rid of the stuff in my trash
+cloud>offer [Copy] or action [CopyRequest] | put a copy of my homework on the usb stick
+cloud>offer [Back up] or action [Backup] | I'm scared of losing my photos, can you save them somewhere safe
+cloud>offer [Printers] | my printer isn't printing
+cloud>offer [slow] or action [Speed] | everything is lagging today
+cloud>offer [internet] or action [Internet] | youtube won't load
+cloud>offer [Search] or action [WebSearch] | look up the best pizza place near me
+cloud>offer [Volume up] | не чувам нищо от филма
+cloud>offer [internet] or action [Internet] | интернетът ми е много зле днес
+cloud>offer [light] | too dark, I want the white look back
+cloud>offer [fills the disk] or cloud>offer [Temporary] or action [Space] | I keep getting a low storage warning
+cloud>offer [YouTube] | put on youtube for me
+cloud>offer [Downloads] or action [Downloads] or tool:search_files | show me the stuff I downloaded
+cloud>offer [Play] or action [PlayPause] | pause the music for a sec
+
+# ---- Things the app can't do: an honest answer, no made-up button --------------------------------------------------
+cloud | shut down my computer
+cloud | restart my pc
+cloud | what's my battery level?
+cloud | close chrome
+cloud | delete system32
+cloud or cloud>offer [Search] | what's the weather like today?
+
+# ---- Ordinary chat: no buttons -------------------------------------------------------------------------------------
+cloud | hi, how are you?
+cloud | tell me a joke
+cloud | I'm bored
+cloud | what should I cook for dinner tonight?
+cloud | how do I take a screenshot on a mac?
+cloud | is it bad to keep my laptop plugged in all the time?
+cloud | write a short birthday message for my mom
+cloud | what's the difference between dark mode and light mode?
+cloud | thanks, that helped!
+cloud | translate "good morning" to Bulgarian | Добро утро
+cloud | разкажи ми виц
+
+# ---- Facts: looked up, and right -----------------------------------------------------------------------------------
+cloud+lookup | Who wrote Under the Yoke? | Vazov
+cloud+lookup | What is the capital of Australia? | Canberra
+cloud+lookup | Кога е роден Христо Ботев? | 1848
+cloud+lookup | How tall is Mount Everest? | 8,848/8848/8,849/8849/8 848/8 849
+cloud+lookup | Who painted the Mona Lisa? | Leonardo
+cloud+lookup or cloud | Обясни ми какво е RAM | памет
+quick_answer or cloud | what is 17 times 23? | 391
+cloud | how many seconds are in a day? | 86,400/86400/86 400/86 400/86 400/86.400
+cloud+lookup | who wrote under the yoke | Vazov
+cloud+lookup | Кой е написал Под игото? | Вазов
+cloud+lookup | Who was the first president of the United States? | Washington
+cloud+lookup | When did the Second World War end? | 1945

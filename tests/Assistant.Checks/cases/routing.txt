@@ -14,6 +14,7 @@
 #   memory          answered from saved facts ("Look it up" under it)
 #   cloud           cloud chat, nothing looked up
 #   cloud+lookup    cloud chat with a Wikipedia lookup
+#   cloud>offer     cloud chat asked for one of the app's actions: shown as a button, not run
 #   local>cloud     the local model saw it first (something private in it), then cloud chat answered
 #   local           the local model answered
 #   no_answer       cloud chat was needed and didn't answer ("Try again")
@@ -40,6 +41,12 @@ organizer | note that the plumber comes on Friday
 organizer | show my notes
 organizer | add milk to my to-do list
 organizer | what are my reminders?
+organizer | Clear my to-do list
+organizer | изчисти списъка ми
+cloud | tell me a joke
+cloud | разкажи ми виц
+cloud | do you know any good jokes?
+cloud | tell me a short story about a dragon
 organizer | запиши си че имам зъболекар в петък
 action | open spotify
 action | отвори spotify
@@ -69,6 +76,7 @@ action | when was my last backup?
 action | are my files backed up?
 action | set up backups
 action | also back up D:\Projects
+action | also back up D:\Projects to E:
 action | направи резервно копие
 action | кога беше последното резервно копие?
 action | Make a backup for my CV in the desctop.
@@ -208,3 +216,25 @@ tool:search_files | find my CV
 help | what does this error mean?
 cloud | hi
 cloud+lookup | When was Hristo Botev born?
+
+# ---- Chat that acts ------------------------------------------------------------------------------------------------
+# No rule knows these phrasings. The stand-in cloud asks for "volume up" when the list of actions came with the
+# request and the message says "sort it out" / "оправи го"; the app must offer it as a button (cloud>offer).
+@ normal
+cloud>offer | it's way too quiet in here, sort it out
+cloud>offer | много е тихо тук, оправи го
+# An action that doesn't exist is dropped and the answer stays an ordinary one.
+cloud | go on then, do the impossible
+# A rule that matches still wins: the cloud is never asked.
+action | louder
+action | смени темата
+action | change the theme
+
+@ lite
+cloud>offer | it's way too quiet in here, sort it out
+
+@ game
+cloud>offer | it's way too quiet in here, sort it out
+
+@ no-cloud
+local | it's way too quiet in here, sort it out

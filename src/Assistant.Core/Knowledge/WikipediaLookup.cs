@@ -31,6 +31,11 @@ public sealed partial class WikipediaLookup(HttpClient http)
         "кой", "коя", "кое", "кои", "какво", "какъв", "каква", "какви", "кога", "къде", "защо", "как", "колко", "чий", "чия",
         "е", "са", "бил", "била", "било", "били", "на", "в", "във", "за", "от", "с", "със", "и", "или", "да", "се", "ли", "ми",
         "разкажи", "обясни", "опиши", "кажи", "знаеш", "моля", "това", "тази", "този", "тези", "има", "по", "до",
+        // Wikipedia's search wants every word to be in the article, and these are usually there in another form
+        // ("wrote" in the question, "written by" in the article), which hid the right article.
+        "wrote", "written", "write", "writes", "made", "built", "won", "sang", "sung", "drew", "drawn", "began", "led", "fought",
+        "написал", "написала", "написали", "написа", "нарисувал", "нарисувала", "създал", "създала", "открил", "открила",
+        "изобретил", "основал", "построил", "изпял", "изпяла", "режисирал", "композирал",
     };
 
     /// <param name="question">A question that already passed the privacy check for cloud chat.</param>
@@ -43,6 +48,13 @@ public sealed partial class WikipediaLookup(HttpClient http)
         try
         {
             IReadOnlyList<string> titles = await SearchAsync(language, query, ct);
+            // A name in the question ("Under the Yoke", "Христо Ботев") is searched by itself too, and its best match
+            // is read first: the article with that title, whatever else the question asks about it.
+            if (!Quoted().IsMatch(question) && Name(question) is { } name && !string.Equals(name, query, StringComparison.OrdinalIgnoreCase))
+            {
+                IReadOnlyList<string> named = await SearchAsync(language, name, ct);
+                titles = named.Take(1).Concat(titles).Distinct().ToList();
+            }
             var text = new StringBuilder();
             var sources = new List<WebSource>();
             foreach (string title in titles.Take(MaxArticles))
@@ -71,6 +83,25 @@ public sealed partial class WikipediaLookup(HttpClient http)
             return quoted.Groups["title"].Value.Trim();
         string[] words = Word().Matches(question).Select(match => match.Value).Where(word => !NotSearchWords.Contains(word)).ToArray();
         return string.Join(' ', words.Take(8));
+    }
+
+    /// <summary>
+    /// The longest run of capitalised words in a question, small joining words allowed inside ("Under the Yoke",
+    /// "Mona Lisa", "Христо Ботев"); null when there is none. The first word doesn't count: every sentence starts
+    /// with a capital.
+    /// </summary>
+    public static string? Name(string question)
+    {
+        string text = question.Trim();
+        Match first = Word().Match(text);
+        if (!first.Success) return null;
+        string rest = text[(first.Index + first.Length)..];
+        string? best = null;
+        foreach (Match match in NameRun().Matches(rest))
+        {
+            if (match.Value.Length >= 4 && (best is null || match.Value.Length > best.Length)) best = match.Value;
+        }
+        return best;
     }
 
     async Task<IReadOnlyList<string>> SearchAsync(string language, string query, CancellationToken ct)
@@ -129,4 +160,7 @@ public sealed partial class WikipediaLookup(HttpClient http)
 
     [GeneratedRegex(@"[\p{L}\p{N}]+")]
     private static partial Regex Word();
+
+    [GeneratedRegex(@"\p{Lu}[\p{L}\p{N}'’-]*(?:\s+(?:(?:of|the|and|in|de|la|von|van|на|и|в|за|от)\s+){0,2}\p{Lu}[\p{L}\p{N}'’-]*)*")]
+    private static partial Regex NameRun();
 }

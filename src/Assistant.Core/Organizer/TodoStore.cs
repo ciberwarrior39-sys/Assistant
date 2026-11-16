@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Assistant.Core.Storage;
 
 namespace Assistant.Core.Organizer;
 
@@ -35,7 +36,7 @@ public sealed partial class TodoStore(string file)
     {
         List<string> lines = Lines();
         int removed = lines.RemoveAll(line => Parse(line) is { Done: true });
-        if (removed > 0) File.WriteAllLines(file, lines);
+        if (removed > 0) SafeFile.WriteAllLines(file, lines);
         return removed;
     }
 
@@ -49,7 +50,7 @@ public sealed partial class TodoStore(string file)
         if (found.Count == 1)
         {
             change(lines, found[0].Index, found[0].Item!);
-            File.WriteAllLines(file, lines);
+            SafeFile.WriteAllLines(file, lines);
         }
         return found.Select(entry => entry.Item!).ToList();
     }

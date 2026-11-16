@@ -24,6 +24,10 @@ signs 0 | Здравей, утре в 10 ще мина да взема книг�
 signs 0 | Честит рожден ден! Да си жив и здрав.
 signs 0 | The meeting notes are in https://docs.google.com/document/d/abc123 and the slides follow tomorrow.
 signs 0 | I attached the photos as holiday.zip, have a look when you can.
+signs 0 | We had lunch at https://www.steamboat.com/dining and it was great.
+signs 0 | The recipe is on https://www.appleton-farm.org/recipes if you want it.
+signs >=1 | Sign in at https://paypalsecure.com to see the invoice.
+signs >=1 | Your order: https://arnazon.com/track/8841
 
 # ---- Typed requests ----
 asks | is this a scam?

@@ -64,6 +64,7 @@ public sealed partial class WindowsActions(
                 OpenSettings settings => Settings(settings),
                 LockPc => Lock(),
                 SetTheme theme => Theme(theme.Dark),
+                SwitchTheme => Theme(!IsDark()),
                 TakeScreenshot => await ScreenshotAsync(ct),
                 EmptyRecycleBin bin => RecycleBin(bin.Confirmed),
                 PcCheckUp { Kind: CheckUpKind.Speed } => await CheckUp.SpeedAsync(gameMode(), ct),
@@ -82,8 +83,15 @@ public sealed partial class WindowsActions(
                 _ => null,
             };
         }
+        catch (OperationCanceledException)
+        {
+            return new ActionReply("That was stopped before it finished.");
+        }
         catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException or COMException
-                                       or InvalidOperationException or ExternalException)
+                                       or InvalidOperationException or ExternalException or ArgumentException
+                                       or NotSupportedException or System.Security.SecurityException
+                                       or System.Net.Http.HttpRequestException or System.Net.Sockets.SocketException
+                                       or System.Net.NetworkInformation.PingException)
         {
             DiagnosticLog.Error($"Action {intent.GetType().Name} failed", ex);
             return new ActionReply($"That didn't work: {ex.Message}");
@@ -142,7 +150,10 @@ public sealed partial class WindowsActions(
 
     static ActionReply OpenSite(string url)
     {
-        using Process? _ = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        // Web addresses only, whoever asked: anything else given to Windows this way could start a program.
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? address) || address.Scheme is not ("http" or "https"))
+            return new ActionReply("That isn't a web address, so I didn't open it.");
+        using Process? _ = Process.Start(new ProcessStartInfo(address.AbsoluteUri) { UseShellExecute = true });
         return new ActionReply($"Opened {new Uri(url).Host} in your browser.");
     }
 
@@ -411,9 +422,25 @@ public sealed partial class WindowsActions(
         return new ActionReply("Locked.");
     }
 
+    const string ThemeKey = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+
+    // Apps are dark unless Windows says light (the value is missing on a PC that never changed it: light).
+    static bool IsDark()
+    {
+        using RegistryKey? key = Registry.CurrentUser.OpenSubKey(ThemeKey);
+        return key?.GetValue("AppsUseLightTheme") is int light && light == 0;
+    }
+
     static ActionReply Theme(bool dark)
     {
-        using RegistryKey key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", writable: true);
+        if (IsDark() == dark)
+        {
+            return new ActionReply(dark ? "Windows is already in dark mode." : "Windows is already in light mode.")
+            {
+                Options = [new ActionOption(dark ? "Switch to light mode" : "Switch to dark mode", new SetTheme(!dark))],
+            };
+        }
+        using RegistryKey key = Registry.CurrentUser.CreateSubKey(ThemeKey, writable: true);
         key.SetValue("AppsUseLightTheme", dark ? 0 : 1, RegistryValueKind.DWord);
         key.SetValue("SystemUsesLightTheme", dark ? 0 : 1, RegistryValueKind.DWord);
         // Tell open windows, so the taskbar and apps switch now.

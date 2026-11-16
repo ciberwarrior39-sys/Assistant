@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Assistant.Core.Storage;
 
 namespace Assistant.Core.Organizer;
 
@@ -40,7 +41,7 @@ public sealed partial class NotesStore(string file)
         if (found.Count == 1)
         {
             lines.RemoveAt(found[0].Index);
-            File.WriteAllLines(file, lines);
+            SafeFile.WriteAllLines(file, lines);
         }
         return found.Select(entry => entry.Note!).ToList();
     }

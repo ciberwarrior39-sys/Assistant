@@ -4,7 +4,7 @@ namespace Assistant.Core.Diagnostics;
 /// Developer log for crashes, errors and timings, kept apart from the user's data folder.
 /// Never write what the user typed or what the model answered here.
 /// </summary>
-public static class DiagnosticLog
+public static partial class DiagnosticLog
 {
     static readonly Lock Gate = new();
 
@@ -41,7 +41,38 @@ public static class DiagnosticLog
     }
 
     public static void Error(string message, Exception? exception = null) =>
-        Write("ERROR", exception is null ? message : $"{message}: {exception}");
+        Write("ERROR", exception is null ? message : $"{message}: {Describe(exception)}");
+
+    /// <summary>
+    /// An exception for the log: its type, its message with file and folder paths taken out (Windows puts the full
+    /// path in "could not find file…" and "access denied…" messages, and those are the user's file names), and where
+    /// in the code it happened. Inner exceptions the same way.
+    /// </summary>
+    public static string Describe(Exception exception)
+    {
+        var text = new System.Text.StringBuilder();
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (text.Length > 0) text.Append(Environment.NewLine).Append(" ---> ");
+            text.Append(current.GetType().FullName).Append(": ").Append(WithoutPaths(current.Message));
+            if (current.StackTrace is { Length: > 0 } stack) text.Append(Environment.NewLine).Append(stack);
+        }
+        return text.ToString();
+    }
+
+    /// <summary>The text with anything that looks like a Windows or network path replaced by "&lt;path&gt;".</summary>
+    public static string WithoutPaths(string text)
+    {
+        // A quoted path first (it may have spaces), then a bare one up to the next space.
+        text = QuotedPath().Replace(text, "'<path>'");
+        return BarePath().Replace(text, "<path>");
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex("""['"](?:[A-Za-z]:[\\/]|\\\\)[^'"\r\n]*['"]""")]
+    private static partial System.Text.RegularExpressions.Regex QuotedPath();
+
+    [System.Text.RegularExpressions.GeneratedRegex("""(?:\b[A-Za-z]:[\\/]|\\\\)[^\s'"<>|]+""")]
+    private static partial System.Text.RegularExpressions.Regex BarePath();
 
     /// <summary>True while the checks run (tests\Assistant.Checks), so they leave the app's own log alone.</summary>
     public static bool Quiet { get; set; }

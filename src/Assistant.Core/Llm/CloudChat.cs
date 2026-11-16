@@ -8,6 +8,9 @@ public sealed record CloudReply(string Text, string Provider)
 {
     /// <summary>Web pages the answer was based on, when the model searched.</summary>
     public IReadOnlyList<WebSource> Sources { get; init; } = [];
+
+    /// <summary>Actions the model asked for (CloudRequest.Actions). Offers only: the app shows them as buttons.</summary>
+    public IReadOnlyList<ToolCall> Calls { get; init; } = [];
 }
 
 /// <summary>
@@ -35,8 +38,11 @@ public sealed class CloudChat(IReadOnlyList<OpenAiCompatibleProvider> providers,
                 try
                 {
                     LlmResponse response = await provider.ChatAsync(messages, request, ct);
-                    sentLog.Record(provider.Name, response.Model ?? provider.ModelNow, messages, response.Usage, "ok");
-                    if (response.Content.Length > 0) return new CloudReply(response.Content, provider.Name) { Sources = response.Sources };
+                    // The list of actions left the computer too, so the sent\ log says so.
+                    sentLog.Record(provider.Name, response.Model ?? provider.ModelNow, messages, response.Usage,
+                                   request.Actions.Count > 0 ? "ok (the list of what the app can do went with it)" : "ok");
+                    if (response.Content.Length > 0 || response.ToolCalls.Count > 0)
+                        return new CloudReply(response.Content, provider.Name) { Sources = response.Sources, Calls = response.ToolCalls };
                     // Empty: a search or code run used up the room before an answer was written. Once more, plainly.
                     if (attempt == 1 && (request.Search || request.Code))
                     {

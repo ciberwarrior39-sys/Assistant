@@ -31,6 +31,9 @@ public sealed record LockPc : ActionIntent;
 
 public sealed record SetTheme(bool Dark) : ActionIntent;
 
+/// <summary>"Change the theme" without saying which: dark becomes light and light becomes dark.</summary>
+public sealed record SwitchTheme : ActionIntent;
+
 public sealed record TakeScreenshot : ActionIntent;
 
 /// <summary>Asks first; Confirmed is set by the "Empty the Recycle Bin" button.</summary>

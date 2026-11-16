@@ -53,6 +53,13 @@ public sealed record CloudRequest(int MaxTokens, double Temperature, string Reas
 {
     /// <summary>Plain chat: short answers, little thinking.</summary>
     public static CloudRequest Chat { get; } = new(400, 0.7);
+
+    /// <summary>
+    /// What the app can do (ActionCatalog), offered to the model as functions it may ask for. A call that comes back
+    /// is shown to the user as a button; it is never run by the model's say-so and its result is never sent back.
+    /// Left out when the request searches or runs code.
+    /// </summary>
+    public IReadOnlyList<ToolDefinition> Actions { get; init; } = [];
 }
 
 public sealed record LlmUsage(int PromptTokens, int CompletionTokens);

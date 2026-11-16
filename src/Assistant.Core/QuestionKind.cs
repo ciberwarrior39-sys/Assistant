@@ -125,7 +125,7 @@ public static partial class QuestionKind
     [GeneratedRegex(@"\b(?:doing|up\s+to|right\s+now|today|tonight|tomorrow|yesterday|this\s+(?:week|morning|afternoon|evening|weekend)|днес|утре|вчера|сега|довечера|в\s+момента|тази\s+(?:седмица|сутрин|вечер))\b")]
     private static partial Regex RightNow();
 
-    // Advice, opinions, how-tos and things to write: the model's own job, not a lookup.
+    // Advice, opinions, how-tos and things to write or make up (a joke, a story): the model's own job, not a lookup.
     [GeneratedRegex("""
         ^(?:should|shall|must)\b
         |^how\s+to\b
@@ -135,6 +135,9 @@ public static partial class QuestionKind
         |^(?:write|draft|compose|make|create|generate|suggest|recommend|think\s+of|come\s+up|help|translate|rewrite|fix|improve|summari[sz]e|imagine|pretend|let's|lets)\b
         |^(?:напиши|направи|създай|измисли|предложи|препоръчай|помогни|преведи|поправи|подобри|обобщи|представи\s+си)(?![\p{L}])
         |^(?:трябва\s+ли|дали\s+да|как\s+да|какво\s+да|кое\s+е\s+по-добр)
+        |\b(?:jokes?|riddles?|puns?|limericks?|tongue\s+twisters?|виц|вицове|вица|гатанк\w*|анекдот\w*|скороговорк\w*)\b
+        |^(?:a|an|another|some|one)\s+(?:\w+\s+){0,2}(?:story|poem|song|haiku|compliment)\b
+        |^(?:някаква\s+|някакво\s+|една\s+|едно\s+)?(?:приказка|стихотворение|стихче|история|песен|комплимент)(?![\p{L}])
         """, RegexOptions.IgnorePatternWhitespace)]
     private static partial Regex Advice();
 

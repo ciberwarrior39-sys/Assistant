@@ -468,6 +468,12 @@ public partial class ChatBubbleWindow : Window
             DiagnosticLog.Error("Ollama timed out", ex);
             AddNote("Ollama took too long to answer. Try again in a moment.");
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // One of the assistant's own files (notes, to-dos, memory) is locked or can't be written.
+            DiagnosticLog.Error("A file could not be read or written while answering", ex);
+            AddNote("I couldn't read or write one of my files just now (another program may have it open). Try again in a moment.");
+        }
         finally
         {
             SetBusy(false);

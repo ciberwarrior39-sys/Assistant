@@ -117,6 +117,24 @@ public sealed partial class OrganizerAnswers(NotesStore notes, TodoStore todos, 
             }, [], ShowTodos: true);
         }
 
+        // "Clear my to-do list": the finished tasks go; open ones stay, because a list wiped by a loosely worded
+        // message can't be brought back. They are shown, to be ticked off or removed by name.
+        if (First(text, ClearList) is not null)
+        {
+            int removed = todos.ClearDone();
+            int open = todos.Items().Count(item => !item.Done);
+            string cleared = removed switch
+            {
+                0 => "There were no finished tasks to clear.",
+                1 => "Cleared 1 finished task.",
+                _ => $"Cleared {removed} finished tasks.",
+            };
+            if (open == 0) return new OrganizerReply(removed == 0 ? "Your to-do list is already empty." : cleared + " The list is empty now.", []);
+            return new OrganizerReply($"{cleared} {(open == 1 ? "1 task isn't done yet and stays" : $"{open} tasks aren't done yet and stay")}, " +
+                                      "so nothing unfinished is lost. Tick them off below, or say \"remove\" and the task's name to delete one.",
+                                      [], ShowTodos: true);
+        }
+
         if (First(text, RemoveTodo) is { } remove)
         {
             string query = remove.Groups["q"].Value.Trim();
@@ -284,6 +302,12 @@ public sealed partial class OrganizerAnswers(NotesStore notes, TodoStore todos, 
         new(@"^(?:to-?\s?do|todo|task)\s*:?\s+(?<t>.+)$", Options),
         new($@"^(?:добави|сложи|запиши|пиши)\s+(?<t>.+?)\s+(?:в|към)\s+{BgList}(?:\s+ми)?$", Options),
         new(@"^(?:(?:добави|нова)\s+задача\s*:?|задача\s*:)\s*(?<t>.+)$", Options),
+    ];
+
+    static readonly Regex[] ClearList =
+    [
+        new(@"^(?:clear|empty|wipe|reset|delete|erase)\s+(?:out\s+)?(?:all\s+)?(?:of\s+)?(?:my\s+|the\s+)?(?:to-?\s?do(?:\s+list)?|to-?\s?dos|list|tasks|task\s+list)$", Options),
+        new(@"^(?:изчисти|изтрий|изпразни)\s+(?:целия\s+)?(?:списъка|задачите)(?:\s+ми)?(?:\s+със\s+задачи)?$", Options),
     ];
 
     static readonly Regex[] ClearDone =

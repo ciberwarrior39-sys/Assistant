@@ -475,7 +475,7 @@ public sealed class BackupState
     {
         try
         {
-            File.WriteAllText(path, JsonSerializer.Serialize(this, Options));
+            Assistant.Core.Storage.SafeFile.WriteAllText(path, JsonSerializer.Serialize(this, Options));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

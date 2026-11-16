@@ -946,28 +946,42 @@ public sealed class SettingsWindow : Window
             Refresh();
         }
         var drives = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-        foreach (Assistant.Core.Backup.BackupDrive drive in Assistant.Core.Backup.BackupEngine.Drives())
-        {
-            var button = new Button
-            {
-                Content = $"{drive.Root.TrimEnd('\\')} {drive.Name} ({Assistant.Core.Backup.BackupEngine.Size(drive.FreeBytes)} free)",
-                Style = (Style)FindResource("Ghost"),
-                Margin = new Thickness(0, 0, 6, 6),
-            };
-            string root = drive.Root;
-            button.Click += (_, _) => Use(root);
-            drives.Children.Add(button);
-        }
         var choose = new Button { Content = "Choose a folder…", Style = (Style)FindResource("Ghost"), Margin = new Thickness(0, 0, 6, 6) };
         choose.Click += (_, _) =>
         {
             var dialog = new OpenFolderDialog { Title = "Where should the backups go?" };
             if (dialog.ShowDialog(this) == true) Use(dialog.FolderName);
         };
-        drives.Children.Add(choose);
+        TextBlock noDrives = Hint("No USB or other drive is plugged in right now. Plug one in (the list updates when you come back to this window), or choose any folder.");
+        // A button per drive that's plugged in now; shown again whenever the window comes back to the front, so a
+        // drive plugged in meanwhile appears without reopening Settings.
+        string shownDrives = "";
+        void ShowDrives()
+        {
+            IReadOnlyList<Assistant.Core.Backup.BackupDrive> found = Assistant.Core.Backup.BackupEngine.Drives();
+            string plugged = string.Join("|", found.Select(item => item.Root + item.Name));
+            if (plugged == shownDrives && drives.Children.Count > 0) return;
+            shownDrives = plugged;
+            drives.Children.Clear();
+            foreach (Assistant.Core.Backup.BackupDrive drive in found)
+            {
+                var button = new Button
+                {
+                    Content = $"{drive.Root.TrimEnd('\\')} {drive.Name} ({Assistant.Core.Backup.BackupEngine.Size(drive.FreeBytes)} free)",
+                    Style = (Style)FindResource("Ghost"),
+                    Margin = new Thickness(0, 0, 6, 6),
+                };
+                string root = drive.Root;
+                button.Click += (_, _) => Use(root);
+                drives.Children.Add(button);
+            }
+            drives.Children.Add(choose);
+            noDrives.Visibility = found.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        ShowDrives();
+        Activated += (_, _) => ShowDrives();
         panel.Children.Add(drives);
-        if (drives.Children.Count == 1)
-            panel.Children.Add(Hint("No USB or other drive is plugged in right now. Plug one in and open this page again, or choose any folder."));
+        panel.Children.Add(noDrives);
 
         // What.
         panel.Children.Add(Heading("What's backed up"));
@@ -1035,6 +1049,13 @@ public sealed class SettingsWindow : Window
         {
             var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
             var remove = new Button { Content = "\uE711", Style = (Style)FindResource("IconButton"), ToolTip = "Stop backing up this folder" };
+            if (folders.Count == 1)
+            {
+                // The last folder stays: a backup of nothing isn't a backup. (Add another first to swap it.)
+                remove.IsEnabled = false;
+                remove.ToolTip = "At least one folder is backed up. Add another one first to remove this one.";
+                ToolTipService.SetShowOnDisabled(remove, true);
+            }
             DockPanel.SetDock(remove, Dock.Right);
             string path = folder;
             remove.Click += (_, _) =>
@@ -1192,13 +1213,9 @@ public sealed class SettingsWindow : Window
         install.Click += (_, _) =>
         {
             // Keep the settings changes; the restart that installs the update applies them all.
-            try
+            if (!edited.Save(host.ConfigPath))
             {
-                edited.Save(host.ConfigPath);
-            }
-            catch (IOException ex)
-            {
-                MessageBox.Show(this, $"Couldn't save config.json: {ex.Message}", "Assistant");
+                MessageBox.Show(this, "Couldn't save the settings (config.json may be open in another program). Try again in a moment.", "Assistant");
                 return;
             }
             saved = true;
@@ -1319,13 +1336,9 @@ public sealed class SettingsWindow : Window
     void Save()
     {
         edited.Shortcuts.RemoveAll(shortcut => shortcut.Keys.Length == 0 && shortcut.Command.Length == 0); // rows left empty
-        try
+        if (!edited.Save(host.ConfigPath))
         {
-            edited.Save(host.ConfigPath);
-        }
-        catch (IOException ex)
-        {
-            MessageBox.Show(this, $"Couldn't save config.json: {ex.Message}", "Assistant");
+            MessageBox.Show(this, "Couldn't save the settings (config.json may be open in another program). Try again in a moment.", "Assistant");
             return;
         }
         saved = true;

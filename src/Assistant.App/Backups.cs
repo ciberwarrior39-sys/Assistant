@@ -96,7 +96,7 @@ public sealed class Backups(AppConfig config, string configPath, string statePat
             state.Save(statePath);
             // Counts only, never file or folder names.
             DiagnosticLog.Info($"Backup: {outcome.Added} added, {outcome.Updated} updated, {outcome.Removed} removed, {outcome.Skipped} skipped, " +
-                               $"{outcome.Bytes >> 20} MB in {outcome.Took.TotalSeconds:0} s{(outcome.Problem is null ? "" : ", stopped: " + outcome.Problem)}");
+                               $"{outcome.Bytes >> 20} MB in {outcome.Took.TotalSeconds:0} s{(outcome.Problem is null ? "" : ", stopped early")}");
             return outcome;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
@@ -241,7 +241,8 @@ public sealed class Backups(AppConfig config, string configPath, string statePat
         if (config.BackupFolders.Contains(full, StringComparer.OrdinalIgnoreCase)) return new ActionReply($"{full} is already backed up.");
         config.BackupFolders.Add(full);
         config.Save(configPath);
-        return new ActionReply($"Added {full}. Backed up now: {Names()}." + (IsSetUp ? "" : " Backups aren't set up yet, though."))
+        return new ActionReply($"Added {full}. Backed up now: {Names()}." +
+                               (IsSetUp ? $" Backups go to {config.BackupDestination}." : " Backups aren't set up yet, though."))
         {
             Options = new[] { IsSetUp ? new ActionOption("Back up now", new BackupNow()) : new ActionOption("Set up backups", new BackupNow()) },
         };

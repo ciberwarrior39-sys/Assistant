@@ -167,6 +167,9 @@ static partial class InternetCheck
         var notes = new List<string>();
         if (vpn is not null) notes.Add($"A VPN is on ({vpn}). If things are slow or don't load, try turning it off for a moment.");
         if (proxy) notes.Add("A proxy is set in Windows (Settings > Network > Proxy). If you didn't set it up, it can block or slow websites.");
+        if (onWifi && string.IsNullOrEmpty(wifi?.Name))
+            notes.Add("Windows didn't tell me the Wi-Fi's name: newer Windows hides it from apps unless Location is on " +
+                      "(Settings > Privacy & security > Location). The check works the same without it.");
         if (onWifi) options.Add(new ActionOption("Wi-Fi settings", new OpenSettings("Wi-Fi", "ms-settings:network-wifi")));
         if (proxy) options.Add(new ActionOption("Proxy settings", new OpenSettings("Proxy", "ms-settings:network-proxy")));
 

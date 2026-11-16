@@ -347,6 +347,16 @@ answered (a quick answer, a tool, saved facts, cloud chat with or without a look
 Wikipedia and Windows are stand-ins, so it takes a second and nothing leaves the computer. When the assistant handles
 a message wrongly, add a line for it there (`expected route | the message`), then change the rule until it passes.
 
+```
+dotnet run --project tests\Assistant.Checks -- --ask
+```
+
+Sends the everyday messages in `tests\Assistant.Checks\cases\ask.txt` through the same assistant, but with the real
+cloud chat (your own key from `Documents\Assistant\config.json`) and the real Wikipedia, to see how the model itself
+answers and which buttons it offers. Actions, files, the screen and the local model are still stand-ins, so nothing is
+done to the PC and nothing of yours is sent: only the made-up messages, logged in `Documents\Assistant\sent` like
+any other. It waits between questions to stay inside the free limit (about 10 minutes) and writes `ask-results.txt`.
+
 ## Optional: smarter chat with a free cloud model
 
 Plain conversation goes straight to the cloud model when a key is set up, without waiting for the local model: Groq's
