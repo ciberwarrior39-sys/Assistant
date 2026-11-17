@@ -641,7 +641,7 @@ public sealed class SettingsWindow : Window
         };
         panel.Children.Add(Labeled("Address", address));
         // App passwords are shown in groups of four; the spaces aren't part of them.
-        panel.Children.Add(Labeled("App password", KeyBox(edited.MailPassword, value => edited.MailPassword = value.Replace(" ", ""))));
+        panel.Children.Add(Labeled("App password", KeyBox(edited.MailPassword, value => edited.MailPassword = new string(value.Where(letter => !char.IsWhiteSpace(letter)).ToArray()))));
         var server = new TextBox { Width = 300, Text = edited.MailServer, HorizontalAlignment = HorizontalAlignment.Left };
         server.TextChanged += (_, _) =>
         {
@@ -689,6 +689,28 @@ public sealed class SettingsWindow : Window
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Assistant", "models", "wake"));
         panel.Children.Add(Check($"Listen for \"{wakePhrase}\", then ask out loud (no keys)", edited.WakeWordEnabled,
             value => edited.WakeWordEnabled = value, needsRestart: true));
+
+        // How sure it has to be. Shown as sensitivity (higher: wakes more easily), stored as the model's threshold.
+        var sensitivityText = new TextBlock { Width = 150, VerticalAlignment = VerticalAlignment.Center };
+        var sensitivity = new Slider
+        {
+            Minimum = 1, Maximum = 8, Width = 200, IsSnapToTickEnabled = true, TickFrequency = 1,
+            Value = Math.Clamp(Math.Round((0.9 - edited.WakeWordThreshold) * 10) + 1, 1, 8),
+        };
+        void ShowSensitivity() => sensitivityText.Text = $"{(int)sensitivity.Value} of 8 (wakes at {edited.WakeWordThreshold:0.0})";
+        ShowSensitivity();
+        sensitivity.ValueChanged += (_, _) =>
+        {
+            edited.WakeWordThreshold = Math.Round(0.9 - (sensitivity.Value - 1) / 10, 1);
+            ShowSensitivity();
+            Changed(needsRestart: true);
+        };
+        var sensitivityRow = new StackPanel { Orientation = Orientation.Horizontal };
+        sensitivityRow.Children.Add(sensitivity);
+        sensitivityRow.Children.Add(sensitivityText);
+        panel.Children.Add(Labeled("Sensitivity", sensitivityRow));
+        panel.Children.Add(Hint("If it doesn't react when you say the phrase, move this to the right; if it wakes up on its own, move it left. " +
+                                "An accent or a far-away microphone usually needs a notch or two more."));
         panel.Children.Add(Hint("Off unless you turn it on. With it on the microphone stays open, so Windows shows its microphone icon, and the " +
                                 "phrase is listened for on this computer: no sound is saved or sent anywhere. Say the phrase, then your question; " +
                                 "it stops recording when you stop talking. It doesn't listen while a game runs, while the PC is locked, or while " +

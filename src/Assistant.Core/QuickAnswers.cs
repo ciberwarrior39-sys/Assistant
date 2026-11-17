@@ -225,7 +225,7 @@ public static partial class QuickAnswers
     [GeneratedRegex(@"^(what('s| is) (today's date|the date( today)?|today)|what day is (it|today)( today)?|what's the day today|today's date|date)$")]
     private static partial Regex Date();
 
-    [GeneratedRegex(@"^(set (a |an )?timer|start (a |an )?timer|timer|remind me)( for| in)? (?<amount>\d+(\.\d+)?) ?(?<unit>seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)( to (?<label>.{1,60}))?$")]
+    [GeneratedRegex(@"^(set (a |an |the |my )?timer|start (a |an |the |my )?timer|timer|remind me)( for| in)? (?<amount>\d+(\.\d+)?) ?(?<unit>seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)( to (?<label>.{1,60}))?$")]
     private static partial Regex TimerStart();
 
     [GeneratedRegex(@"^(cancel|stop|clear|delete)( the| my| all| all the| all my)? (timers?|reminders?)$")]

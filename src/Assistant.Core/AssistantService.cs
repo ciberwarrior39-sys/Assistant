@@ -672,8 +672,22 @@ public sealed partial class AssistantService
             }
         }
 
+        // Buttons for the calendar and the inbox (from cloud chat): answered here, like the questions.
+        if (intent is CheckMail mailButton && Inbox is not null)
+        {
+            MarkPrivate("mail");
+            return new AssistantReply(await MailAnswers.AnswerAsync(new MailAsk(mailButton.From, Explicit: true), Inbox, DateTime.Now, ct), [], 0, "local") { Route = "mail" };
+        }
+        if (intent is CheckCalendar calendarButton && Agenda is not null)
+        {
+            MarkPrivate("calendar");
+            return new AssistantReply(await CalendarAnswers.AnswerAsync(CalendarAnswers.ForButton(calendarButton.Day, DateTime.Now), Agenda, DateTime.Now, ct), [], 0, "local")
+                { Route = "calendar" };
+        }
+
         ActionReply? done = Actions is null ? null : await Actions.RunAsync(intent, ct);
-        return new AssistantReply(done?.Text ?? "I couldn't do that anymore.", done?.Files ?? [], 0, "local")
+        string nothing = intent is OpenTarget open ? $"I couldn't find \"{open.Name}\" on this PC." : "I couldn't do that anymore.";
+        return new AssistantReply(done?.Text ?? nothing, done?.Files ?? [], 0, "local")
         {
             Options = done?.Options ?? [],
         };

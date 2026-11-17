@@ -29,7 +29,7 @@
        The cryptography package is named to lift MimeKit's older copy, which also has known flaws. -->
   <ItemGroup>
     <PackageReference Include="MailKit" Version="4.16.0" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.12" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
 
   <!-- Setup (build step 10): cloud keys encrypted with Windows DPAPI, and Windows Search as the file-search

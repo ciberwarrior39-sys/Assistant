@@ -8,6 +8,9 @@ namespace Assistant.Core.Agenda;
 /// <summary>What was asked about the calendar: the days from From up to To, or just the next thing (Next).</summary>
 public sealed record CalendarAsk(DateTime From, DateTime To, string Label, bool Next = false);
 
+/// <summary>A button for "what's on my calendar", offered by cloud chat. Day: today, tomorrow, this week, next week, or next.</summary>
+public sealed record CheckCalendar(string Day = "today") : ActionIntent;
+
 /// <summary>Where the calendars come from: the app fetches the user's private iCal links.</summary>
 public interface ICalendarSource
 {
@@ -45,6 +48,9 @@ public static partial class CalendarAnswers
         new($@"^what(?:'s|’s|\s+is)\s+on\s+(?:the\s+)?(?:calendar|schedule|agenda)(?:\s+(?:for\s+)?{Day})?$", Options),
         new($@"^what\s+do\s+i\s+have\s+(?:on\s+(?:my\s+)?(?:calendar|schedule|agenda)\s+)?(?:for\s+)?{Day}(?:\s+on\s+(?:my\s+)?(?:calendar|schedule|agenda))?$", Options),
         new($@"^what\s+do\s+i\s+have\s+on\s+(?:my\s+)?(?:calendar|schedule|agenda)$", Options),
+        new($@"^(?:is\s+there\s+|do\s+i\s+have\s+)?any(?:thing)?\s+(?:on|in)\s+(?:my\s+|the\s+)?(?:calendar|schedule|agenda)(?:\s+(?:for\s+)?{Day})?$", Options),
+        new($@"^what(?:'s|’s|\s+is)\s+in\s+(?:my\s+|the\s+)?(?:calendar|schedule|agenda)(?:\s+(?:for\s+)?{Day})?$", Options),
+        new($@"^(?:какво\s+има|има\s+ли\s+нещо)\s+(?:в|на)\s+(?:календара|програмата)(?:\s+ми)?(?:\s+(?:за\s+)?{DayBg})?$", Options),
         new($@"^(?:do\s+i\s+have\s+)?any(?:thing)?\s+(?:{Thing}\s+)?(?:on\s+(?:my\s+)?(?:calendar|schedule)\s+)?(?:for\s+)?{Day}$", Options),
         new($@"^(?:am\s+i|are\s+we)\s+(?:free|busy)\s+{Day}$", Options),
         new($@"^(?:какво\s+имам|какво\s+има|имам\s+ли\s+(?:нещо|срещи|ангажименти))\s+(?:(?:в|на|по)\s+{ThingBg}\s+(?:ми\s+)?)?{DayBg}(?:\s+(?:в|на|по)\s+{ThingBg}(?:\s+ми)?)?$", Options),
@@ -52,6 +58,10 @@ public static partial class CalendarAnswers
         new($@"^(?:какви|имам\s+ли)\s+(?:срещи|събития|ангажименти)\s+(?:имам\s+)?{DayBg}$", Options),
         new($@"^свобод(?:ен|на)\s+ли\s+съм\s+{DayBg}$", Options),
     ];
+
+    /// <summary>The days a button means ("today", "tomorrow", "this week", "next week", "next").</summary>
+    public static CalendarAsk ForButton(string day, DateTime now) =>
+        day.Trim().ToLowerInvariant() == "next" ? new CalendarAsk(now, now.Date.AddDays(60), "next", Next: true) : Range(day.Trim().ToLowerInvariant(), now);
 
     public static CalendarAsk? Parse(string message, DateTime now)
     {
@@ -103,6 +113,16 @@ public static partial class CalendarAnswers
         try
         {
             events = await source.BetweenAsync(ask.From, ask.To, ct);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is { } status)
+        {
+            // The server answered, but not with a calendar. The status says why; the link itself is never logged.
+            DiagnosticLog.Info($"Calendar couldn't be fetched (the server answered {(int)status})");
+            return status == System.Net.HttpStatusCode.UnsupportedMediaType
+                ? "That link opens a web page, not a calendar file. In Google Calendar, use \"Secret address in iCal format\" " +
+                  "(Settings > your calendar > Integrate calendar); it ends in basic.ics."
+                : $"Google didn't accept that calendar link (error {(int)status}). Use \"Secret address in iCal format\", not the " +
+                  "public address: Google Calendar > Settings > your calendar > Integrate calendar. It ends in private-…/basic.ics.";
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
         {
@@ -172,7 +192,11 @@ public sealed class IcsCalendarSource(HttpClient http, Func<IReadOnlyList<string
         {
             if (!kept.TryGetValue(link, out var have) || DateTime.UtcNow - have.At > KeepFor)
             {
-                have = (DateTime.UtcNow, await http.GetStringAsync(link, ct));
+                string text = await http.GetStringAsync(link, ct);
+                // A sign-in page or the calendar's web page comes back as HTML, not as a calendar.
+                if (!text.Contains("BEGIN:VCALENDAR", StringComparison.OrdinalIgnoreCase))
+                    throw new HttpRequestException("Not a calendar file", null, System.Net.HttpStatusCode.UnsupportedMediaType);
+                have = (DateTime.UtcNow, text);
                 kept[link] = have;
             }
             all.AddRange(IcsCalendar.Between(have.Ics, from, to));

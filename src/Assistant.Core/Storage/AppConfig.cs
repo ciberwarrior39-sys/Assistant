@@ -123,9 +123,10 @@ public sealed class AppConfig
     // spoken question without the keys. Heard on this computer only; closed during games, a locked PC and calls.
     public bool WakeWordEnabled { get; set; }
 
-    // How sure the wake word has to be, 0.2 to 0.9. Lower hears a quiet or accented phrase more easily and wakes by
+    // How sure the wake word has to be, 0.2 to 0.9 (Settings > Voice > Sensitivity). 0.4 rather than openWakeWord's 0.5:
+    // in testing a real "Hey Jarvis" with a Bulgarian accent scored 0.42 to 0.44, and background talk under 0.35. Lower hears a quiet or accented phrase more easily and wakes by
     // mistake more often.
-    public double WakeWordThreshold { get; set; } = 0.5;
+    public double WakeWordThreshold { get; set; } = 0.4;
 
     // Screensaver: the character bounces around the screen a few minutes before Windows turns the screen off
     // (Settings > Power > "Turn off my screen after"). If that is set to never, it starts after the fallback minutes.

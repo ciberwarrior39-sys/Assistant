@@ -408,10 +408,16 @@ static class Program
             Check("Bulgarian: \"всеки ден в 8 …\"", RoutineAnswers.TryAnswer("всеки ден в 8:30 кажи ми какво имам днес", routines, seven) is not null
                   && routines.All()[^1] is { Hour: 8, Minute: 30, Prompt: "какво имам днес" }, routines.All()[^1].ToString());
 
+            Check("cloud chat's mail button is answered from the inbox",
+                  ActionCatalog.FromCall(new ToolCall("check_mail", JsonDocument.Parse("{}").RootElement.Clone())) is CheckMail { From: "" });
+            Check("cloud chat's calendar button", ActionCatalog.FromCall(new ToolCall("check_calendar", JsonDocument.Parse("""{"when":"tomorrow"}""").RootElement.Clone())) is CheckCalendar { Day: "tomorrow" });
+
             // Through the whole assistant: answered here, and none of it in later cloud chat.
             AssistantService assistant = Build("normal", Path.Combine(root, "1"), Path.Combine(cases, "memory"));
             AssistantReply reply = await assistant.SendAsync("did Ivan reply?", CancellationToken.None);
             Check("mail is answered by the app", reply.Route == "mail" && reply.Text.Contains("Re: Project") && reply.Source == "local", $"{reply.Route}: {reply.Text}");
+            AssistantReply pressed = await assistant.RunActionAsync(new CheckMail(), CancellationToken.None);
+            Check("pressing the mail button lists the inbox", pressed.Route == "mail" && pressed.Text.Contains("Re: Project"), pressed.Text);
             reply = await assistant.SendAsync("what's on my calendar today?", CancellationToken.None);
             Check("so is the calendar", reply.Route == "calendar" && reply.Source == "local", reply.Route);
             FakeCloud.LastRequest = "";

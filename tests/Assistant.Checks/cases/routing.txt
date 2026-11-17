@@ -282,6 +282,9 @@ guide | where do I click to change the font?
 # Stand-ins: a made-up calendar and inbox. Private like notes: never cloud chat, in any setup.
 @ normal
 calendar | what's on my calendar today?
+calendar | Anything on my calendar?
+calendar | What's in my calendar?
+calendar | има ли нещо в календара ми?
 calendar | what do I have tomorrow?
 calendar | when is my next meeting?
 calendar | am I free on Friday?
@@ -291,12 +294,16 @@ mail | any new emails?
 mail | check my email
 mail | did Ivan reply?
 mail | any emails from the bank?
+mail | what's in my email?
+mail | watching my email
 mail | имам ли нова поща?
 mail | писа ли ми Иван?
 routine | every morning at 8 tell me what's on my calendar today
 routine | every weekday at 9: any new emails?
 routine | my routines
 routine | всеки ден в 8 кажи ми какво имам днес
+
+quick_answer | Set the timer for 5 seconds.
 
 @ game
 calendar | what's on my calendar today?

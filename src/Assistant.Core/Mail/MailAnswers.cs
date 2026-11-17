@@ -16,6 +16,9 @@ public sealed record MailLine(string From, string Subject, DateTime When);
 /// <summary>What was found: the lines (newest first) and how many there are in all.</summary>
 public sealed record MailFound(IReadOnlyList<MailLine> Lines, int Total);
 
+/// <summary>A button for "check my email", offered by cloud chat: answered like "any new emails?" or "emails from …".</summary>
+public sealed record CheckMail(string From = "") : Assistant.Core.Actions.ActionIntent;
+
 /// <summary>What was asked: unread mail, or mail from someone (From) in the last few days. Explicit: the message said "mail".</summary>
 public sealed record MailAsk(string From, bool Explicit);
 
@@ -46,6 +49,9 @@ public static partial class MailAnswers
         new($@"^(?:do\s+i\s+have\s+|have\s+i\s+got\s+|got\s+|is\s+there\s+|are\s+there\s+)?(?:any\s+)?(?:new|unread)\s+{Mail}$", Options),
         new($@"^(?:check|show|read|open\s+up)\s+(?:me\s+)?(?:my\s+|the\s+)(?:new\s+|unread\s+)?{Mail}$", Options),
         new($@"^(?:any|my)\s+{Mail}$|^what(?:'s|’s|\s+is)\s+(?:new\s+)?in\s+my\s+(?:inbox|e-?mail|mail)$", Options),
+        // Short and ending in "my email": what's in it, even when speech recognition misheard the start
+        // ("watching my email" for "what's in my email"). Nothing here can send or delete, so a wrong guess costs nothing.
+        new($@"^(?:[\p{{L}}']+\s+){{0,2}}(?:in\s+|on\s+|at\s+)?my\s+(?:e-?mails?|mails?|inbox)$", Options),
         new(@"^(?:имам\s+ли\s+)?(?:нов[аи]\s+|непрочетен[аи]\s+)(?:поща|писма|имейли|мейли|съобщения)$", Options),
         new(@"^(?:провери|покажи|виж)\s+(?:ми\s+)?(?:пощата|имейлите|мейлите|писмата)(?:\s+ми)?$", Options),
     ];
@@ -95,9 +101,11 @@ public static partial class MailAnswers
         {
             found = ask.From.Length == 0 ? await mailbox.UnreadAsync(ct) : await mailbox.FromAsync(ask.From, Days, ct);
         }
-        catch (AuthenticationException)
+        catch (AuthenticationException ex)
         {
-            DiagnosticLog.Info("Mail: the server refused the sign-in");
+            // The server's own reason ("Invalid credentials", "Application-specific password required") tells a
+            // normal password from a mistyped app password. It names neither the address nor the password.
+            DiagnosticLog.Info($"Mail: the server refused the sign-in ({DiagnosticLog.WithoutPaths(ex.Message)})");
             return "The mail server refused the sign-in. It needs an app password, not your normal one (for Gmail: Google Account > " +
                    "Security > 2-Step Verification > App passwords). Check it in Settings > Calendar and mail.";
         }
@@ -172,8 +180,11 @@ public sealed class ImapMailbox(Func<(string Address, string Password, string Se
         limit.CancelAfter(Limit);
         using var client = new ImapClient { Timeout = (int)Limit.TotalMilliseconds };
         await client.ConnectAsync(Host(address, server), 993, SecureSocketOptions.SslOnConnect, limit.Token);
-        await client.AuthenticateAsync(address.Trim(), password, limit.Token);
-        IMailFolder inbox = client.Inbox;
+        // Google shows app passwords in groups of four, and copying them can bring along spaces of any kind
+        // (including non-breaking ones). None of them are part of the password.
+        string clean = new(password.Where(letter => !char.IsWhiteSpace(letter)).ToArray());
+        await client.AuthenticateAsync(address.Trim(), clean, limit.Token);
+        IMailFolder inbox = client.Inbox ?? throw new ImapProtocolException("The server didn't offer an inbox.");
         await inbox.OpenAsync(FolderAccess.ReadOnly, limit.Token); // read-only: nothing is marked as read
         IList<UniqueId> ids = await inbox.SearchAsync(query, limit.Token);
         var newest = ids.OrderByDescending(id => id.Id).Take(Shown).ToList();

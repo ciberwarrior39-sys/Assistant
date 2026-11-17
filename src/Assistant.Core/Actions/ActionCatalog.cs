@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Assistant.Core.Agenda;
 using Assistant.Core.Guide;
+using Assistant.Core.Mail;
 using Assistant.Core.Llm;
 
 namespace Assistant.Core.Actions;
@@ -72,6 +74,14 @@ public static class ActionCatalog
                           "For \"where is…\", \"I can't find…\", \"point at…\" about something in an app. Never for opening the app.",
             Schema(["what"], Text("what", "The control's name or what it does, in a few words: bold, sum, save as, font size")),
             arguments => Words(arguments, "what") is { } what ? new GuideShow(what) : null),
+
+        new("check_mail", "Look in the user's email inbox: unread messages, or messages from someone. Use this, not open, for anything about their email.",
+            Schema([], Text("from", "Only messages from this person or company, when the user named one")),
+            arguments => new CheckMail(Words(arguments, "from") ?? "")),
+
+        new("check_calendar", "Look at the user's calendar: what's on a day, or the next event. Use this, not open, for their schedule.",
+            Schema(["when"], Choice("when", "Which days", "today", "tomorrow", "this week", "next week", "next")),
+            arguments => Word(arguments, "when") is { Length: > 0 } when ? new CheckCalendar(when) : null),
 
         new("lock_pc", "Lock the PC.", Schema([]), _ => new LockPc()),
 
@@ -185,6 +195,10 @@ public static class ActionCatalog
         MediaCommand { Op: MediaOp.Previous } => "Previous track",
         OpenSettings settings => $"Open {settings.Page} settings",
         GuideShow show => $"Show me where \"{show.What}\" is",
+        CheckMail { From.Length: > 0 } mail => $"Check emails from {mail.From}",
+        CheckMail => "Check my email",
+        CheckCalendar { Day: "next" } => "Show my next event",
+        CheckCalendar calendar => $"Show my calendar for {calendar.Day}",
         LockPc => "Lock the PC",
         PowerOff { Restart: true } => "Restart the PC…",
         PowerOff => "Shut down the PC…",
