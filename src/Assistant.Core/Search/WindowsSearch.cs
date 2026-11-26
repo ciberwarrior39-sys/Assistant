@@ -87,12 +87,12 @@ public sealed class WindowsSearch : IFileSearch
     {
         var sql = new StringBuilder(
             $"SELECT TOP {CandidateLimit} System.ItemPathDisplay, System.DateModified FROM SystemIndex " +
-            "WHERE SCOPE='file:' AND System.ItemType <> 'Directory'");
+            $"WHERE SCOPE='file:' AND System.ItemType {(query.Folders ? "=" : "<>")} 'Directory'");
 
         foreach (string keyword in query.Keywords)
             sql.Append($" AND System.FileName LIKE '%{Clean(keyword)}%'");
 
-        if (query.Extensions.Count > 0)
+        if (query.Extensions.Count > 0 && !query.Folders)
             sql.Append(" AND System.FileExtension IN (" + string.Join(",", query.Extensions.Select(ext => $"'.{Clean(ext)}'")) + ")");
 
         if (query.ModifiedAfter is { } after)

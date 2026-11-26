@@ -99,6 +99,12 @@ public sealed record CopyRequest(string What, string Where) : ActionIntent;
 /// <summary>From the buttons when several files matched: copy this one into that folder.</summary>
 public sealed record CopyFile(string Source, string Folder) : ActionIntent;
 
+/// <summary>
+/// A file from a list in the chat, asked for by words ("open the second one", "show it in the folder"). Programs and
+/// scripts are run only after a press of "Run it" (<see cref="Confirmed"/>).
+/// </summary>
+public sealed record OpenFoundFile(string Path, bool Reveal, bool Confirmed = false) : ActionIntent;
+
 /// <summary>Backups (the app's Backups class handles all of these).</summary>
 public abstract record BackupIntent : ActionIntent;
 

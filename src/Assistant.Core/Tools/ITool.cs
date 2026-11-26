@@ -33,4 +33,7 @@ public sealed record ToolOutcome(string TextForModel)
     /// which sends only the text read from the screen (shown to the user first), never the image.
     /// </summary>
     public string? ScreenQuestion { get; init; }
+
+    /// <summary>search_files: what it looked for, so "a folder, perhaps?" can look again for folders.</summary>
+    public FileSearchQuery? Searched { get; init; }
 }

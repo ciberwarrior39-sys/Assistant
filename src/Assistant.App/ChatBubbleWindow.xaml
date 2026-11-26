@@ -73,6 +73,28 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- SmallButton's shape for a file or folder choice: under the mouse it fills in with its own colour. -->
+        <ControlTemplate x:Key="KindChoiceTemplate" TargetType="Button">
+            <Border x:Name="Box" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource ControlCorners}"
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                <ContentPresenter x:Name="Words" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Box" Property="Background" Value="{Binding BorderBrush, RelativeSource={RelativeSource TemplatedParent}}"/>
+                    <Setter TargetName="Words" Property="TextElement.Foreground" Value="White"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter TargetName="Box" Property="Opacity" Value="0.8"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter TargetName="Box" Property="Background" Value="Transparent"/>
+                    <Setter Property="Opacity" Value="0.55"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
         <Style x:Key="SmallGhost" TargetType="Button" BasedOn="{StaticResource Ghost}">
             <Setter Property="Padding" Value="8,2"/>
             <Setter Property="MinHeight" Value="25"/>
@@ -264,8 +286,23 @@
                                             </ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Button Style="{StaticResource SmallButton}" Content="{Binding Label}" IsEnabled="{Binding IsEnabled}"
-                                                            Tag="{Binding}" Click="OnChoice" Margin="0,0,6,6"/>
+                                                    <Button Content="{Binding Label}" IsEnabled="{Binding IsEnabled}"
+                                                            Tag="{Binding}" Click="OnChoice" Margin="0,0,6,6">
+                                                        <Button.Style>
+                                                            <!-- A file or folder to pick: the colour of its kind, like the file cards. -->
+                                                            <Style TargetType="Button" BasedOn="{StaticResource SmallButton}">
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding HasKind}" Value="True">
+                                                                        <Setter Property="Background" Value="{Binding KindTint}"/>
+                                                                        <Setter Property="BorderBrush" Value="{Binding KindBrush}"/>
+                                                                        <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+                                                                        <Setter Property="ToolTip" Value="{Binding KindName}"/>
+                                                                        <Setter Property="Template" Value="{StaticResource KindChoiceTemplate}"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Button.Style>
+                                                    </Button>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>

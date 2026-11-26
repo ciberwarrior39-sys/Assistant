@@ -167,15 +167,16 @@ public sealed class EverythingSearch : IFileSearch
     // Keywords and extensions arrive already cleaned by the tool, so no user text reaches Everything's syntax raw.
     static string BuildQuery(FileSearchQuery query)
     {
-        var parts = new List<string> { "file:" };
+        var parts = new List<string> { query.Folders ? "folder:" : "file:" };
         parts.AddRange(query.Keywords.Select(keyword => $"\"{keyword}\""));
 
         // A backslash makes Everything match against the full path; "!" excludes.
         parts.AddRange(ExcludedPaths.Select(folder => $"!\"{folder}\""));
 
-        parts.Add(query.Extensions.Count > 0
-            ? "ext:" + string.Join(';', query.Extensions)
-            : "!ext:" + NoiseExtensions);
+        if (!query.Folders)
+            parts.Add(query.Extensions.Count > 0
+                ? "ext:" + string.Join(';', query.Extensions)
+                : "!ext:" + NoiseExtensions);
 
         return string.Join(' ', parts);
     }

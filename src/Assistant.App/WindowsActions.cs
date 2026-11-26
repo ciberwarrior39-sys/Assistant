@@ -12,6 +12,7 @@ using NAudio.CoreAudioApi;
 using Assistant.Core.Actions;
 using Assistant.Core.Diagnostics;
 using Assistant.Core.Search;
+using Assistant.Core.Understanding;
 
 namespace Assistant.App;
 
@@ -80,6 +81,7 @@ public sealed partial class WindowsActions(
                 BackupIntent backup => backups.Handle(backup),
                 CopyRequest copy => await CopyAsync(copy, ct),
                 CopyFile file => CopyInto(file.Source, file.Folder),
+                OpenFoundFile found => OpenFound(found),
                 CloseApp app => await CheckUp.CloseAsync(app, ct),
                 StartupApp startup => CheckUp.SetStartup(startup),
                 CleanUp { Confirmed: false } cleanUp => await CheckUp.AskToCleanAsync(cleanUp.Kind, ct),
@@ -201,6 +203,37 @@ public sealed partial class WindowsActions(
             }
         }
         return null;
+    }
+
+    // ---- A file from a list in the chat ("open the second one", "show it in the folder") --------------------------
+
+    static ActionReply OpenFound(OpenFoundFile found)
+    {
+        bool folder = Directory.Exists(found.Path);
+        string name = folder ? new DirectoryInfo(found.Path).Name : Path.GetFileName(found.Path);
+        if (!folder && !File.Exists(found.Path))
+            return new ActionReply($"{name} isn't there anymore. It may have been moved, renamed or deleted.");
+
+        if (folder)
+        {
+            Shell.OpenFolder(found.Path);
+            return new ActionReply($"Opened {name}.");
+        }
+        if (found.Reveal)
+        {
+            Shell.RevealFile(found.Path);
+            return new ActionReply($"Here's {name} in its folder.");
+        }
+        // Opening a program or script runs it: only after a press of "Run it", never from words alone.
+        if (FileFollowUps.Runs(found.Path) && !found.Confirmed)
+            return new ActionReply($"{name} is a program or script, so opening it runs it. Run it?")
+            {
+                Options = [new ActionOption("Run it", found with { Confirmed = true }), new ActionOption("Cancel", null)],
+            };
+
+        Shell.OpenFile(found.Path);
+        DiagnosticLog.Info("Opened a file from the chat by words");
+        return new ActionReply($"Opening {name}.");
     }
 
     // ---- Copying a file somewhere ("make a backup of my CV on the desktop") ---------------------------------------

@@ -242,6 +242,9 @@ public partial class App : Application
         var assistant = new AssistantService(localModel, tools, cloud, memory, reminders)
         {
             LocalModelEnabled = profile.LocalModel,
+            // With a graphics card (Full) every message the rules miss is reread for follow-ups; without one, only those
+            // that look like follow-ups, since the local model is slow on the processor.
+            RewriteEveryMiss = profile.Id == PerformanceProfile.Full.Id,
             Organizer = organizer,
             Conversations = new ConversationLog(data.ConversationsFolder),
             ShareAboutMeWithCloud = config.CloudKnowsAboutMe,
@@ -358,7 +361,9 @@ public partial class App : Application
         var calendarHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         assistant.Agenda = new Assistant.Core.Agenda.IcsCalendarSource(calendarHttp,
             () => config.CalendarLinks.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-        assistant.Inbox = new Assistant.Core.Mail.ImapMailbox(() => (config.MailAddress, config.MailPassword, config.MailServer));
+        assistant.Inbox = new Assistant.Core.Mail.ImapMailbox(() => config.MailAccounts
+            .Select(account => new Assistant.Core.Mail.MailAccountSettings(account.Name, account.Address, account.Password, account.Server))
+            .ToList());
         var routines = new RoutineStore(Path.Combine(data.Root, "routines.json"));
         assistant.Routines = routines;
         var routineTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };

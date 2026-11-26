@@ -59,21 +59,32 @@ public static partial class IntentRouter
         var keywords = new List<string>();
         foreach (string word in words)
         {
+            if (SearchFilesTool.FolderWords.Contains(word)) continue; // "the daskalo folder": a folder, not a name word
             if (SearchFilesTool.KindOf(word) is { } kind) extensions.AddRange(kind); // "prezentation" counts too
             else if (!SearchFilesTool.RequestWords.Contains(word) && !Filler.Contains(word)) keywords.Add(word);
         }
         string period = Modified(rest);
+        bool folder = words.Any(word => SearchFilesTool.FolderWords.Contains(word));
 
         bool fileSignal = words.Any(word => Mine.Contains(word))
-                          || extensions.Count > 0 || period != "any" || words.Any(word => word is "file" or "files" or "folder" or "файл" or "файла" or "папка");
+                          || extensions.Count > 0 || period != "any" || folder || words.Any(word => word is "file" or "files" or "файл" or "файла");
         if (!fileSignal || (keywords.Count == 0 && extensions.Count == 0 && period == "any")) return null;
+        // "show me my most recent email" is about the inbox, not a file called "email" ("find my email.docx" still is).
+        if (extensions.Count == 0 && words.Any(word => MailWords.Contains(word))) return null;
         if (keywords.Count > 4) return null; // a sentence, not a file name
 
         // Each word separately: the file's name may have them in any order, with _ or - between them.
-        return Call("search_files", new { keywords, extensions, modified = period });
+        // "file" said: files only; neither said ("find daskalo"): folders with the name are shown too.
+        string searchKind = folder ? "folder" : words.Any(word => word is "file" or "files" or "файл" or "файла" or "файлове") ? "file" : "any";
+        return Call("search_files", new { keywords, extensions, kind = searchKind, modified = period });
     }
 
     // "my" in English and Bulgarian: the clearest sign the request is about the user's own file.
+    static readonly HashSet<string> MailWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "mail", "mails", "email", "emails", "e-mail", "e-mails", "inbox", "поща", "пощата", "имейл", "имейли", "имейла", "мейл", "мейли", "писмо", "писма",
+    };
+
     static readonly HashSet<string> Mine = new(StringComparer.OrdinalIgnoreCase) { "my", "mine", "ми", "моя", "моят", "моите", "моето", "мой" };
 
     static readonly HashSet<string> Filler = new(StringComparer.OrdinalIgnoreCase)

@@ -13,8 +13,10 @@ using Assistant.Core.Llm;
 using Assistant.Core.Mail;
 using Assistant.Core.Memory;
 using Assistant.Core.Organizer;
+using Assistant.Core.Search;
 using Assistant.Core.Storage;
 using Assistant.Core.Tools;
+using Assistant.Core.Understanding;
 using Assistant.Core.Voice;
 
 namespace Assistant.Checks;
@@ -114,6 +116,10 @@ static class Program
         (int storagePassed, int storageFailed) = StorageChecks(Path.Combine(temp, "storage"), showAll);
         passed += storagePassed;
         failed += storageFailed;
+
+        (int followPassed, int followFailed) = await FollowUpChecks(Path.Combine(temp, "followups"), cases, showAll);
+        passed += followPassed;
+        failed += followFailed;
 
         (int dayPassed, int dayFailed) = await DayChecks(Path.Combine(temp, "day"), cases, showAll);
         passed += dayPassed;
@@ -333,6 +339,257 @@ static class Program
     }
 
     /// <summary>
+    /// Follow-ups: a message the rules miss is reread by the local model (a stand-in here) with the last few exchanges,
+    /// rewritten into a complete request and routed again. Checked: the rewording reaches the right part of the app,
+    /// plain chat is untouched, an unknown feature or a rewording no rule knows changes nothing, the cloud only ever
+    /// gets the user's own words, and without a local model (Lite, game mode) nothing is rewritten.
+    /// </summary>
+    static async Task<(int Passed, int Failed)> FollowUpChecks(string root, string cases, bool showAll)
+    {
+        int passed = 0, failed = 0;
+        void Check(string name, bool ok, string detail = "")
+        {
+            if (ok)
+            {
+                passed++;
+                if (showAll) Console.WriteLine($"ok    follow-ups: {name}");
+            }
+            else
+            {
+                failed++;
+                Console.WriteLine($"FAIL  follow-ups: {name} {detail}");
+            }
+        }
+
+        try
+        {
+            Check("JSON inside words is read", FollowUps.Read("Here you go: {\"request\": \"volume up\", \"feature\": \"action\"} done") is { Request: "volume up", Feature: "action" });
+            Check("an unknown feature is ignored", FollowUps.Read("""{"request": "x", "feature": "lasers"}""") is null);
+            Check("not JSON is ignored", FollowUps.Read("I think you mean the calendar") is null);
+            Check("short or pointing messages look like follow-ups",
+                  FollowUps.LooksLikeFollowUp("and tomorrow?") && FollowUps.LooksLikeFollowUp("open the second one please now")
+                  && FollowUps.LooksLikeFollowUp("а утре?") && !FollowUps.LooksLikeFollowUp("write a short poem about autumn leaves falling"));
+            var memory = new ConversationMemory();
+            var start = new DateTime(2026, 11, 26, 10, 0, 0);
+            memory.Add("what's on my calendar", "calendar", "Standup at 9", start);
+            Check("the conversation is kept for a while", memory.Recent(start.AddMinutes(5)).Count == 1);
+            Check("and forgotten after ten quiet minutes", memory.Recent(start.AddMinutes(11)).Count == 0);
+
+            string memoryFolder = Path.Combine(cases, "memory");
+            AssistantService assistant = Build("normal", Path.Combine(root, "1"), memoryFolder);
+            await assistant.SendAsync("what's on my calendar today?", CancellationToken.None);
+            AssistantReply reply = await assistant.SendAsync("and tomorrow?", CancellationToken.None);
+            Check("\"and tomorrow?\" after the calendar is the calendar for tomorrow",
+                  reply.Route == "followup>calendar" && reply.Text.Contains("tomorrow"), $"{reply.Route}: {reply.Text}");
+
+            reply = await assistant.SendAsync("what about yesterday?", CancellationToken.None);
+            Check("\"what about yesterday?\" after the calendar", reply.Route == "followup>calendar" && reply.Text.Contains("yesterday"), $"{reply.Route}: {reply.Text}");
+            FakeCloud.LastRequest = "";
+            reply = await assistant.SendAsync("and the year after?", CancellationToken.None);
+            Check("a calendar question no rule can answer says what can be asked, here",
+                  reply.Route == "followup>help" && reply.Text.Contains("calendar question") && FakeCloud.LastRequest.Length == 0, $"{reply.Route}: {reply.Text}");
+
+            Check("a bare name after a mail question, by code", FollowUps.Carry("Discord?", [new Turn("did Ivan reply", "mail", "…", DateTime.Now)])
+                  is { Request: "any emails from Discord", Feature: "mail" });
+            Check("…but not a real question or a thank-you",
+                  FollowUps.Carry("what is Discord?", [new Turn("did Ivan reply", "mail", "…", DateTime.Now)]) is null
+                  && FollowUps.Carry("thanks?", [new Turn("did Ivan reply", "mail", "…", DateTime.Now)]) is null
+                  && FollowUps.Carry("Discord?", [new Turn("tell me a joke", "cloud", "…", DateTime.Now)]) is null);
+
+            await assistant.SendAsync("did Ivan reply?", CancellationToken.None);
+            reply = await assistant.SendAsync("Discord?", CancellationToken.None);
+            Check("\"Discord?\" after a mail question looks in the mail", reply.Route == "followup>mail" && reply.Text.Contains("From Discord"), $"{reply.Route}: {reply.Text}");
+            reply = await assistant.SendAsync("from soft uni?", CancellationToken.None);
+            Check("so does \"from soft uni?\"", reply.Route == "followup>mail" && reply.Text.Contains("soft uni"), $"{reply.Route}: {reply.Text}");
+
+            AssistantService liteMail = Build("lite", Path.Combine(root, "4"), memoryFolder);
+            await liteMail.SendAsync("did Ivan reply?", CancellationToken.None);
+            reply = await liteMail.SendAsync("Discord?", CancellationToken.None);
+            Check("and in Lite too, with no model", reply.Route == "followup>mail", reply.Route);
+
+            await assistant.SendAsync("did Ivan reply?", CancellationToken.None);
+            reply = await assistant.SendAsync("and on my work email?", CancellationToken.None);
+            Check("\"and on my work email?\" keeps the person", reply.Route == "followup>mail" && reply.Text.Contains("Re: Project"), $"{reply.Route}: {reply.Text}");
+
+            reply = await assistant.SendAsync("start the countdown thing for five", CancellationToken.None);
+            Check("a new wording of a timer", reply.Route == "followup>quick_answer", reply.Route);
+
+            FakeCloud.LastRequest = "";
+            reply = await assistant.SendAsync("tell me a joke", CancellationToken.None);
+            Check("plain chat isn't rewritten", reply.Route == "cloud" && FakeCloud.LastRequest.Contains("tell me a joke"), reply.Route);
+            Check("nothing private from earlier went with it",
+                  !FakeCloud.LastRequest.Contains("Ivan") && !FakeCloud.LastRequest.Contains("Mila") && !FakeCloud.LastRequest.Contains("Re: Project"));
+
+            FakeCloud.LastRequest = "";
+            reply = await assistant.SendAsync("do the blorp", CancellationToken.None);
+            Check("a rewording no rule knows: the cloud gets the user's own words",
+                  reply.Route.StartsWith("cloud", StringComparison.Ordinal) && FakeCloud.LastRequest.Contains("do the blorp")
+                  && !FakeCloud.LastRequest.Contains("blorp the calendar"), reply.Route);
+            reply = await assistant.SendAsync("make something up", CancellationToken.None);
+            Check("a made-up feature changes nothing", reply.Route == "cloud", reply.Route);
+
+            // Follow-ups on a list of files, by code.
+            var now = DateTime.Now;
+            FileHit proba = new(@"C:\Users\Me\Desktop\daskalo\Proba.accdb", now.AddHours(-3));
+            FileHit cv = new(@"C:\Users\Me\Documents\CV.pdf", now.AddDays(-2));
+            FileHit notesFile = new(@"C:\Users\Me\Documents\notes.docx", now.AddDays(-9));
+            Turn one = new("find a file named Proba", "search_files", "Here's the file I found.", now) { Files = [proba] };
+            Turn three = new("find my documents", "search_files", "I found 3 files, newest first.", now) { Files = [proba, cv, notesFile] };
+            Turn chat = new("tell me a joke", "cloud", "…", now);
+            Check("\"open it.\" opens the only file found", FileFollowUps.Parse("open it.", [one]) is { File: { } a, Reveal: false } && a == proba);
+            Check("…and so do \"can you open it please?\", \"отвори го\" and \"можеш ли да го отвориш\"",
+                  FileFollowUps.Parse("can you open it please?", [one])?.File == proba && FileFollowUps.Parse("отвори го", [one])?.File == proba
+                  && FileFollowUps.Parse("можеш ли да го отвориш?", [one])?.File == proba);
+            Check("\"show it in the folder\" and \"where is it?\" show it in its folder",
+                  FileFollowUps.Parse("show it in the folder", [one]) is { Reveal: true } && FileFollowUps.Parse("where is it?", [one]) is { Reveal: true }
+                  && FileFollowUps.Parse("open the folder", [one]) is { Reveal: true } && FileFollowUps.Parse("покажи го в папката", [one]) is { Reveal: true });
+            Check("\"open the second one\", \"второто\" and \"open 3\" pick from the list",
+                  FileFollowUps.Parse("open the second one", [three])?.File == cv && FileFollowUps.Parse("второто", [three])?.File == cv
+                  && FileFollowUps.Parse("open 3", [three])?.File == notesFile && FileFollowUps.Parse("the last one", [three])?.File == notesFile
+                  && FileFollowUps.Parse("отвори първия", [three])?.File == proba);
+            Check("a name or type from the list picks that file", FileFollowUps.Parse("open the pdf", [three])?.File == cv
+                  && FileFollowUps.Parse("open proba", [three])?.File == proba);
+            Check("\"open it\" with several files asks which one", FileFollowUps.Parse("open it", [three]) is { File: null, Choices.Count: 3 });
+            Check("past the end of the list says so", FileFollowUps.Parse("open the fifth one", [three]) is { File: null, Problem: not null });
+            Check("not about the list: left to the other rules",
+                  FileFollowUps.Parse("open spotify", [three]) is null && FileFollowUps.Parse("where is the save button", [three]) is null
+                  && FileFollowUps.Parse("open it", [chat]) is null && FileFollowUps.Parse("open it", [one, chat]) is null
+                  && FileFollowUps.Parse("the second one", [three, chat]) is null && FileFollowUps.Parse("open it", []) is null);
+            Check("\"the second one\" still works one answer later when it's clear", FileFollowUps.Parse("open the second one", [three, chat])?.File == cv);
+            Check("after opening one, \"it\" is that one",
+                  FileFollowUps.Parse("show it in the folder", [three, new Turn("open the second one", "followup>open_file", "Opening CV.pdf.", now) { Files = [proba, cv, notesFile], Focus = cv }])?.File == cv);
+            Check("programs and scripts are never opened by words alone", FileFollowUps.Runs(@"C:\x\setup.exe") && FileFollowUps.Runs(@"C:\x\run.PS1") && !FileFollowUps.Runs(@"C:\x\CV.pdf"));
+
+            var opener = new FakeActions();
+            AssistantService withFiles = Build("normal", Path.Combine(root, "5"), memoryFolder, opener);
+            withFiles.Conversation.Add("can you find a file named Proba?", "search_files", "Here's the file I found.", DateTime.Now, [proba]);
+            FakeCloud.LastRequest = "";
+            reply = await withFiles.SendAsync("open it.", CancellationToken.None);
+            Check("\"open it.\" after a file search opens it, here", reply.Route == "followup>open_file" && opener.Last is OpenFoundFile { Reveal: false } o && o.Path == proba.FullPath
+                  && FakeCloud.LastRequest.Length == 0, $"{reply.Route}: {reply.Text}");
+            withFiles.Conversation.Add("find my documents", "search_files", "I found 3 files, newest first.", DateTime.Now, [proba, cv, notesFile]);
+            reply = await withFiles.SendAsync("open it", CancellationToken.None);
+            Check("with several, a button for each", reply.Options.Count == 4 && reply.Options[1].Intent is OpenFoundFile { Path: var second } && second == cv.FullPath,
+                  $"{reply.Options.Count} buttons: {reply.Text}");
+            reply = await withFiles.SendAsync("the second one", CancellationToken.None);
+            Check("…or say which", opener.Last is OpenFoundFile { Path: var said } && said == cv.FullPath, reply.Text);
+
+            // Folders: "find the daskalo folder" looks for folders; a name no file has is tried as a folder too.
+            RoutedCall? routed = IntentRouter.Route("can you find the folder named daskalo?", null);
+            Check("\"find the folder named daskalo\" asks for a folder called daskalo",
+                  routed is { Tool: "search_files" } && routed.Arguments.GetProperty("kind").GetString() == "folder"
+                  && routed.Arguments.GetProperty("keywords").GetArrayLength() == 1 && routed.Arguments.GetProperty("keywords")[0].GetString() == "daskalo",
+                  routed?.Arguments.ToString() ?? "not routed");
+            Check("…and so does \"намери папката daskalo\"",
+                  IntentRouter.Route("намери папката daskalo", null) is { } bg && bg.Arguments.GetProperty("kind").GetString() == "folder"
+                  && bg.Arguments.GetProperty("keywords").GetArrayLength() == 1);
+            var folderIndex = new FolderSearchStandIn();
+            var searchTool = new SearchFilesTool(folderIndex);
+            ToolOutcome asked = await searchTool.ExecuteAsync(JsonSerializer.SerializeToElement(new { keywords = new[] { "daskalo" }, kind = "folder" }), CancellationToken.None);
+            Check("a folder search finds the folder", asked.Files.Count == 1 && folderIndex.Asked[0].Folders && asked.Reply?.Contains("folder") == true, asked.Reply ?? "");
+            folderIndex.Asked.Clear();
+            ToolOutcome guessed = await searchTool.ExecuteAsync(JsonSerializer.SerializeToElement(new { keywords = new[] { "daskalo" } }), CancellationToken.None);
+            Check("a name no file has is found as a folder", guessed.Files.Count == 1 && !folderIndex.Asked[0].Folders && folderIndex.Asked[1].Folders
+                  && guessed.Reply?.StartsWith("No file has", StringComparison.Ordinal) == true, guessed.Reply ?? "");
+            ToolOutcome typed = await searchTool.ExecuteAsync(JsonSerializer.SerializeToElement(new { keywords = new[] { "daskalo" }, extensions = new[] { "pdf" } }), CancellationToken.None);
+            Check("…but not when a file type was asked for", typed.Files.Count == 0, typed.Reply ?? "");
+
+            // "Anything called daskalo?": the folder and the files with the name, the folder first.
+            var both = new FolderSearchStandIn { WithFiles = true };
+            ToolOutcome anything = await new SearchFilesTool(both).ExecuteAsync(JsonSerializer.SerializeToElement(new { keywords = new[] { "daskalo" } }), CancellationToken.None);
+            Check("\"anything called daskalo\" shows the folder next to the files",
+                  anything.Files.Count == 2 && anything.Files[0].FileName == "daskalo" && anything.Reply == "I found 1 folder and 1 file.", anything.Reply ?? "");
+            both.Asked.Clear();
+            ToolOutcome onlyFiles = await new SearchFilesTool(both).ExecuteAsync(JsonSerializer.SerializeToElement(new { keywords = new[] { "daskalo" }, kind = "file" }), CancellationToken.None);
+            Check("…but \"a file called daskalo\" only files", onlyFiles.Files.Count == 1 && both.Asked.Count == 1, onlyFiles.Reply ?? "");
+
+            // "A folder, perhaps?" right after a search: the same search, for folders.
+            var searched = new FileSearchQuery(["daskalo"], [], null, 10);
+            Turn search = new("is there anything on my pc called daskalo?", "local", "I found 2 files, newest first.", now) { Files = [proba], Search = searched };
+            Check("\"A folder, perhabs?\" looks again for folders", FileFollowUps.Again("A folder, perhabs?", [search]) is { Folders: true } f && f.Search == searched);
+            Check("…and so do \"what about folders?\" and \"а папка?\"; \"files?\" for files",
+                  FileFollowUps.Again("what about folders?", [search]) is { Folders: true } && FileFollowUps.Again("а папка?", [search]) is { Folders: true }
+                  && FileFollowUps.Again("files?", [search]) is { Folders: false });
+            Check("…but not without a search just before, or for other things",
+                  FileFollowUps.Again("a folder?", [search, chat]) is null && FileFollowUps.Again("a folder?", [one]) is null
+                  && FileFollowUps.Again("tell me a joke", [search]) is null && FileFollowUps.Again("not a folder", [search]) is null);
+            Check("the model can't send \"a folder, perhaps?\" to the calendar",
+                  !FollowUps.Plausible(new Rewrite("what's on my calendar tomorrow", "calendar"), "A folder, perhabs?", [search])
+                  && FollowUps.Plausible(new Rewrite("what's on my calendar tomorrow", "calendar"), "and tomorrow?", [new Turn("what's on today", "calendar", "…", now)])
+                  && FollowUps.Plausible(new Rewrite("any new emails", "mail"), "did Ivan reply?", [chat]));
+            AssistantService again = Build("normal", Path.Combine(root, "6"), memoryFolder);
+            again.Conversation.Add("is there anything on my pc called daskalo?", "local", "I found 2 files, newest first.", DateTime.Now, [proba], search: searched);
+            reply = await again.SendAsync("A folder, perhabs?", CancellationToken.None);
+            Check("\"A folder, perhabs?\" after a search searches again", reply.Route == "followup>search_files", $"{reply.Route}: {reply.Text}");
+
+            // "Which one is just a folder?": what each item is, read from the disk.
+            string disk = Path.Combine(root, "disk");
+            string plainFolder = Path.Combine(disk, "Desktop", "daskalo");
+            string projectFolder = Path.Combine(disk, "repos", "daskalo", "daskalo");
+            string solutionFolder = Path.Combine(disk, "repos", "daskalo");
+            Directory.CreateDirectory(plainFolder);
+            Directory.CreateDirectory(projectFolder);
+            File.WriteAllText(Path.Combine(plainFolder, "Proba.accdb"), "x");
+            File.WriteAllText(Path.Combine(projectFolder, "daskalo.csproj"), "<Project />");
+            File.WriteAllText(Path.Combine(projectFolder, "Program.cs"), "");
+            File.WriteAllText(Path.Combine(solutionFolder, "daskalo.sln"), "");
+            FileHit[] threeFolders = [new(plainFolder, now), new(projectFolder, now.AddDays(-200)), new(solutionFolder, now.AddDays(-200))];
+            Turn foldersFound = new("find the daskalo folder", "tool:search_files", "I found 3 folders, newest first.", now) { Files = threeFolders };
+            Check("\"which one is just a folder?\" is a question about the list",
+                  FileFollowUps.AboutList("Which one is just a folder?", [foldersFound]) is { Count: 3 }
+                  && FileFollowUps.AboutList("what's in them?", [foldersFound]) is not null && FileFollowUps.AboutList("кое е просто папка?", [foldersFound]) is not null
+                  && FileFollowUps.AsksForPlain("Which one is just a folder?"));
+            Check("…but not other questions, or one about a folder of the user's own",
+                  FileFollowUps.AboutList("what's the weather like?", [foldersFound]) is null
+                  && FileFollowUps.AboutList("what's in my downloads folder?", [foldersFound]) is null
+                  && FileFollowUps.AboutList("which one is just a folder?", [foldersFound, chat]) is null);
+            string described = FileDescriber.DescribeList(threeFolders, plainAsked: true);
+            Check("the plain folder, the C# project and the solution are told apart",
+                  described.StartsWith("Number 1 is just a plain folder:", StringComparison.Ordinal) && described.Contains("Proba.accdb")
+                  && described.Contains("a C# project (daskalo.csproj)") && described.Contains("a Visual Studio solution (daskalo.sln)"), described);
+            Check("the model can't turn it into \"where to click\"",
+                  !FollowUps.Plausible(new Rewrite("where is the folder button", "guide"), "Which one is just a folder?", [foldersFound]));
+            var askerActions = new FakeActions();
+            AssistantService asker = Build("normal", Path.Combine(root, "7"), memoryFolder, askerActions);
+            asker.Conversation.Add("find the daskalo folder", "tool:search_files", "I found 3 folders, newest first.", DateTime.Now, threeFolders);
+            reply = await asker.SendAsync("Which one is just a folder?", CancellationToken.None);
+            Check("asked in the chat, answered here", reply.Route == "followup>describe_files" && reply.Text.StartsWith("Number 1", StringComparison.Ordinal), $"{reply.Route}: {reply.Text}");
+            reply = await asker.SendAsync("Open the folder.", CancellationToken.None);
+            Check("…and \"open the folder\" next opens that one", askerActions.Last is OpenFoundFile { Path: var plainOpened } && plainOpened == plainFolder,
+                  $"{reply.Route}: {reply.Text}");
+
+            Check("\"the one that's just a folder\" after \"which one should I show?\"",
+                  FileFollowUps.Parse("The one that's just a folder.", [foldersFound with { PendingReveal = true }]) is { File: { } justFolder, Reveal: true } && justFolder.FullPath == plainFolder);
+            Check("\"open the project one\", \"open the solution\" and \"open the desktop one\" pick by what or where it is",
+                  FileFollowUps.Parse("open the project one", [foldersFound])?.File?.FullPath == projectFolder
+                  && FileFollowUps.Parse("open the solution", [foldersFound])?.File?.FullPath == solutionFolder
+                  && FileFollowUps.Parse("open the desktop one", [foldersFound])?.File?.FullPath == plainFolder);
+            Check("…but not by half a word somewhere in a path", FileFollowUps.Parse("open it with notepad", [foldersFound]) is null);
+            string label = FileDescriber.Label(threeFolders[0], threeFolders);
+            Check("buttons for items with the same name say where each one is",
+                  label.StartsWith("daskalo (", StringComparison.Ordinal) && label.Contains("Desktop"), label);
+
+            AssistantService lite = Build("lite", Path.Combine(root, "2"), memoryFolder);
+            await lite.SendAsync("what's on my calendar today?", CancellationToken.None);
+            reply = await lite.SendAsync("and tomorrow?", CancellationToken.None);
+            Check("without a local model nothing is rewritten", !reply.Route.StartsWith("followup", StringComparison.Ordinal), reply.Route);
+
+            AssistantService slow = Build("normal", Path.Combine(root, "3"), memoryFolder);
+            slow.RewriteEveryMiss = false;
+            reply = await slow.SendAsync("start the countdown thing for five minutes now please", CancellationToken.None);
+            Check("without a graphics card, only likely follow-ups are reread", reply.Route == "cloud", reply.Route);
+            await slow.SendAsync("what's on my calendar today?", CancellationToken.None);
+            reply = await slow.SendAsync("and tomorrow?", CancellationToken.None);
+            Check("…and those still are", reply.Route == "followup>calendar", reply.Route);
+        }
+        catch (Exception ex)
+        {
+            Check("ran without errors", false, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        return (passed, failed);
+    }
+
+    /// <summary>
     /// Calendar, mail and routines: a made-up calendar file is read right (times, whole days, repeats, skipped dates,
     /// cancelled events), the questions are recognised, a routine runs once a day and catches up the same day, and
     /// through the whole assistant none of it reaches cloud chat.
@@ -384,12 +641,40 @@ static class Program
             Check("\"emails from the bank\"", MailAnswers.Parse("any emails from the bank?") is { From: "the bank", Explicit: true });
             Check("Bulgarian: \"писа ли ми Иван?\"", MailAnswers.Parse("писа ли ми Иван?") is { From: "Иван" });
             Check("\"did it reply\" isn't about a person", MailAnswers.Parse("did it reply?") is null && MailAnswers.Parse("what did I do today") is null);
+            foreach (string newest in new[] { "When was the last time I got an email?", "when did I last get an email", "what's my latest email?",
+                                              "who emailed me last?", "кога ми дойде последното писмо?",
+                                              "What's the last mail i've gotten?", "show me the most recent email I received" })
+                Check($"\"{newest}\" is about the newest email", MailAnswers.Parse(newest) is { Latest: true, From: "" }, MailAnswers.Parse(newest)?.ToString() ?? "not recognised");
+            Check("\"last email from Ivan\"", MailAnswers.Parse("show me the last email from Ivan") is { Latest: true, From: "Ivan" });
+            Check("\"any new emails?\" is still unread mail", MailAnswers.Parse("any new emails?") is { Latest: false });
+            Check("\"…in my inbox\" isn't part of the sender", MailAnswers.Parse("any emails from GitHub in my inbox") is { From: "GitHub" },
+                  MailAnswers.Parse("any emails from GitHub in my inbox")?.ToString() ?? "not recognised");
+            string[] boxes = ["work", "personal"];
+            Check("\"any new work emails?\" is about the work mailbox", MailAnswers.Parse("any new work emails?", boxes) is { From: "", Account: "work" },
+                  MailAnswers.Parse("any new work emails?", boxes)?.ToString() ?? "not recognised");
+            Check("\"check my personal email\"", MailAnswers.Parse("check my personal email", boxes) is { Account: "personal" });
+            Check("\"did Ivan reply on my work email?\"", MailAnswers.Parse("did Ivan reply on my work email?", boxes) is { From: "Ivan", Account: "work" },
+                  MailAnswers.Parse("did Ivan reply on my work email?", boxes)?.ToString() ?? "not recognised");
+            Check("\"emails from the bank in personal\"", MailAnswers.Parse("emails from the bank in personal", boxes) is { From: "the bank", Account: "personal" });
+            Check("no mailbox named: all of them", MailAnswers.Parse("any new emails?", boxes) is { Account: "" });
+            Check("a word that isn't a mailbox's label stays in", MailAnswers.Parse("emails from work friends", boxes) is { From: "work friends", Account: "" },
+                  MailAnswers.Parse("emails from work friends", boxes)?.ToString() ?? "not recognised");
+            Check("a mailbox is found by part of its name", MailAnswers.AccountFor("Work", boxes) == "work" && MailAnswers.AccountFor("school", boxes) == "");
             Check("the mail server is worked out from the address",
                   ImapMailbox.Host("me@gmail.com", "") == "imap.gmail.com" && ImapMailbox.Host("me@abv.bg", "") == "imap.abv.bg"
                   && ImapMailbox.Host("me@school.example", "") == "imap.school.example" && ImapMailbox.Host("me@gmail.com", " mail.own.example ") == "mail.own.example");
 
-            // Routines.
+            // A 0.8.0 settings file, with its one mailbox, opened by 0.8.1: it becomes "personal", once.
             Directory.CreateDirectory(root);
+            string oldConfig = Path.Combine(root, "old-config.json");
+            File.WriteAllText(oldConfig, """{ "mailAddress": "me@example.com", "mailPassword": "abcd efgh", "mailServer": "" }""");
+            AppConfig moved = AppConfig.Load(oldConfig);
+            Check("0.8.0's mailbox moves into the list as \"personal\"",
+                  moved.MailAccounts is [{ Label: "personal", Address: "me@example.com", Password: "abcd efgh" }] && moved.MailAddress == "",
+                  string.Join(", ", moved.MailAccounts.Select(account => $"{account.Label} {account.Address}")));
+            Check("and isn't added twice", AppConfig.Load(oldConfig).MailAccounts.Count == 1);
+
+            // Routines.
             var routines = new RoutineStore(Path.Combine(root, "routines.json"));
             DateTime seven = monday.AddHours(7);
             string? added = RoutineAnswers.TryAnswer("Every morning at 8 tell me what's on my calendar today", routines, seven);
@@ -418,6 +703,16 @@ static class Program
             Check("mail is answered by the app", reply.Route == "mail" && reply.Text.Contains("Re: Project") && reply.Source == "local", $"{reply.Route}: {reply.Text}");
             AssistantReply pressed = await assistant.RunActionAsync(new CheckMail(), CancellationToken.None);
             Check("pressing the mail button lists the inbox", pressed.Route == "mail" && pressed.Text.Contains("Re: Project"), pressed.Text);
+            reply = await assistant.SendAsync("any new emails?", CancellationToken.None);
+            Check("with two mailboxes, each line says which", reply.Text.Contains("[work] Ivan Petrov: Re: Project") && reply.Text.Contains("[personal] Mum: Sunday"),
+                  reply.Text.Replace("\n", " / "));
+            reply = await assistant.SendAsync("when was the last time I got an email?", CancellationToken.None);
+            Check("the newest email, with when it came", reply.Route == "mail" && reply.Text.StartsWith("Your newest email came today at 09:00", StringComparison.Ordinal)
+                  && reply.Text.Contains("Re: Project"), reply.Text.Replace("\n", " / "));
+            reply = await assistant.SendAsync("any new personal emails?", CancellationToken.None);
+            Check("one mailbox by its label", reply.Text.Contains("Mum: Sunday") && !reply.Text.Contains("Re: Project"), reply.Text.Replace("\n", " / "));
+            Check("a label from cloud chat that isn't a mailbox means all of them",
+                  (await assistant.RunActionAsync(new CheckMail("", "school"), CancellationToken.None)).Text.Contains("[work]"));
             reply = await assistant.SendAsync("what's on my calendar today?", CancellationToken.None);
             Check("so is the calendar", reply.Route == "calendar" && reply.Source == "local", reply.Route);
             FakeCloud.LastRequest = "";
@@ -801,7 +1096,43 @@ sealed class FakeLocalModel : ILlmProvider
     public string Name => "stand-in local model";
 
     public Task<LlmResponse> ChatAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition> tools, CancellationToken ct) =>
-        Task.FromResult(new LlmResponse(GuidePick.Answer(messages.LastOrDefault()?.Content ?? "") ?? "A reply from the stand-in local model.", []));
+        Task.FromResult(new LlmResponse(
+            FollowUpStandIn.Answer(messages)
+            ?? GuidePick.Answer(messages.LastOrDefault()?.Content ?? "")
+            ?? "A reply from the stand-in local model.", []));
+}
+
+/// <summary>
+/// What a model would answer in the follow-up step, for the handful of messages the checks use; anything else is chat,
+/// given back unchanged. Null when the messages aren't the follow-up step's.
+/// </summary>
+static class FollowUpStandIn
+{
+    public static string? Answer(IReadOnlyList<ChatMessage> messages)
+    {
+        if (messages.Count == 0 || !messages[0].Content.Contains("ONE complete request", StringComparison.Ordinal)) return null;
+        string all = messages[^1].Content;
+        int at = all.LastIndexOf("Latest message:", StringComparison.Ordinal);
+        string latest = at < 0 ? "" : all[(at + "Latest message:".Length)..].Trim();
+        string before = at < 0 ? "" : all[..at];
+
+        static string Json(string request, string feature) => $$"""{"request": "{{request}}", "feature": "{{feature}}"}""";
+        if (latest.StartsWith("and tomorrow", StringComparison.OrdinalIgnoreCase) && before.Contains("(calendar)"))
+            return "Sure! " + Json("what's on my calendar tomorrow", "calendar"); // words around the JSON are ignored
+        if (latest.StartsWith("what about yesterday", StringComparison.OrdinalIgnoreCase) && before.Contains("(calendar)"))
+            return Json("what's on my calendar yesterday", "calendar");
+        if (latest.StartsWith("and the year after", StringComparison.OrdinalIgnoreCase) && before.Contains("(calendar)"))
+            return Json("what's on my calendar the year after next", "calendar"); // no rule for that
+        if (latest.StartsWith("and on my work", StringComparison.OrdinalIgnoreCase) && before.Contains("Ivan"))
+            return Json("did Ivan reply on my work email", "mail");
+        if (latest.StartsWith("start the countdown", StringComparison.OrdinalIgnoreCase))
+            return Json("set a timer for 5 minutes", "timer");
+        if (latest.StartsWith("do the blorp", StringComparison.OrdinalIgnoreCase))
+            return Json("blorp the calendar thing", "calendar"); // a rewording no rule knows
+        if (latest.StartsWith("make something up", StringComparison.OrdinalIgnoreCase))
+            return Json("explode the moon", "lasers"); // not a feature: ignored
+        return Json(latest, "chat");
+    }
 }
 
 /// <summary>
@@ -868,15 +1199,40 @@ sealed class FakeCalendar : ICalendarSource
 /// <summary>A made-up inbox: two messages from Ivan, one of them unread.</summary>
 sealed class FakeMailbox(bool connected) : IMailbox
 {
-    static readonly MailLine[] Lines =
+    // Two made-up mailboxes: "work" with two messages from Ivan (one unread), "personal" with one unread from Mum.
+    static readonly MailLine[] Unread =
     [
-        new("Ivan Petrov", "Re: Project", DateTime.Today.AddHours(9)),
-        new("Ivan Petrov", "Lunch on Friday?", DateTime.Today.AddDays(-2).AddHours(13)),
+        new("Ivan Petrov", "Re: Project", DateTime.Today.AddHours(9), "work"),
+        new("Mum", "Sunday lunch", DateTime.Today.AddHours(8), "personal"),
     ];
 
-    public bool Connected => connected;
-    public Task<MailFound> UnreadAsync(CancellationToken ct) => Task.FromResult(new MailFound([Lines[0]], 1));
-    public Task<MailFound> FromAsync(string name, int days, CancellationToken ct) => Task.FromResult(new MailFound(Lines, 2));
+    static readonly MailLine[] FromIvan =
+    [
+        new("Ivan Petrov", "Re: Project", DateTime.Today.AddHours(9), "work"),
+        new("Ivan Petrov", "Lunch on Friday?", DateTime.Today.AddDays(-2).AddHours(13), "work"),
+    ];
+
+    public IReadOnlyList<string> Accounts => connected ? ["work", "personal"] : [];
+
+    public Task<MailFound> UnreadAsync(string account, CancellationToken ct)
+    {
+        var lines = Unread.Where(line => account.Length == 0 || line.Account == account).ToList();
+        return Task.FromResult(new MailFound(lines, lines.Count));
+    }
+
+    public Task<MailFound> LatestAsync(string name, string account, CancellationToken ct)
+    {
+        var lines = Unread.Concat(FromIvan).DistinctBy(line => line.Subject)
+            .Where(line => (account.Length == 0 || line.Account == account) && (name.Length == 0 || line.From.Contains(name, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(line => line.When).ToList();
+        return Task.FromResult(new MailFound(lines, lines.Count));
+    }
+
+    public Task<MailFound> FromAsync(string name, int days, string account, CancellationToken ct)
+    {
+        var lines = FromIvan.Where(line => account.Length == 0 || line.Account == account).ToList();
+        return Task.FromResult(new MailFound(lines, lines.Count));
+    }
 }
 
 /// <summary>The guide's eyes and ring: a made-up window from cases\windows\editor.json, and a note of what was marked.</summary>
@@ -1042,6 +1398,34 @@ sealed class FakeActions : IActionRunner
         Ran++;
         Last = intent;
         return Task.FromResult<ActionReply?>(new ActionReply("Done."));
+    }
+}
+
+/// <summary>A file index with one folder, daskalo, and no files: records what it was asked.</summary>
+sealed class FolderSearchStandIn : IFileSearch
+{
+    public List<FileSearchQuery> Asked { get; } = [];
+
+    /// <summary>Also a file, daskalo.sln, older than the folder.</summary>
+    public bool WithFiles { get; init; }
+
+    public string Name => "stand-in index";
+
+    public bool IsAvailable(out string problem)
+    {
+        problem = "";
+        return true;
+    }
+
+    public Task<FileSearchResult> SearchAsync(FileSearchQuery query, CancellationToken ct)
+    {
+        Asked.Add(query);
+        bool named = query.Keywords.Contains("daskalo", StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<FileHit> found = !named ? []
+            : query.Folders ? [new FileHit(@"C:\Users\Me\source\repos\daskalo", DateTime.Now)]
+            : WithFiles && query.Extensions.Count == 0 ? [new FileHit(@"C:\Users\Me\source\repos\daskalo\daskalo.sln", DateTime.Now.AddDays(-1))]
+            : [];
+        return Task.FromResult(new FileSearchResult(true, found));
     }
 }
 

@@ -11,8 +11,10 @@ almost all of it waiting.
 
 1. Open the notebook: <https://github.com/alfiedennen/openwakeword-colab-2026> and press **Open in Colab**.
    (openWakeWord's official notebook no longer runs on Colab's current setup; this one is a patched copy, MIT licence.)
-2. **Runtime > Change runtime type > T4 GPU** (the free one). If you have Colab Pro, L4 with High RAM takes about half
-   the time.
+2. **Runtime > Change runtime type**: **T4 GPU** (the free one) and **Runtime version 2026.07**. The notebook needs
+   Python 3.12; Colab's newest runtime has 3.13, where one of its packages (`piper-phonemize-cross`) can't be installed.
+   An older runtime version takes 2 to 3 minutes to connect. If Colab says "Too many sessions", close the old one
+   under **Manage sessions** first. (Colab Pro's L4 with High RAM takes about half the time.)
 3. In the settings cell (cell 10 at the time of writing) set:
 
    ```python
@@ -20,8 +22,15 @@ almost all of it waiting.
    MODEL_NAME = 'hey_assistant'
    ```
 
-4. **Runtime > Run all**. Keep the tab in front now and then: the free tier disconnects a tab left in the background.
-5. The last cell downloads **`hey_assistant.onnx`**.
+4. **Runtime > Run all**. The install cell (about 1 minute) must end with `Python: 3.12…`, `cuda: True` and
+   "All openwakeword deps … import cleanly". If it says `+cpu` or `cuda: False`, stop and check the GPU is selected.
+   On the free T4 the whole run took about 1.5 hours (November 2026). Click into the tab every 20 to 30 minutes, keep
+   the PC plugged in and awake, and answer any "are you still there?" box at once: a brief internet drop is fine, but a
+   runtime disconnected by Colab starts over.
+5. The last cell downloads **`hey_assistant.onnx`** (about 0.8 MB). Above it, the notebook prints how good it is:
+   `recall@0.5` (the share of test phrases it caught; higher is better) and `FP/hour at 0.5` (false wakes an hour on
+   ordinary audio; lower is better). The first model scored 0.47 and 2.0, short of the notebook's own target, yet it
+   worked well with a real voice; the test uses synthetic voices only.
 6. Put it at `src\Assistant.App\wake\hey_assistant.onnx` (create the `wake` folder). The build copies it next to the
    app, and from then on the phrase is "Hey Assistant" and "Hey Jarvis" is no longer downloaded.
    To try it without rebuilding, drop the file into `%LocalAppData%\Assistant\models\wake` and restart the app.

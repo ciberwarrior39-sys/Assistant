@@ -40,15 +40,23 @@ public sealed class FileRow(FileHit hit)
         }
     }
 
-    public Brush Badge
+    public Brush Badge => KindBrush(IsFolder ? "folder" : Kind);
+
+    /// <summary>The colour of a kind of file ("docx", "pdf") or "folder": the same on file cards and choice buttons.</summary>
+    public static Brush KindBrush(string kind, byte alpha = 255)
     {
-        get
-        {
-            string hex = IsFolder ? "#D9A21B" : KindColors.TryGetValue(Kind, out string? color) ? color : "#5F6878";
-            var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
-            brush.Freeze();
-            return brush;
-        }
+        string hex = kind == "folder" ? "#D9A21B" : KindColors.TryGetValue(kind, out string? color) ? color : "#5F6878";
+        var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)) { Opacity = alpha / 255.0 };
+        brush.Freeze();
+        return brush;
+    }
+
+    /// <summary>"folder", or the extension in lower case ("docx"); "file" when it has none.</summary>
+    public static string KindOf(string path)
+    {
+        if (Directory.Exists(path)) return "folder";
+        string extension = System.IO.Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
+        return extension.Length is 0 or > 5 ? "file" : extension;
     }
 
     /// <summary>"today 14:20", "yesterday", "12 Oct", "3 Mar 2024".</summary>

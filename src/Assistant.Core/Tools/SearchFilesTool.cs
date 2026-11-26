@@ -86,6 +86,13 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
         ["mp4"] = ["mp4"],
     };
 
+    // "folder" in the request: look for folders, not files (the word itself isn't part of the name).
+    internal static readonly HashSet<string> FolderWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "folder", "folders", "directory", "directories", "dir",
+        "папка", "папката", "папки", "папките", "директория", "директорията", "директории",
+    };
+
     // Words from the request itself, not from a file name ("documents I edited today").
     internal static readonly HashSet<string> RequestWords = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -98,7 +105,7 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
 
     public ToolDefinition Definition { get; } = new(
         "search_files",
-        "Find files on the user's computer by words in the file name, file type, and how recently they were modified.",
+        "Find files or folders on the user's computer by words in the name, file type, and how recently they were modified.",
         new JsonObject
         {
             ["type"] = "object",
@@ -116,6 +123,12 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
                     ["items"] = new JsonObject { ["type"] = "string" },
                     ["description"] = "File types without dots, e.g. [\"xlsx\", \"csv\"]. Leave empty for any type.",
                 },
+                ["kind"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["enum"] = new JsonArray("any", "file", "folder"),
+                    ["description"] = "folder or file when the user said which; any when they didn't (\"anything called X\").",
+                },
                 ["modified"] = new JsonObject
                 {
                     ["type"] = "string",
@@ -129,6 +142,8 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
     {
         var nameWords = new List<string>();
         var types = new List<string>();
+        string kindAsked = ReadString(arguments, "kind") ?? "any";
+        bool folders = kindAsked == "folder";
 
         foreach (string raw in ReadStrings(arguments, "extensions"))
         {
@@ -144,24 +159,28 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
         {
             foreach (string word in CleanKeyword(raw).Split(' ', StringSplitOptions.RemoveEmptyEntries))
             {
-                if (KindOf(word) is { } kind) types.AddRange(kind);
+                if (FolderWords.Contains(word)) folders = true;
+                else if (KindOf(word) is { } kind) types.AddRange(kind);
                 else if (!RequestWords.Contains(word)) nameWords.Add(word);
             }
         }
 
         string[] keywords = nameWords.Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxKeywords).ToArray();
-        string[] extensions = types.Where(type => type.Length > 0).Distinct().Take(MaxExtensions).ToArray();
+        string[] extensions = folders ? Array.Empty<string>() : types.Where(type => type.Length > 0).Distinct().Take(MaxExtensions).ToArray();
         string period = ReadString(arguments, "modified") is { } value && Periods.Contains(value) ? value : "any";
+        // Neither "file" nor "folder" said and no type ("anything called daskalo?"): folders with the name count too.
+        bool alsoFolders = !folders && kindAsked != "file" && extensions.Length == 0 && keywords.Length > 0;
 
         // A time period alone is a valid search ("files I edited today"); nothing at all is not.
         if (keywords.Length == 0 && extensions.Length == 0 && period == "any")
-            return new ToolOutcome("No search words were given. Ask the user what the file is called.")
+            return new ToolOutcome($"No search words were given. Ask the user what the {(folders ? "folder" : "file")} is called.")
             {
-                Reply = "What's the file called? A word or two from its name is enough.",
+                Reply = $"What's the {(folders ? "folder" : "file")} called? A word or two from its name is enough.",
             };
 
         DateTime? after = ModifiedAfter(period, DateTime.Now);
-        FileSearchResult result = await search.SearchAsync(new FileSearchQuery(keywords, extensions, after, MaxResults), ct);
+        var asked = new FileSearchQuery(keywords, extensions, after, MaxResults, folders);
+        FileSearchResult result = await search.SearchAsync(asked, ct);
 
         if (!result.Available)
             return new ToolOutcome($"File search is unavailable: {result.Problem}. Tell the user.")
@@ -169,13 +188,37 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
                 Reply = $"File search isn't working right now: {result.Problem}",
             };
 
+        // Folders with the name: a few next to the files, ranked with them ("daskalo" the folder, then daskalo.sln);
+        // when no file has the name at all, any folder that does.
+        var folderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool folderInstead = false;
+        if (alsoFolders)
+        {
+            FileSearchResult asFolder = await search.SearchAsync(asked with { Extensions = [], Folders = true }, ct);
+            List<FileHit> named = result.Files.Count == 0
+                ? asFolder.Files.ToList()
+                : asFolder.Files.Where(hit => EverythingSearch.HasWholeWordMatch(hit, keywords)).Take(MaxFoldersBesideFiles).ToList();
+            if (named.Count > 0)
+            {
+                folderInstead = result.Files.Count == 0;
+                folderPaths.UnionWith(named.Select(hit => hit.FullPath));
+                result = result with
+                {
+                    Files = named.Concat(result.Files)
+                        .OrderByDescending(hit => EverythingSearch.Score(hit, keywords)) // stable: a folder first on a tie
+                        .Take(MaxResults)
+                        .ToList(),
+                };
+            }
+        }
+
         // Nothing with every word: try looser searches, most specific first, and say which one found something.
         string? looser = null;
         if (result.Files.Count == 0)
         {
             foreach ((string[] words, string[] types2, string note) in Relaxed(keywords, extensions))
             {
-                FileSearchResult retry = await search.SearchAsync(new FileSearchQuery(words, types2, after, MaxResults), ct);
+                FileSearchResult retry = await search.SearchAsync(new FileSearchQuery(words, types2, after, MaxResults, folders), ct);
                 if (retry.Files.Count == 0) continue;
                 result = retry;
                 looser = note;
@@ -183,25 +226,45 @@ public sealed class SearchFilesTool(IFileSearch search) : ITool
             }
         }
 
+        if (folders) folderPaths.UnionWith(result.Files.Select(file => file.FullPath));
+
         if (result.Files.Count == 0)
-            return new ToolOutcome("No matching files were found.")
+            return new ToolOutcome($"No matching {(folders ? "folder" : "file")}s were found.")
             {
                 NothingFound = true,
+                Searched = asked,
                 Reply = keywords.Length > 0
-                    ? $"I couldn't find a file with \"{string.Join(" ", keywords)}\" in its name. Try another word from the name."
-                    : "I couldn't find any files like that.",
+                    ? $"I couldn't find {(folders ? "a folder" : alsoFolders ? "a file or folder" : "a file")} with \"{string.Join(" ", keywords)}\" in its name. Try another word from the name."
+                    : $"I couldn't find any {(folders ? "folder" : "file")}s like that.",
             };
 
         // The model gets names and dates only; the app shows the full paths itself.
-        var text = new StringBuilder($"Found {result.Files.Count} file(s), newest first:\n");
-        foreach (FileHit file in result.Files) text.AppendLine($"- {file.FileName} (modified {file.Modified:yyyy-MM-dd})");
-        string found = result.Files.Count == 1 ? "here's the file I found." : $"I found {result.Files.Count} files, newest first.";
+        int folderCount = result.Files.Count(file => folderPaths.Contains(file.FullPath));
+        string counted = Count(folderCount, result.Files.Count - folderCount);
+        var text = new StringBuilder($"Found {counted}, newest first:\n");
+        foreach (FileHit file in result.Files)
+            text.AppendLine($"- {file.FileName}{(folderPaths.Contains(file.FullPath) ? " (folder)" : "")} (modified {file.Modified:yyyy-MM-dd})");
+        string found = result.Files.Count == 1
+            ? $"here's the {(folderCount == 1 ? "folder" : "file")} I found."
+            : $"I found {counted}{(folderCount == 0 || folderCount == result.Files.Count ? ", newest first" : "")}.";
         return new ToolOutcome(text.ToString())
         {
             Files = result.Files,
-            Reply = looser is null ? char.ToUpperInvariant(found[0]) + found[1..] : $"{looser}, {found}",
+            Searched = asked,
+            Reply = folderInstead ? $"No file has \"{string.Join(" ", keywords)}\" in its name, but {found}"
+                  : looser is null ? char.ToUpperInvariant(found[0]) + found[1..] : $"{looser}, {found}",
         };
     }
+
+    const int MaxFoldersBesideFiles = 3;
+
+    // "2 files", "1 folder", "1 folder and 2 files".
+    static string Count(int folders, int files) => (folders, files) switch
+    {
+        (0, _) => files == 1 ? "1 file" : $"{files} files",
+        (_, 0) => folders == 1 ? "1 folder" : $"{folders} folders",
+        _ => $"{(folders == 1 ? "1 folder" : $"{folders} folders")} and {(files == 1 ? "1 file" : $"{files} files")}",
+    };
 
     /// <summary>
     /// Looser searches for when nothing matched every word, in order: the same words in any file type; the words

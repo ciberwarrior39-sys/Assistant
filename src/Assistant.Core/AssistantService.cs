@@ -12,6 +12,7 @@ using Assistant.Core.Memory;
 using Assistant.Core.Organizer;
 using Assistant.Core.Search;
 using Assistant.Core.Tools;
+using Assistant.Core.Understanding;
 
 namespace Assistant.Core;
 
@@ -256,9 +257,18 @@ public sealed partial class AssistantService
         }
     }
 
-    async Task<AssistantReply> RunAsync(string userText, CancellationToken ct)
+    /// <param name="rewriteOf">
+    /// Set on the second pass, when this is the follow-up step's rewording of what the user wrote: if the rules miss it
+    /// again, the chat models get the user's own words, never the rewording (it may hold names from private turns).
+    /// </param>
+    async Task<AssistantReply> RunAsync(string userText, CancellationToken ct, string? rewriteOf = null, string rewriteFeature = "")
     {
+        int turnStart = history.Count;
         CurrentUserText = userText;
+        turnFiles = null;
+        turnFocus = null;
+        turnSearch = null;
+        turnPendingReveal = null;
         nothingFound = false;
         screenQuestion = null;
         route = "local";
@@ -335,10 +345,69 @@ public sealed partial class AssistantService
             return Finish(await CalendarAnswers.AnswerAsync(calendarAsk, Agenda, DateTime.Now, ct), files, notes, 0, "local");
         }
         // "Did Ivan reply?" names no mail: it is only about the inbox when one is connected.
-        if (Inbox is not null && MailAnswers.Parse(userText) is { } mailAsk && (mailAsk.Explicit || Inbox.Connected))
+        if (Inbox is not null && MailAnswers.Parse(userText, Inbox.Accounts) is { } mailAsk && (mailAsk.Explicit || Inbox.Connected))
         {
             MarkPrivate("mail");
             return Finish(await MailAnswers.AnswerAsync(mailAsk, Inbox, DateTime.Now, ct), files, notes, 0, "local");
+        }
+
+        // "open it", "open the second one", "show it in the folder": a file from the list just shown, by code.
+        if (Actions is not null && FileFollowUps.Parse(userText, Conversation.Recent(DateTime.Now)) is { } pick)
+        {
+            MarkPrivate("open_file");
+            route = "followup>open_file";
+            DiagnosticLog.Info(pick.File is null ? "Follow-up on a file list: asked which one" : "Follow-up on a file list");
+            if (pick.File is null)
+            {
+                turnFiles = pick.Choices;
+                turnPendingReveal = pick.Reveal;
+                // "Show" a file in its folder; a folder itself is just opened.
+                string verb = pick.Reveal && pick.Choices.Any(choice => !Directory.Exists(choice.FullPath)) ? "show" : "open";
+                string which = pick.Problem is { } past ? $"{past} Which one should I {verb}?" : $"Which one should I {verb}?";
+                return Finish($"{which} Press it below, or say \"the first one\", \"the second one\"…", files, notes, 0, "local")
+                    with { Options = [.. pick.Choices.Take(4).Select(choice => new ActionOption(FileDescriber.Label(choice, pick.Choices), new OpenFoundFile(choice.FullPath, pick.Reveal))),
+                                      new ActionOption("Cancel", null)] };
+            }
+            ActionReply? opened = await Actions.RunAsync(new OpenFoundFile(pick.File.FullPath, pick.Reveal), ct);
+            turnFiles = pick.Choices;
+            turnFocus = pick.File;
+            files.AddRange(opened?.Files ?? []);
+            return Finish(opened?.Text ?? "I couldn't open it.", files, notes, 0, "local") with { Options = opened?.Options ?? [] };
+        }
+
+        // "A folder, perhaps?" right after a file search: the same search again, for folders (or "files?" for files).
+        if (tools.ContainsKey("search_files") && FileFollowUps.Again(userText, Conversation.Recent(DateTime.Now)) is { } searchAgain)
+        {
+            var call = new ToolCall("search_files", JsonSerializer.SerializeToElement(new
+            {
+                keywords = searchAgain.Search.Keywords,
+                extensions = searchAgain.Search.Extensions,
+                kind = searchAgain.Folders ? "folder" : "file",
+                modified = "any",
+            }));
+            history.Add(ChatMessage.ForAssistantToolCalls("", [call]));
+            ToolOutcome looked = await RunToolAsync(call, ct);
+            history.Add(ChatMessage.ForTool(call.Name, looked.TextForModel));
+            files.AddRange(looked.Files);
+            nothingFound = looked.NothingFound;
+            turnSearch = looked.Searched;
+            route = "followup>search_files";
+            DiagnosticLog.Info($"Follow-up: the last file search again, for {(searchAgain.Folders ? "folders" : "files")}");
+            return Finish(looked.Reply ?? looked.TextForModel, files, notes, 1, "local");
+        }
+
+        // "Which one is just a folder?", "what's in them?": what each item of the list is, read from the disk here.
+        if (FileFollowUps.AboutList(userText, Conversation.Recent(DateTime.Now)) is { } listed)
+        {
+            MarkPrivate("describe_files");
+            route = "followup>describe_files";
+            turnFiles = listed;
+            bool plainAsked = FileFollowUps.AsksForPlain(userText);
+            // "Which one is just a folder?" with one answer: "open it" / "open the folder" next means that one.
+            if (plainAsked && listed.Where(item => FileDescriber.Describe(item).PlainFolder).ToList() is { Count: 1 } onlyPlain)
+                turnFocus = onlyPlain[0];
+            DiagnosticLog.Info("Follow-up: described the files just shown");
+            return Finish(FileDescriber.DescribeList(listed, plainAsked), files, notes, 0, "local");
         }
 
         // "open Spotify", "volume to 30", "take a screenshot": done by the app. "open my CV" isn't an app, folder or
@@ -398,6 +467,47 @@ public sealed partial class AssistantService
                 return Finish(reply, files, notes, toolCalls, "local");
             }
             // No ready answer: the model words one from the result (the loop below sees it in the history).
+        }
+
+        // Nothing above recognised it. The local model reads it with the last few exchanges and rewrites it into one
+        // complete request ("and tomorrow?" -> "what's on my calendar tomorrow"), which goes through the rules again.
+        // On this computer only; plain chat stays as the user wrote it.
+        if (rewriteOf is not null && FollowUpHelp(rewriteFeature) is { } cannot)
+        {
+            // Read as a calendar or mail question the app can't answer (yet): say what it can do, here. Sending the
+            // user's words to cloud chat instead would only get a confused answer about something it can't see.
+            DiagnosticLog.Info($"Follow-up: a {rewriteFeature} request the app can't answer; said what it can do");
+            MarkPrivate("help");
+            return Finish(cannot, files, notes, 0, "local");
+        }
+        if (rewriteOf is not null)
+        {
+            DiagnosticLog.Info("Follow-up: the rules didn't recognise the rewording either; going on with the user's words");
+            userText = rewriteOf;
+            CurrentUserText = rewriteOf;
+            history[turnStart] = ChatMessage.ForUser(rewriteOf);
+        }
+        else if (toolCalls == 0 && !memoryRequest && FollowUps.Carry(userText, Conversation.Recent(DateTime.Now)) is { } carried
+                 && (carried.Feature == "mail"
+                         ? Inbox is not null && MailAnswers.Parse(carried.Request, Inbox.Accounts) is not null
+                         : CalendarAnswers.Parse(carried.Request, DateTime.Now) is not null))
+        {
+            // The plainest follow-ups ("Discord?" after a mail question) by code: no model needed, so Lite has them too.
+            DiagnosticLog.Info($"Follow-up: carried over as a {carried.Feature} request");
+            history.RemoveRange(turnStart, history.Count - turnStart);
+            AssistantReply again = await RunAsync(carried.Request, ct, rewriteOf: userText, rewriteFeature: carried.Feature);
+            return again with { Route = "followup>" + again.Route };
+        }
+        else if (toolCalls == 0 && !memoryRequest && ShouldRewrite(userText)
+                 && await FollowUps.RewriteAsync(llm, userText, Conversation.Recent(DateTime.Now), ct) is { Feature: not "chat" } better
+                 && !better.Request.Equals(userText.Trim(), StringComparison.OrdinalIgnoreCase)
+                 && FollowUps.Plausible(better, userText, Conversation.Recent(DateTime.Now)))
+        {
+            DiagnosticLog.Info($"Follow-up: understood as a {better.Feature} request"); // the feature, never the words
+            history.RemoveRange(turnStart, history.Count - turnStart);
+            AssistantReply understood = await RunAsync(better.Request, ct, rewriteOf: userText, rewriteFeature: better.Feature);
+            return understood with { Route = understood.Route.StartsWith("local", StringComparison.Ordinal) || understood.Route.StartsWith("cloud", StringComparison.Ordinal)
+                                         ? understood.Route : "followup>" + understood.Route };
         }
 
         // Memory before the encyclopedia: a question whose key words are all in saved facts ("who is Kris?") is
@@ -624,6 +734,8 @@ public sealed partial class AssistantService
         // The bubble shows plain text: LaTeX and markdown from either model become readable symbols.
         text = MathText.Readable(text);
         history.Add(ChatMessage.ForAssistant(text));
+        string handled = localAsked && route != "local" ? "local>" + route : route;
+        Conversation.Add(CurrentUserText, handled, text, DateTime.Now, turnFiles ?? files, turnFocus, turnSearch, turnPendingReveal);
         string answeredBy = localAsked && route != "local" ? "local>" + route : route;
         DiagnosticLog.Info($"Route: {answeredBy}");
         return new AssistantReply(text, files.DistinctBy(file => file.FullPath).ToList(), toolCalls, source)
@@ -676,7 +788,7 @@ public sealed partial class AssistantService
         if (intent is CheckMail mailButton && Inbox is not null)
         {
             MarkPrivate("mail");
-            return new AssistantReply(await MailAnswers.AnswerAsync(new MailAsk(mailButton.From, Explicit: true), Inbox, DateTime.Now, ct), [], 0, "local") { Route = "mail" };
+            return new AssistantReply(await MailAnswers.AnswerAsync(new MailAsk(mailButton.From, Explicit: true, mailButton.Account, mailButton.Latest), Inbox, DateTime.Now, ct), [], 0, "local") { Route = "mail" };
         }
         if (intent is CheckCalendar calendarButton && Agenda is not null)
         {
@@ -701,6 +813,37 @@ public sealed partial class AssistantService
 
     /// <summary>The user's inbox, read-only. Null: the feature isn't there.</summary>
     public IMailbox? Inbox { get; set; }
+
+    // ---- Follow-ups -------------------------------------------------------------------------------------------------
+
+    /// <summary>The last few exchanges, on this computer only, for understanding follow-ups (see FollowUps).</summary>
+    public ConversationMemory Conversation { get; } = new();
+
+    // What this turn is about when that isn't the files it shows: the list a file was picked from, and that file.
+    IReadOnlyList<FileHit>? turnFiles;
+    FileHit? turnFocus;
+    FileSearchQuery? turnSearch; // the file search this turn ran, for "a folder, perhaps?"
+    bool? turnPendingReveal;     // this turn asked "which one should I open/show?"
+
+    /// <summary>
+    /// Every message the rules miss goes through the follow-up step, not only ones that look like follow-ups. On with a
+    /// graphics card (a second or less); without one the local model is slow, so only likely follow-ups are rewritten.
+    /// </summary>
+    public bool RewriteEveryMiss { get; set; } = true;
+
+    // What to say when a follow-up reads as a calendar or mail question that no rule can answer.
+    static string? FollowUpHelp(string feature) => feature switch
+    {
+        "calendar" => "I took that as a calendar question, but I can only look up today, tomorrow, yesterday, a weekday (\"on Friday\", " +
+                      "\"last Monday\"), this week, next week, last week, or your next event. Try one of those.",
+        "mail" => "I took that as a mail question, but I can only show unread mail, your newest email, or mail from someone in the last 7 days " +
+                  "(\"did Ivan reply?\", \"emails from the bank\"), in all your mailboxes or one (\"…on my work email\").",
+        _ => null,
+    };
+
+    bool ShouldRewrite(string text) =>
+        LocalModelEnabled && !CloudOnly
+        && (RewriteEveryMiss || (FollowUps.LooksLikeFollowUp(text) && Conversation.Recent(DateTime.Now).Count > 0));
 
     // ---- Show me where to click ---------------------------------------------------------------------------------------
 
@@ -1149,7 +1292,7 @@ public sealed partial class AssistantService
     const int MaxSummaryTurnChars = 300;
 
     // App-handled turns that say nothing about what was talked about ("flip a coin", "volume up").
-    static readonly HashSet<string> NotWorthNoting = ["quick_answer", "action", "conversation_log", "shortcut"];
+    static readonly HashSet<string> NotWorthNoting = ["quick_answer", "action", "conversation_log", "shortcut", "open_file", "describe_files"];
 
     int notedUpTo; // history before this index is already in the conversation notes
 
@@ -1224,7 +1367,9 @@ public sealed partial class AssistantService
 
         try
         {
-            return await tool.ExecuteAsync(call.Arguments, ct);
+            ToolOutcome outcome = await tool.ExecuteAsync(call.Arguments, ct);
+            turnSearch = outcome.Searched ?? turnSearch;
+            return outcome;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

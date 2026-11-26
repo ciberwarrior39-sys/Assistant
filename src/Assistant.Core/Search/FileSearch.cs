@@ -5,11 +5,13 @@ public sealed record FileHit(string FullPath, DateTime Modified)
     public string FileName => Path.GetFileName(FullPath);
 }
 
+/// <param name="Folders">Look for folders instead of files ("find the daskalo folder"); extensions are ignored then.</param>
 public sealed record FileSearchQuery(
     IReadOnlyList<string> Keywords,
     IReadOnlyList<string> Extensions,
     DateTime? ModifiedAfter,
-    int MaxResults);
+    int MaxResults,
+    bool Folders = false);
 
 public sealed record FileSearchResult(bool Available, IReadOnlyList<FileHit> Files, string Problem = "")
 {

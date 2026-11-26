@@ -53,9 +53,13 @@ public sealed class AppConfig
 
     // Calendar and mail (Settings > Calendar and mail). The calendar links are keys to the calendar and the password
     // opens the inbox, so all of it is saved encrypted for this Windows user, like the cloud keys.
-    // calendarLinks: private iCal (.ics) links, one per line. mailAddress + mailPassword: an app password, read-only
-    // use over IMAP. mailServer: only when the provider's server can't be guessed from the address.
+    // calendarLinks: private iCal (.ics) links, one per line. mailAccounts: one entry per mailbox, each with a label the
+    // user picks ("work", "personal"), an address and an app password (read-only use over IMAP), and a server only when
+    // the provider's can't be guessed from the address.
     [JsonIgnore] public string CalendarLinks { get; set; } = "";
+    public List<MailAccount> MailAccounts { get; set; } = [];
+
+    // 0.8.0 had one mailbox in these three; they move into mailAccounts as "personal" when the file is read.
     public string MailAddress { get; set; } = "";
     [JsonIgnore] public string MailPassword { get; set; } = "";
     public string MailServer { get; set; } = "";
@@ -228,6 +232,7 @@ public sealed class AppConfig
             config.Appearance ??= new Appearance();
             config.Appearance.Repair();
             config.Upgrade();
+            config.MoveMailIntoAccounts();
             return config;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
@@ -268,6 +273,15 @@ public sealed class AppConfig
         }
     }
 
+    // The single mailbox of 0.8.0 becomes the first of the list, labelled "personal".
+    void MoveMailIntoAccounts()
+    {
+        MailAccounts ??= [];
+        if (MailAddress.Contains('@') && !MailAccounts.Any(account => account.Address.Equals(MailAddress, StringComparison.OrdinalIgnoreCase)))
+            MailAccounts.Insert(0, new MailAccount { Label = "personal", Address = MailAddress, Password = MailPassword, Server = MailServer });
+        MailAddress = MailPassword = MailServer = "";
+    }
+
     /// <summary>A separate copy, so the Settings window's Cancel can put everything back.</summary>
     public AppConfig Copy() => JsonSerializer.Deserialize<AppConfig>(JsonSerializer.Serialize(this, Options), Options)!;
 
@@ -277,5 +291,34 @@ public sealed class AppConfig
         foreach (var property in typeof(AppConfig).GetProperties().Where(property => property.CanWrite))
             property.SetValue(this, property.GetValue(other));
         Appearance = other.Appearance.Copy();
+        MailAccounts = other.MailAccounts.Select(account => account.Copy()).ToList();
     }
+}
+
+/// <summary>
+/// One mailbox: a label the user chose ("work", "personal"), the address, an app password (saved encrypted, like the
+/// cloud keys) and the IMAP server when it can't be guessed from the address.
+/// </summary>
+public sealed class MailAccount
+{
+    public string Label { get; set; } = "";
+    public string Address { get; set; } = "";
+    [JsonIgnore] public string Password { get; set; } = "";
+    public string Server { get; set; } = "";
+
+    [JsonPropertyName("password")]
+    public string PasswordStored
+    {
+        get => Secrets.Protect(Password);
+        set => Password = Secrets.Unprotect(value);
+    }
+
+    /// <summary>The label, or the address's first part when none was given.</summary>
+    [JsonIgnore]
+    public string Name => Label.Trim().Length > 0 ? Label.Trim() : Address.Split('@')[0];
+
+    [JsonIgnore]
+    public bool Usable => Address.Contains('@') && Password.Length > 0;
+
+    public MailAccount Copy() => (MailAccount)MemberwiseClone();
 }

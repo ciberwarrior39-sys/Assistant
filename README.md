@@ -120,7 +120,10 @@ finds files on your computer, and optional free cloud chat handles conversation.
   `писа ли ми Иван?`). Read-only IMAP through [MailKit](https://github.com/jstedfast/MailKit) with an app password
   (Gmail, Yahoo, iCloud, abv.bg, mail.bg and most others; **not Outlook.com**, which no longer allows app passwords).
   Only envelopes are fetched (sender, subject, date); no message is opened or marked as read, and nothing can be sent.
-  "Did Ivan reply?" only counts as a mail question while a mailbox is connected.
+  "Did Ivan reply?" only counts as a mail question while a mailbox is connected. **Several mailboxes**, each with a
+  label the user picks ("work", "personal"): a question looks in all of them (each line says which) unless it names one
+  ("any new work emails?", "did Ivan reply on my work email?", "emails from the bank in personal"); they are read at
+  the same time, and one that can't be reached is named while the others still answer.
   Calendar links and the mail password are saved encrypted (DPAPI) in `config.json`; neither is ever logged, and
   calendar and mail answers never go to cloud chat.
 - **Routines:** "every morning at 8 tell me what's on my calendar today", "every weekday at 9: any new emails?",

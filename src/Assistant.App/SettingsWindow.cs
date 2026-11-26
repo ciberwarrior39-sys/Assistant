@@ -629,28 +629,75 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(links);
 
         panel.Children.Add(Heading("Mail"));
-        panel.Children.Add(Hint("Your address and an app password (not your normal password). Gmail: Google Account > Security > 2-Step " +
-                                "Verification > App passwords. Yahoo, iCloud, abv.bg and most others have the same. Outlook.com mail can't be " +
-                                "connected this way. The app only reads the list of messages (sender, subject, date): it never opens one, marks " +
-                                "nothing as read and can't send."));
-        var address = new TextBox { Width = 300, Text = edited.MailAddress, HorizontalAlignment = HorizontalAlignment.Left };
-        address.TextChanged += (_, _) =>
-        {
-            edited.MailAddress = address.Text.Trim();
-            Changed(needsRestart: true);
-        };
-        panel.Children.Add(Labeled("Address", address));
-        // App passwords are shown in groups of four; the spaces aren't part of them.
-        panel.Children.Add(Labeled("App password", KeyBox(edited.MailPassword, value => edited.MailPassword = new string(value.Where(letter => !char.IsWhiteSpace(letter)).ToArray()))));
-        var server = new TextBox { Width = 300, Text = edited.MailServer, HorizontalAlignment = HorizontalAlignment.Left };
-        server.TextChanged += (_, _) =>
-        {
-            edited.MailServer = server.Text.Trim();
-            Changed(needsRestart: true);
-        };
-        panel.Children.Add(Labeled("Server (optional)", server));
+        panel.Children.Add(Hint("One or more mailboxes, each with a label you pick (\"work\", \"personal\"), its address and an app password " +
+                                "(not your normal password; Gmail: Google Account > Security > 2-Step Verification > App passwords; Yahoo, " +
+                                "iCloud, abv.bg and most others have the same; Outlook.com mail can't be connected this way). Ask \"any new " +
+                                "emails?\" for all of them, or \"any new work emails?\" and \"did Ivan reply on my work email?\" for one. The app " +
+                                "only reads the list of messages (sender, subject, date): it never opens one, marks nothing as read and can't send."));
+        var mailboxes = new StackPanel();
+        panel.Children.Add(mailboxes);
+        var addMailbox = new Button { Content = "Add a mailbox", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
+        panel.Children.Add(addMailbox);
         panel.Children.Add(Hint("Leave the server empty for Gmail, Yahoo, iCloud, abv.bg and mail.bg; otherwise your provider's IMAP server, " +
-                                "for example imap.example.com. The password is saved encrypted for your Windows account."));
+                                "for example imap.example.com. Passwords are saved encrypted for your Windows account."));
+
+        // One box per mailbox, rebuilt when one is added or removed.
+        void ShowMailboxes()
+        {
+            mailboxes.Children.Clear();
+            for (int index = 0; index < edited.MailAccounts.Count; index++)
+            {
+                MailAccount account = edited.MailAccounts[index];
+                var box = new StackPanel { Margin = new Thickness(0, 8, 0, 4) };
+                var frame = new Border { Child = box, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 6, 10, 8), Margin = new Thickness(0, 6, 0, 0) };
+                frame.SetResourceReference(Border.BorderBrushProperty, "Line");
+
+                var label = new TextBox { Width = 160, Text = account.Label, HorizontalAlignment = HorizontalAlignment.Left };
+                label.TextChanged += (_, _) =>
+                {
+                    account.Label = label.Text.Trim();
+                    Changed(needsRestart: true);
+                };
+                box.Children.Add(Labeled("Label", label));
+                var address = new TextBox { Width = 300, Text = account.Address, HorizontalAlignment = HorizontalAlignment.Left };
+                address.TextChanged += (_, _) =>
+                {
+                    account.Address = address.Text.Trim();
+                    Changed(needsRestart: true);
+                };
+                box.Children.Add(Labeled("Address", address));
+                // App passwords are shown in groups of four; no kind of space is part of them.
+                box.Children.Add(Labeled("App password", KeyBox(account.Password,
+                    value => account.Password = new string(value.Where(letter => !char.IsWhiteSpace(letter)).ToArray()))));
+                var server = new TextBox { Width = 300, Text = account.Server, HorizontalAlignment = HorizontalAlignment.Left };
+                server.TextChanged += (_, _) =>
+                {
+                    account.Server = server.Text.Trim();
+                    Changed(needsRestart: true);
+                };
+                box.Children.Add(Labeled("Server (optional)", server));
+                var remove = new Button { Content = "Remove this mailbox", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) };
+                remove.Click += (_, _) =>
+                {
+                    edited.MailAccounts.Remove(account);
+                    Changed(needsRestart: true);
+                    ShowMailboxes();
+                };
+                box.Children.Add(remove);
+                mailboxes.Children.Add(frame);
+            }
+            addMailbox.Content = edited.MailAccounts.Count == 0 ? "Add a mailbox" : "Add another mailbox";
+        }
+
+        addMailbox.Click += (_, _) =>
+        {
+            // The first is "personal" and the second "work", as a start; both can be renamed.
+            string label = edited.MailAccounts.Count switch { 0 => "personal", 1 => "work", _ => $"mailbox {edited.MailAccounts.Count + 1}" };
+            edited.MailAccounts.Add(new MailAccount { Label = label });
+            Changed(needsRestart: true);
+            ShowMailboxes();
+        };
+        ShowMailboxes();
 
         panel.Children.Add(Heading("Routines"));
         panel.Children.Add(Hint("Things it asks itself at set times, set up in the chat: \"every morning at 8 tell me what's on my calendar today\", " +

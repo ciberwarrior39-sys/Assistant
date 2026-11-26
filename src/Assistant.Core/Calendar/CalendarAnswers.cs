@@ -30,31 +30,31 @@ public static partial class CalendarAnswers
 {
     const RegexOptions Options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
 
-    const string Day = @"(?<d>today|tonight|tomorrow|this\s+week|next\s+week|(?:on\s+|this\s+|next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))";
+    const string Day = @"(?<d>today|tonight|yesterday|the\s+day\s+before\s+yesterday|the\s+day\s+after\s+tomorrow|tomorrow|this\s+week|next\s+week|last\s+week|(?:on\s+|this\s+|next\s+|last\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))";
     const string Thing = @"(?:calendar|schedule|agenda|meetings?|events?|appointments?|plans)";
-    const string DayBg = @"(?<d>днес|довечера|утре|тази\s+седмица|следващата\s+седмица|(?:в|във)\s+(?:понеделник|вторник|сряда|четвъртък|петък|събота|неделя))";
+    const string DayBg = @"(?<d>днес|довечера|вчера|завчера|вдругиден|утре|тази\s+седмица|следващата\s+седмица|миналата\s+седмица|(?:в|във)\s+(?:понеделник|вторник|сряда|четвъртък|петък|събота|неделя))";
     const string ThingBg = @"(?:календар\w*|програма(?:та)?|график\w*|срещи|среща|събития|ангажименти|планове)";
 
     static readonly Regex[] Next =
     [
-        new(@"^(?:when(?:'s|’s|\s+is)|what(?:'s|’s|\s+is))\s+my\s+next\s+(?:meeting|event|appointment|thing)(?:\s+on\s+(?:my\s+)?calendar)?$", Options),
-        new(@"^(?:what(?:'s|’s|\s+is)\s+next|next)\s+on\s+my\s+(?:calendar|schedule|agenda)$", Options),
+        new(@"^(?:when(?:'s|’s|\s+is)|what(?:'s|’s|\s+is|\s+was))\s+my\s+next\s+(?:meeting|event|appointment|thing)(?:\s+on\s+(?:my\s+)?calendar)?$", Options),
+        new(@"^(?:what(?:'s|’s|\s+is|\s+was)\s+next|next)\s+on\s+my\s+(?:calendar|schedule|agenda)$", Options),
         new(@"^(?:кога\s+е|какв[оа]\s+е)\s+следващ\w+\s+(?:ми\s+)?(?:среща|събитие|ангажимент)$", Options),
     ];
 
     static readonly Regex[] Days =
     [
-        new($@"^(?:what(?:'s|’s|\s+is)\s+(?:on\s+|in\s+)?|show\s+(?:me\s+)?|check\s+)?my\s+{Thing}(?:\s+(?:for|like))?(?:\s+{Day})?$", Options),
-        new($@"^what(?:'s|’s|\s+is)\s+on\s+(?:the\s+)?(?:calendar|schedule|agenda)(?:\s+(?:for\s+)?{Day})?$", Options),
+        new($@"^(?:what(?:'s|’s|\s+is|\s+was)\s+(?:on\s+|in\s+)?|show\s+(?:me\s+)?|check\s+)?my\s+{Thing}(?:\s+(?:for|like))?(?:\s+{Day})?$", Options),
+        new($@"^what(?:'s|’s|\s+is|\s+was)\s+on\s+(?:the\s+)?(?:calendar|schedule|agenda)(?:\s+(?:for\s+)?{Day})?$", Options),
         new($@"^what\s+do\s+i\s+have\s+(?:on\s+(?:my\s+)?(?:calendar|schedule|agenda)\s+)?(?:for\s+)?{Day}(?:\s+on\s+(?:my\s+)?(?:calendar|schedule|agenda))?$", Options),
         new($@"^what\s+do\s+i\s+have\s+on\s+(?:my\s+)?(?:calendar|schedule|agenda)$", Options),
         new($@"^(?:is\s+there\s+|do\s+i\s+have\s+)?any(?:thing)?\s+(?:on|in)\s+(?:my\s+|the\s+)?(?:calendar|schedule|agenda)(?:\s+(?:for\s+)?{Day})?$", Options),
-        new($@"^what(?:'s|’s|\s+is)\s+in\s+(?:my\s+|the\s+)?(?:calendar|schedule|agenda)(?:\s+(?:for\s+)?{Day})?$", Options),
+        new($@"^what(?:'s|’s|\s+is|\s+was)\s+in\s+(?:my\s+|the\s+)?(?:calendar|schedule|agenda)(?:\s+(?:for\s+)?{Day})?$", Options),
         new($@"^(?:какво\s+има|има\s+ли\s+нещо)\s+(?:в|на)\s+(?:календара|програмата)(?:\s+ми)?(?:\s+(?:за\s+)?{DayBg})?$", Options),
         new($@"^(?:do\s+i\s+have\s+)?any(?:thing)?\s+(?:{Thing}\s+)?(?:on\s+(?:my\s+)?(?:calendar|schedule)\s+)?(?:for\s+)?{Day}$", Options),
         new($@"^(?:am\s+i|are\s+we)\s+(?:free|busy)\s+{Day}$", Options),
-        new($@"^(?:какво\s+имам|какво\s+има|имам\s+ли\s+(?:нещо|срещи|ангажименти))\s+(?:(?:в|на|по)\s+{ThingBg}\s+(?:ми\s+)?)?{DayBg}(?:\s+(?:в|на|по)\s+{ThingBg}(?:\s+ми)?)?$", Options),
-        new($@"^(?:какво\s+имам\s+(?:в|на|по)\s+{ThingBg}(?:\s+ми)?|(?:покажи\s+(?:ми\s+)?)?{ThingBg}\s+ми|моят\s+календар|моя\s+календар)(?:\s+(?:за\s+)?{DayBg})?$", Options),
+        new($@"^(?:какво\s+има[мх]|какво\s+има|имам\s+ли\s+(?:нещо|срещи|ангажименти))\s+(?:(?:в|на|по)\s+{ThingBg}\s+(?:ми\s+)?)?{DayBg}(?:\s+(?:в|на|по)\s+{ThingBg}(?:\s+ми)?)?$", Options),
+        new($@"^(?:какво\s+има[мх]\s+(?:в|на|по)\s+{ThingBg}(?:\s+ми)?|(?:покажи\s+(?:ми\s+)?)?{ThingBg}\s+ми|моят\s+календар|моя\s+календар)(?:\s+(?:за\s+)?{DayBg})?$", Options),
         new($@"^(?:какви|имам\s+ли)\s+(?:срещи|събития|ангажименти)\s+(?:имам\s+)?{DayBg}$", Options),
         new($@"^свобод(?:ен|на)\s+ли\s+съм\s+{DayBg}$", Options),
     ];
@@ -81,17 +81,22 @@ public static partial class CalendarAnswers
         string word = Spaces().Replace(day, " ").Trim();
         if (word.Length == 0 || word is "today" or "tonight" or "днес" or "довечера") return new CalendarAsk(today, today.AddDays(1), "today");
         if (word is "tomorrow" or "утре") return new CalendarAsk(today.AddDays(1), today.AddDays(2), "tomorrow");
+        if (word is "yesterday" or "вчера") return new CalendarAsk(today.AddDays(-1), today, "yesterday");
+        if (word is "the day before yesterday" or "завчера") return new CalendarAsk(today.AddDays(-2), today.AddDays(-1), "the day before yesterday");
+        if (word is "the day after tomorrow" or "вдругиден") return new CalendarAsk(today.AddDays(2), today.AddDays(3), "the day after tomorrow");
 
         // Weeks run Monday to Sunday.
         DateTime monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
         if (word is "this week" or "тази седмица") return new CalendarAsk(today, monday.AddDays(7), "the rest of this week");
         if (word is "next week" or "следващата седмица") return new CalendarAsk(monday.AddDays(7), monday.AddDays(14), "next week");
+        if (word is "last week" or "миналата седмица") return new CalendarAsk(monday.AddDays(-7), monday, "last week");
 
         string name = word.Split(' ')[^1];
         int weekday = Array.IndexOf(WeekdayNames, name) % 7;
         if (weekday < 0) return new CalendarAsk(today, today.AddDays(1), "today");
         int ahead = (weekday - (int)today.DayOfWeek + 7) % 7;
         if (ahead == 0) ahead = 7; // "on Monday", asked on a Monday: the coming one (today is "today")
+        if (word.StartsWith("last ", StringComparison.Ordinal)) ahead -= 7; // "last Friday": the one before today
         DateTime date = today.AddDays(ahead);
         return new CalendarAsk(date, date.AddDays(1), $"{date:dddd, d MMMM}");
     }

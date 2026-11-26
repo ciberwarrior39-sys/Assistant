@@ -4,6 +4,16 @@ The newest version is first. The app shows this in Settings > What's new, and ea
 Each version starts with a line "## <version> (<month> <year>)", and each change is one line starting with "- ".
 The first three lines of a version are the highlights shown after an update.
 
+## 0.9.0 (in progress)
+- **Follow-ups:** it keeps track of the last few exchanges, so "and tomorrow?" after a calendar question, "did he reply?" or "and on my work email?" are understood. When a message isn't recognised, the local model rewrites it into a complete request and the app tries again; this happens on your computer, and cloud chat still only ever gets your own words.
+- **Found files:** after a file search, "open it", "open the second one", "open the pdf" or "show it in the folder" (and "отвори го", "второто") work on the files just shown, right away and on your computer. With several files, "open it" asks which one with a button for each. Programs and scripts still only run after you press "Run it".
+- **Folders:** "find the daskalo folder" (or "намери папката daskalo") looks for folders, and "anything called daskalo?" shows folders with that name next to the files. Right after a search, "a folder, perhaps?" or "а папка?" looks again for folders. Folders open in Explorer.
+- **Questions about what was found:** "which one is just a folder?", "what's in them?" or "кое е просто папка?" after a search says what each one is: a plain folder (with a couple of its files), a Visual Studio, Unity, Node or Python project, a Git repository, or for a file its type and size. Read from your disk, on your computer. Then "open the folder", "the one that's just a folder", "the project one" or "the desktop one" picks by what or where it is, and buttons for items with the same name say where each one is. Those buttons take the colour of the file cards: yellow for folders, blue for Word documents, green for spreadsheets and so on.
+
+## 0.8.1 (November 2026)
+- **"Hey Assistant":** the wake word now has its own phrase instead of "Hey Jarvis". It is still off until you turn it on in Settings > Voice; if it misses you or wakes by itself, move the sensitivity slider there.
+- **Several mailboxes:** add as many as you like in Settings > Calendar and mail, each with a label of your own ("work", "personal"). "Any new emails?" looks in all of them; "any new work emails?" and "did Ivan reply on my work email?" in one. The mailbox from 0.8.0 is kept, labelled "personal".
+
 ## 0.8.0 (November 2026)
 - **Show me where to click:** ask "where is the save button?" or "where do I click to change the font?" and a ring appears around the right control in the window you were using. It only points: it never clicks for you. Still can't see it? One button and the character walks over and stands next to it.
 - **Chat that acts:** say what you want in your own words ("it's too quiet in here") and cloud chat can offer the matching action as a button: open an app, change the volume, check the PC, start a backup. Nothing runs until you press it.

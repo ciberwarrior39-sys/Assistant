@@ -286,11 +286,19 @@ calendar | Anything on my calendar?
 calendar | What's in my calendar?
 calendar | има ли нещо в календара ми?
 calendar | what do I have tomorrow?
+calendar | what was on my calendar yesterday?
+calendar | what's on my calendar last week?
+calendar | какво имах вчера в календара?
 calendar | when is my next meeting?
 calendar | am I free on Friday?
 calendar | какво имам утре в календара?
 calendar | какви срещи имам днес?
 mail | any new emails?
+mail | when was the last time I got an email?
+mail | what's my latest email?
+mail | What's the last mail i've gotten?
+mail | show me my most recent email
+mail | кога ми дойде последното писмо?
 mail | check my email
 mail | did Ivan reply?
 mail | any emails from the bank?

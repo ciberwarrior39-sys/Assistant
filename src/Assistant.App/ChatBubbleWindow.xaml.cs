@@ -25,10 +25,6 @@ namespace Assistant.App;
 /// </summary>
 public partial class ChatBubbleWindow : Window
 {
-    // Opening these runs code, so the user confirms first (safety rule in the spec).
-    static readonly string[] RunnableExtensions =
-        [".exe", ".bat", ".cmd", ".com", ".msi", ".ps1", ".vbs", ".js", ".scr", ".lnk"];
-
     readonly AssistantService assistant;
     readonly DependencyService dependencies;
     readonly DataFolder data;
@@ -957,7 +953,8 @@ public partial class ChatBubbleWindow : Window
             return;
         }
 
-        if (RunnableExtensions.Contains(Path.GetExtension(path).ToLowerInvariant())
+        // Opening these runs code, so the user confirms first (safety rule in the spec).
+        if (Assistant.Core.Understanding.FileFollowUps.Runs(path)
             && Ask($"{Path.GetFileName(path)} is a program or script. Run it?",
                           MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
         {
