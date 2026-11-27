@@ -1315,6 +1315,10 @@ public sealed class SettingsWindow : Window
             edited.CloudKnowsAboutMe, value => edited.CloudKnowsAboutMe = value));
         panel.Children.Add(Hint("Only lines from memory\\about-me.md, picked per message. Places, files, notes, activity and past " +
                                 "conversations never go. Every request, with exactly what was sent, is in the sent folder."));
+        panel.Children.Add(Check("After a private answer, tell cloud chat only what it was about (\"their calendar\")",
+            edited.CloudTopicHints, value => edited.CloudTopicHints = value));
+        panel.Children.Add(Hint("Never what you asked or what the answer said: only the topic, so \"should I go?\" after a calendar " +
+                                "answer gets \"I can't see your calendar, tell me about it\" instead of a guess."));
 
         return panel;
     }

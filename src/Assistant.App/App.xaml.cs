@@ -248,6 +248,7 @@ public partial class App : Application
             Organizer = organizer,
             Conversations = new ConversationLog(data.ConversationsFolder),
             ShareAboutMeWithCloud = config.CloudKnowsAboutMe,
+            CloudTopicHints = config.CloudTopicHints,
             CloudWebTools = config.CloudWebSearch,
             Knowledge = new Assistant.Core.Knowledge.WikipediaLookup(wikiHttp),
         };
@@ -418,6 +419,7 @@ public partial class App : Application
                     life?.SettingsChanged();
                     activity.Enabled = edited.ActivityLogging;
                     assistant.ShareAboutMeWithCloud = edited.CloudKnowsAboutMe;
+                    assistant.CloudTopicHints = edited.CloudTopicHints;
                     assistant.CloudWebTools = edited.CloudWebSearch;
                     StartWithWindows.Sync(edited.StartWithWindows);
                     voice?.ConfigureVoice(edited.VoiceName, edited.VoiceRate);
@@ -493,6 +495,47 @@ public partial class App : Application
                     character.ShowNote($"updated to {notes.Version}!", TimeSpan.FromSeconds(20), character.OpenChat);
                 }, DispatcherPriority.ApplicationIdle);
             }
+        }
+
+        // A smarter local model may fit this PC (a 2B user on a card that can try 4B): a card in the chat offers to
+        // download it, time it here and switch only if it's quick enough. Once per model; "Later" waits a week.
+        if (config.SetupDone && profile.LocalModel && DateTime.Now >= config.ModelOfferLaterUntil
+            && ModelCatalog.Upgrade(HardwareCheck.Detect(), config.Model, config.ModelOffersDone) is { } bigger
+            && ModelCatalog.Find(config.Model) is { } current)
+        {
+            void SaveConfig()
+            {
+                try
+                {
+                    config.Save(data.ConfigFile);
+                }
+                catch (IOException ex)
+                {
+                    DiagnosticLog.Error("Could not save config.json", ex);
+                }
+            }
+            var switcher = new ModelSwitcher(config, SaveConfig, localModel, dependencies);
+            bubble.ShowModelOffer(new ModelOfferItem(current, bigger));
+            bubble.ModelOfferAnswered += async (offer, answer) =>
+            {
+                switch (answer)
+                {
+                    case ModelOfferAnswer.Try:
+                        offer.Answered("");
+                        await switcher.TryAsync(offer, CancellationToken.None);
+                        break;
+                    case ModelOfferAnswer.Later:
+                        config.ModelOfferLaterUntil = DateTime.Now.AddDays(7);
+                        SaveConfig();
+                        offer.Answered("OK, I'll ask again in a week.");
+                        break;
+                    default:
+                        config.ModelOffersDone = [.. config.ModelOffersDone, offer.Bigger.Name];
+                        SaveConfig();
+                        offer.Answered($"OK, staying on {offer.Current.Name}. The tray menu's \"Run setup again\" lets you pick another model.");
+                        break;
+                }
+            };
         }
 
         // Doing things on the PC: "open Spotify", "volume to 30", "take a screenshot", "empty the recycle bin" (asks first).

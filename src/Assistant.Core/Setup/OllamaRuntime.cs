@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Assistant.Core.Diagnostics;
+using Assistant.Core.Understanding;
 
 namespace Assistant.Core.Setup;
 
@@ -166,6 +167,76 @@ public sealed class OllamaRuntime(HttpClient http)
             progress.Report(new SetupProgress(status.StartsWith("pulling", StringComparison.Ordinal)
                 ? $"Downloading {model}" : Capitalize(status), done, total));
         }
+    }
+
+    /// <summary>
+    /// How long the model takes on this PC for the request the app sends most: rereading a follow-up ("and tomorrow?")
+    /// with the full instructions. Loaded first and not timed (loading from disk happens once); then the faster of two
+    /// answers. The model stays loaded for a few minutes, like after any request.
+    /// </summary>
+    public static async Task<ModelTiming> TimeAnswerAsync(HttpClient http, Uri url, string model, int contextSize, CancellationToken ct)
+    {
+        await AskAsync(http, url, model, contextSize, "Latest message: hi", 1, ct);
+        bool answered = false;
+        TimeSpan best = TimeSpan.MaxValue;
+        for (int run = 0; run < 2; run++)
+        {
+            (bool said, TimeSpan time) = await AskAsync(http, url, model, contextSize, SpeedTestMessage, 48, ct);
+            answered |= said;
+            if (time < best) best = time;
+        }
+        return new ModelTiming(answered, best);
+    }
+
+    const string SpeedTestMessage =
+        "Recent conversation:\nUser: what's on my calendar today?\n"
+        + "Assistant (calendar): Today you have 10:00 Dentist and 14:30 Team meeting.\n\nLatest message: and tomorrow?";
+
+    // One chat request without streaming: whether it said something, and Ollama's own timing without the loading.
+    static async Task<(bool Said, TimeSpan Time)> AskAsync(HttpClient http, Uri url, string model, int contextSize, string message,
+                                                           int maxTokens, CancellationToken ct)
+    {
+        var body = new
+        {
+            model,
+            messages = new object[]
+            {
+                new { role = "system", content = FollowUps.Prompt },
+                new { role = "user", content = message },
+            },
+            stream = false,
+            think = false,
+            keep_alive = "5m",
+            options = new { num_ctx = contextSize, num_predict = maxTokens, temperature = 0 },
+        };
+        using HttpResponseMessage response = await http.PostAsJsonAsync(new Uri(url, "api/chat"), body, ct);
+        string json = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"{model} didn't answer ({(int)response.StatusCode}).");
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        long total = root.TryGetProperty("total_duration", out JsonElement t) && t.TryGetInt64(out long tv) ? tv : 0;
+        long load = root.TryGetProperty("load_duration", out JsonElement l) && l.TryGetInt64(out long lv) ? lv : 0;
+        string content = root.TryGetProperty("message", out JsonElement m) && m.TryGetProperty("content", out JsonElement c)
+            ? c.GetString() ?? "" : "";
+        return (content.Trim().Length > 0, TimeSpan.FromTicks(Math.Max(0, total - load) / 100)); // nanoseconds to ticks
+    }
+
+    /// <summary>Frees the model's memory now (before timing another one, or deleting it).</summary>
+    public static async Task UnloadAsync(HttpClient http, Uri url, string model, CancellationToken ct)
+    {
+        using HttpResponseMessage response = await http.PostAsJsonAsync(new Uri(url, "api/generate"), new { model, keep_alive = 0 }, ct);
+    }
+
+    /// <summary>Deletes a model from an Ollama server. A model that isn't there counts as deleted.</summary>
+    public static async Task DeleteAsync(HttpClient http, Uri url, string model, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Delete, new Uri(url, "api/delete")) { Content = JsonContent.Create(new { model }) };
+        using HttpResponseMessage response = await http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound)
+            throw new InvalidOperationException($"Ollama couldn't delete {model} ({(int)response.StatusCode}).");
+        DiagnosticLog.Info($"Deleted the local model {model}");
     }
 
     static string Capitalize(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];

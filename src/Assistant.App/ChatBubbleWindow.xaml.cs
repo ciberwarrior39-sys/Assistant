@@ -289,6 +289,25 @@ public partial class ChatBubbleWindow : Window
 
     void OnWhatsNew(object sender, RoutedEventArgs e) => WhatsNewRequested?.Invoke();
 
+    /// <summary>A bigger local model may fit: the offer card (seen when the chat next opens, like the update card).</summary>
+    public void ShowModelOffer(ModelOfferItem offer)
+    {
+        items.Add(offer);
+        ScrollToBottom();
+    }
+
+    /// <summary>"Try it", "Later" or "No thanks" on the model offer: the app does the rest.</summary>
+    public event Action<ModelOfferItem, ModelOfferAnswer>? ModelOfferAnswered;
+
+    void OnModelTry(object sender, RoutedEventArgs e) => AnswerModelOffer(sender, ModelOfferAnswer.Try);
+    void OnModelLater(object sender, RoutedEventArgs e) => AnswerModelOffer(sender, ModelOfferAnswer.Later);
+    void OnModelNo(object sender, RoutedEventArgs e) => AnswerModelOffer(sender, ModelOfferAnswer.No);
+
+    void AnswerModelOffer(object sender, ModelOfferAnswer answer)
+    {
+        if (sender is FrameworkElement { Tag: ModelOfferItem offer }) ModelOfferAnswered?.Invoke(offer, answer);
+    }
+
     /// <summary>A message from the assistant that isn't a reply, for example from the tray menu.</summary>
     public void Say(string text)
     {

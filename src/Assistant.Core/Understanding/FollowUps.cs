@@ -76,7 +76,7 @@ public static partial class FollowUps
     public static readonly IReadOnlyList<string> Features =
         ["calendar", "mail", "timer", "reminder", "todo", "note", "routine", "action", "files", "guide", "chat"];
 
-    const string Prompt = """
+    internal const string Prompt = """
         You help a desktop assistant understand the user's latest message. Rewrite it into ONE complete request that makes
         sense on its own, using the recent conversation to fill in what it refers to ("it", "he", "that one", "and
         tomorrow?", "the second one"). Use the plainest wording, in the user's language, like these:

@@ -14,6 +14,7 @@ using Assistant.Core.Mail;
 using Assistant.Core.Memory;
 using Assistant.Core.Organizer;
 using Assistant.Core.Search;
+using Assistant.Core.Setup;
 using Assistant.Core.Storage;
 using Assistant.Core.Tools;
 using Assistant.Core.Understanding;
@@ -569,10 +570,33 @@ static class Program
             Check("buttons for items with the same name say where each one is",
                   label.StartsWith("daskalo (", StringComparison.Ordinal) && label.Contains("Desktop"), label);
 
+            // The cloud's topic note: what private answers were about, never what was in them.
+            Turn calendarTurn = new("what's on my calendar today?", "calendar", "Today: 10:00 Dentist.", now);
+            Turn mailTurn = new("any emails from Ivan?", "followup>mail", "Ivan wrote: lunch on Friday?", now);
+            string hint = CloudTopics.Hint([calendarTurn, mailTurn]);
+            Check("after private answers, the cloud hears only their topics",
+                  hint.Contains("their email, and before that about their calendar") && !hint.Contains("Dentist") && !hint.Contains("Ivan"), hint);
+            Check("…nothing after a cloud answer, or after nothing private",
+                  CloudTopics.Hint([calendarTurn, chat]) == "" && CloudTopics.Hint([chat]) == "" && CloudTopics.Hint([]) == "");
+            Check("…and files count as private", CloudTopics.Hint([foldersFound]).Contains("files and folders on their PC"));
+            AssistantService hinted = Build("normal", Path.Combine(root, "8"), memoryFolder);
+            hinted.Conversation.Add("what's on my calendar today?", "calendar", "Today: 10:00 Dentist.", DateTime.Now);
+            FakeCloud.LastRequest = "";
+            reply = await hinted.SendAsync("Is it worth going?", CancellationToken.None);
+            Check("the follow-on question goes to the cloud with the topic, not the calendar",
+                  reply.Route.StartsWith("cloud", StringComparison.Ordinal) && FakeCloud.LastRequest.Contains("their calendar")
+                  && !FakeCloud.LastRequest.Contains("Dentist"), $"{reply.Route}: {FakeCloud.LastRequest.Length} characters sent");
+            hinted.CloudTopicHints = false;
+            hinted.Conversation.Add("what's on my calendar tomorrow?", "calendar", "Nothing tomorrow.", DateTime.Now);
+            reply = await hinted.SendAsync("Is it worth going?", CancellationToken.None);
+            Check("…and nothing when it's turned off", !FakeCloud.LastRequest.Contains("their calendar"), reply.Route);
+
             AssistantService lite = Build("lite", Path.Combine(root, "2"), memoryFolder);
             await lite.SendAsync("what's on my calendar today?", CancellationToken.None);
             reply = await lite.SendAsync("and tomorrow?", CancellationToken.None);
-            Check("without a local model nothing is rewritten", !reply.Route.StartsWith("followup", StringComparison.Ordinal), reply.Route);
+            Check("without a local model, \"and tomorrow?\" is still carried over by code", reply.Route == "followup>calendar", reply.Route);
+            reply = await lite.SendAsync("start the countdown", CancellationToken.None);
+            Check("…but nothing is reworded by the model", !reply.Route.StartsWith("followup", StringComparison.Ordinal), reply.Route);
 
             AssistantService slow = Build("normal", Path.Combine(root, "3"), memoryFolder);
             slow.RewriteEveryMiss = false;
@@ -976,6 +1000,22 @@ static class Program
 
         try
         {
+            // A bigger local model: offered when the hardware plan would try or suggest it, once, and kept only if quick.
+            var card4 = new GpuInfo("NVIDIA GeForce RTX 3050 Laptop GPU", "NVIDIA", 4L << 30);
+            var tryPlan = new HardwarePlan(card4, 16, ModelCatalog.Small, false, false, "", TryModel: ModelCatalog.Big);
+            var bigPlan = new HardwarePlan(card4 with { VramBytes = 8L << 30 }, 16, ModelCatalog.Big, false, false, "");
+            var cpuPlan = new HardwarePlan(null, 16, ModelCatalog.Tiny, false, true, "");
+            Check("2B on a 4 GB card is offered 4B to try", ModelCatalog.Upgrade(tryPlan, ModelCatalog.Small, []) is { Name: ModelCatalog.Big, DownloadGb: 4.0 });
+            Check("…and on an 8 GB card", ModelCatalog.Upgrade(bigPlan, ModelCatalog.Small, []) is { Name: ModelCatalog.Big });
+            Check("…but only once", ModelCatalog.Upgrade(tryPlan, ModelCatalog.Small, [ModelCatalog.Big]) is null);
+            Check("not to someone already on 4B, on a model of their own, or without a graphics card",
+                  ModelCatalog.Upgrade(tryPlan, ModelCatalog.Big, []) is null && ModelCatalog.Upgrade(tryPlan, "llama3.2:3b", []) is null
+                  && ModelCatalog.Upgrade(cpuPlan, ModelCatalog.Tiny, []) is null);
+            Check("4B is kept when it answers within 3 seconds, not slower or silent",
+                  ModelCatalog.KeepBigger(new ModelTiming(true, TimeSpan.FromSeconds(2.4)))
+                  && !ModelCatalog.KeepBigger(new ModelTiming(true, TimeSpan.FromSeconds(4.1)))
+                  && !ModelCatalog.KeepBigger(new ModelTiming(false, TimeSpan.FromSeconds(1))));
+
             Check("volume set 30", ActionCatalog.FromCall(Call("volume", """{"change":"set","percent":30}""")) is VolumeChange { Op: VolumeOp.Set, Percent: 30 });
             Check("a number sent as text still counts", ActionCatalog.FromCall(Call("volume", """{"change":"set","percent":"45%"}""")) is VolumeChange { Percent: 45 });
             Check("volume 500 is dropped", ActionCatalog.FromCall(Call("volume", """{"change":"set","percent":500}""")) is null);

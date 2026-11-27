@@ -125,7 +125,8 @@ finds files on your computer, and optional free cloud chat handles conversation.
   ("any new work emails?", "did Ivan reply on my work email?", "emails from the bank in personal"); they are read at
   the same time, and one that can't be reached is named while the others still answer.
   Calendar links and the mail password are saved encrypted (DPAPI) in `config.json`; neither is ever logged, and
-  calendar and mail answers never go to cloud chat.
+  calendar and mail answers never go to cloud chat (it may only be told that the last answer was about the calendar or
+  mail; see the cloud section).
 - **Routines:** "every morning at 8 tell me what's on my calendar today", "every weekday at 9: any new emails?",
   "every friday at 17:00 back up my files" (`всеки ден в 8 кажи ми какво имам днес`); "my routines", "delete routine 2".
   At that time the question is asked as if typed (anything the assistant can do) and the answer shows as a note or in
@@ -164,6 +165,12 @@ finds files on your computer, and optional free cloud chat handles conversation.
   starts loading when the chat bubble opens, and the speech model leaves memory 90 seconds after the last question.
   Privacy is the same in all three. Settings > Features shows what each part uses right now (the assistant, the local
   model and what Ollama has loaded, Piper while speaking, Everything), and the developer log records it every 10 minutes.
+- **Follow-ups** (English and Bulgarian): the last few exchanges are kept in memory for 10 minutes (never written to
+  disk), so "and tomorrow?" after a calendar answer, "Discord?" after a mail question, "open it", "open the second one",
+  "show it in the folder", "a folder, perhaps?" or "which one is just a folder?" after a file search are understood.
+  Code handles the common ones; with a local model, anything else the rules miss is reworded by it into a full request
+  ("what about yesterday?" → "what's on my calendar yesterday?") and then answered by the rules as usual. The rewording
+  stays on this computer: cloud chat only ever gets your own words.
 - **Instant answers for clear requests:** "find my CV", "where are my tax files", "documents I edited today",
   "what did I do today?", "how long did I spend in Unity?", "what's my name?", "remember that…", "forget…" and
   "look at this" go straight to the right tool, decided by code: no model call, and the reply is built from the result,
@@ -311,8 +318,11 @@ finds files on your computer, and optional free cloud chat handles conversation.
 On first start (or tray > **Run setup again**) a wizard sets everything up, so nobody downloads anything by hand:
 
 1. **Welcome:** what stays private, and whether to keep the activity log.
-2. **Brain:** checks the graphics card and picks the model (NVIDIA 4–6 GB: `qwen3.5:2b`; 8 GB+: `qwen3.5:4b`;
-   no usable GPU: `qwen3.5:0.8b` on the CPU, cloud recommended). Uses an Ollama that is already installed if there is
+2. **Brain:** checks the graphics card and picks the model, listing each with its download size (NVIDIA 4–7 GB:
+   `qwen3.5:2b`, 2.7 GB, with the smarter `qwen3.5:4b`, 4.0 GB, to try; 8 GB+: `qwen3.5:4b`; no usable GPU:
+   `qwen3.5:0.8b`, 1.3 GB, on the CPU, cloud recommended). On a 4–7 GB card a card in the chat later offers to try 4B:
+   it is downloaded and timed on this PC, kept only if a typical answer takes at most 3 seconds (then the old model is
+   deleted), and deleted again otherwise. Uses an Ollama that is already installed if there is
    one; otherwise downloads the app's own copy to `%LocalAppData%\Assistant\ollama` and runs it on port 11435, with
    models in `%LocalAppData%\Assistant\ollama-models`. Progress bars throughout.
 3. **File search and voice:** offers to install Everything (otherwise Windows Search is used) and to download the
@@ -408,7 +418,10 @@ Plain conversation goes straight to the cloud model when a key is set up, withou
 `openai/gpt-oss-120b` (when its per-minute quota runs out, `llama-3.3-70b-versatile` answers for 2 minutes). A message
 that mentions files, folders, the screen, memory, activity, notes, tasks, reminders or past chats, or that touches a
 saved fact, goes to the local model first, and anything that uses a tool stays on this computer. Both models are told
-the date and time. Every request is logged in `Documents\Assistant\sent\`.
+the date and time. After an answer that stayed on this computer (calendar, mail, files, notes, memory…), the next
+cloud request carries only a note saying what it was about ("their calendar"), never what was asked or answered, so a
+follow-on question gets "I can't see your calendar, tell me about it" instead of a guess (Settings > Privacy and
+cloud turns it off). Every request is logged in `Documents\Assistant\sent\`.
 
 1. **Groq (recommended):** most free volume. Sign up at console.groq.com (needs phone verification), create an API key.
 2. **OpenRouter (alternative):** signs up without a phone or card, but only about 50 free requests a day.

@@ -42,6 +42,10 @@ public sealed class AppConfig
     // activity or past conversations). Off unless the user turns it on in Settings > Privacy and cloud.
     public bool CloudKnowsAboutMe { get; set; }
 
+    // After a private answer (calendar, mail, files), cloud chat is told what it was about ("their calendar"), never
+    // what was asked or answered, so a follow-on message makes sense to it. On by default.
+    public bool CloudTopicHints { get; set; } = true;
+
     // Custom shortcuts: a key combination runs a command, as if it were typed to the assistant ("Alt+S" → "open spotify").
     // Settings > Shortcuts, or "make Alt+S open Spotify" in the chat. Paused while a game runs, so games get the keys.
     public List<Shortcut> Shortcuts { get; set; } = [];
@@ -157,6 +161,11 @@ public sealed class AppConfig
 
     // The version that last ran, so the first start after an update can say what's new (Settings > What's new).
     public string LastSeenVersion { get; set; } = "";
+
+    // Bigger local models already offered in the chat ("Try it" or "No thanks"), so each is offered once, and until
+    // when "Later" put the offer off.
+    public string[] ModelOffersDone { get; set; } = [];
+    public DateTime ModelOfferLaterUntil { get; set; }
 
     // A gentle "time for a break?" after this many minutes of using the PC without a 5-minute pause; 0 turns it off.
     public int BreakReminderMinutes { get; set; } = 60;

@@ -220,6 +220,12 @@ public sealed partial class AssistantService
     /// </summary>
     public bool ShareAboutMeWithCloud { get; set; }
 
+    /// <summary>
+    /// After private answers (calendar, mail, files), cloud chat is told only what they were about, never their content
+    /// (<see cref="CloudTopics"/>). On unless turned off in Settings.
+    /// </summary>
+    public bool CloudTopicHints { get; set; } = true;
+
     const int MaxPickedFacts = 3;          // facts added to a prompt for one message
     const int MaxPickedFactChars = 400;
     const int MaxPickedConversations = 2;  // earlier-conversation notes added to the local prompt
@@ -1400,6 +1406,7 @@ public sealed partial class AssistantService
 
         string prompt = CloudSystemPrompt + (QuestionKind.NeedsWorking(CurrentUserText) ? "\n" + WorkingNote : "")
                         + (CloudOnly ? "\n" + GameModeNote : "") + (withActions ? "\n" + ActionsNote : "") + Now() + PreferencesBlock() + CloudAboutMeBlock()
+                        + (CloudTopicHints ? CloudTopics.Hint(Conversation.Recent(DateTime.Now)) : "")
                         + (facts is null ? "" : "\n\n" + ReferenceNote + "\n\n" + facts.Text);
         var messages = new List<ChatMessage> { ChatMessage.ForSystem(prompt) };
         foreach (List<ChatMessage> turn in turns

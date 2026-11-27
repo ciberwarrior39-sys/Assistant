@@ -21,7 +21,8 @@ namespace Assistant.App;
 /// </summary>
 public sealed class SetupWizard : Window
 {
-    static readonly string[] Models = ["qwen3.5:0.8b", "qwen3.5:2b", "qwen3.5:4b"];
+    // One line per model in the list: its name, download size, and whether it fits this PC.
+    public sealed record ModelLine(string Name, string Label);
 
     readonly AppConfig config;
     readonly string configPath;
@@ -167,7 +168,18 @@ public sealed class SetupWizard : Window
         panel.Children.Add(profiles);
         panel.Children.Add(modelPart);
 
-        var model = new ComboBox { Width = 160, ItemsSource = Models, SelectedItem = Models.Contains(config.Model) && config.SetupDone ? config.Model : plan.Model };
+        List<ModelLine> lines = ModelCatalog.All.Select(info => new ModelLine(info.Name,
+            $"{info.Name}  ·  {info.DownloadGb:0.0} GB"
+            + (info.Name == plan.Model ? "  ·  recommended" : info.Name == plan.TryModel ? "  ·  may fit, slower" : ""))).ToList();
+        string startWith = ModelCatalog.Find(config.Model) is not null && config.SetupDone ? config.Model : plan.Model;
+        var model = new ComboBox
+        {
+            MinWidth = 280,
+            ItemsSource = lines,
+            DisplayMemberPath = nameof(ModelLine.Label),
+            SelectedValuePath = nameof(ModelLine.Name),
+            SelectedValue = startWith,
+        };
         modelPart.Children.Add(Heading("The local model"));
         modelPart.Children.Add(Labeled("Model", model));
 
@@ -224,17 +236,17 @@ public sealed class SetupWizard : Window
 
             Uri url = useExisting.IsChecked == true ? OllamaRuntime.UsualUrl : OllamaRuntime.EmbeddedUrl;
             if (await OllamaRuntime.IsAnsweringAsync(http, url, cancel.Token)
-                && OllamaRuntime.HasModel(await OllamaRuntime.ModelsAsync(http, url, cancel.Token), (string)model.SelectedItem))
+                && OllamaRuntime.HasModel(await OllamaRuntime.ModelsAsync(http, url, cancel.Token), (string)model.SelectedValue))
             {
-                Ready(url, (string)model.SelectedItem);
-                status.Text = $"✓ Ready: {model.SelectedItem} is already downloaded.";
+                Ready(url, (string)model.SelectedValue);
+                status.Text = $"✓ Ready: {model.SelectedValue} is already downloaded.";
                 setUp.Content = "Check again";
             }
         }
 
         setUp.Click += async (_, _) =>
         {
-            string chosen = (string)model.SelectedItem;
+            string chosen = (string)model.SelectedValue;
             bool existing = useExisting.IsChecked == true;
             Uri url = existing ? OllamaRuntime.UsualUrl : OllamaRuntime.EmbeddedUrl;
             SetBusy(true);
@@ -282,7 +294,7 @@ public sealed class SetupWizard : Window
         model.SelectionChanged += (_, _) => Changed();
         useExisting.Click += (_, _) => Changed();
 
-        modelPart.Children.Add(Hint("The model is about 1–3.5 GB, and the app's own Ollama (when needed) about 2 GB more; after the " +
+        modelPart.Children.Add(Hint("The sizes are the download; the app's own Ollama (when needed) is about 2 GB more; after the " +
                                     "first answer on the graphics card, the parts made for other graphics cards are removed (usually " +
                                     "0.7–1.2 GB). The app's copies live in its own folder, so uninstalling removes them."));
         return panel;

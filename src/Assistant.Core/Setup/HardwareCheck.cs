@@ -8,12 +8,17 @@ public sealed record GpuInfo(string Name, string Vendor, long VramBytes)
     public double VramGb => VramBytes / 1024.0 / 1024 / 1024;
 }
 
-/// <summary>What the wizard found and what it suggests. Model is the local model to download.</summary>
-public sealed record HardwarePlan(GpuInfo? Gpu, double RamGb, string Model, bool NeedsRocm, bool CloudRecommended, string Summary);
+/// <summary>
+/// What the wizard found and what it suggests. Model is the local model to download; TryModel a bigger one that may
+/// fit, worth downloading and timing on this PC (kept only if it answers quickly enough, see <see cref="ModelCatalog"/>).
+/// </summary>
+public sealed record HardwarePlan(GpuInfo? Gpu, double RamGb, string Model, bool NeedsRocm, bool CloudRecommended, string Summary,
+                                  string? TryModel = null);
 
 /// <summary>
-/// Picks the local model from the graphics card, following the setup plan: NVIDIA 4–6 GB gets qwen3.5:2b,
-/// 8 GB or more gets the bigger qwen3.5:4b, AMD needs Ollama's ROCm package, and without a usable GPU
+/// Picks the local model from the graphics card, following the setup plan: NVIDIA 4–6 GB gets qwen3.5:2b (with the
+/// bigger qwen3.5:4b to try: 4 GB doesn't hold all of it, so part runs on the processor and only timing it on the PC
+/// tells whether that is quick enough), 8 GB or more gets qwen3.5:4b, AMD needs Ollama's ROCm package, and without a usable GPU
 /// a tiny model runs on the CPU with the free cloud recommended. Reads the driver's registry entries only.
 /// </summary>
 public static class HardwareCheck
@@ -29,11 +34,13 @@ public static class HardwareCheck
             .FirstOrDefault();
 
         if (gpu is { VramGb: >= 7.5 })
-            return new HardwarePlan(gpu, ram, "qwen3.5:4b", gpu.Vendor == "AMD", false,
+            return new HardwarePlan(gpu, ram, ModelCatalog.Big, gpu.Vendor == "AMD", false,
                 $"{gpu.Name} with {gpu.VramGb:0} GB of video memory: room for the bigger qwen3.5:4b model.");
         if (gpu is { VramGb: >= 3.5 })
-            return new HardwarePlan(gpu, ram, "qwen3.5:2b", gpu.Vendor == "AMD", false,
-                $"{gpu.Name} with {gpu.VramGb:0} GB of video memory: qwen3.5:2b fits it well.");
+            return new HardwarePlan(gpu, ram, ModelCatalog.Small, gpu.Vendor == "AMD", false,
+                $"{gpu.Name} with {gpu.VramGb:0} GB of video memory: qwen3.5:2b fits it well. The smarter qwen3.5:4b may too: "
+                + "after setup, the assistant offers to try it and keeps it only if it answers quickly enough here.",
+                TryModel: ModelCatalog.Big);
 
         return new HardwarePlan(gpu, ram, "qwen3.5:0.8b", false, true,
             (gpu is null ? "No graphics card that can run models was found" : $"{gpu.Name} has too little video memory")

@@ -25,6 +25,9 @@ public sealed class DependencyService(
     HttpClient cloudHttp,
     bool localModel = true)
 {
+    /// <summary>The local model checked for; changed with the assistant's when the user switches.</summary>
+    public string Model { get; set; } = model;
+
     public async Task<IReadOnlyList<DependencyStatus>> CheckAllAsync(CancellationToken ct)
     {
         DependencyStatus brain = localModel
@@ -48,11 +51,11 @@ public sealed class DependencyService(
             bool hasModel = document.RootElement.TryGetProperty("models", out JsonElement models)
                 && models.ValueKind == JsonValueKind.Array
                 && models.EnumerateArray().Any(m =>
-                    m.TryGetProperty("name", out JsonElement name) && IsSameModel(name.GetString(), model));
+                    m.TryGetProperty("name", out JsonElement name) && IsSameModel(name.GetString(), Model));
 
             return hasModel
-                ? new DependencyStatus("Ollama", true, model)
-                : new DependencyStatus("Ollama", false, $"model missing, run: ollama pull {model}");
+                ? new DependencyStatus("Ollama", true, Model)
+                : new DependencyStatus("Ollama", false, $"model missing, run: ollama pull {Model}");
         }
         catch (HttpRequestException)
         {

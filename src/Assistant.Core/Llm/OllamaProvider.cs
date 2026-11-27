@@ -14,7 +14,10 @@ public sealed class OllamaProvider(HttpClient http, string model, int contextSiz
     bool sendThinkFlag = true;
     DateTime lastWarmUp;
 
-    public string Name => $"Ollama ({model})";
+    /// <summary>The model asked; changed when the user switches to a bigger one (no restart needed).</summary>
+    public string Model { get; set; } = model;
+
+    public string Name => $"Ollama ({Model})";
 
     /// <summary>How long Ollama keeps the model in memory after a request (the performance profile decides).</summary>
     public TimeSpan KeepAlive { get; set; } = TimeSpan.FromMinutes(5);
@@ -27,7 +30,7 @@ public sealed class OllamaProvider(HttpClient http, string model, int contextSiz
     {
         if (DateTime.UtcNow - lastWarmUp < TimeSpan.FromMinutes(1)) return;
         lastWarmUp = DateTime.UtcNow;
-        var body = new JsonObject { ["model"] = model, ["keep_alive"] = KeepAliveText };
+        var body = new JsonObject { ["model"] = Model, ["keep_alive"] = KeepAliveText };
         try
         {
             using HttpResponseMessage response = await http.PostAsync("api/generate", AsContent(body));
@@ -59,7 +62,7 @@ public sealed class OllamaProvider(HttpClient http, string model, int contextSiz
     /// <summary>Frees the model's VRAM right away (game mode). It reloads on the next request.</summary>
     public async Task UnloadAsync(CancellationToken ct)
     {
-        var body = new JsonObject { ["model"] = model, ["keep_alive"] = 0 };
+        var body = new JsonObject { ["model"] = Model, ["keep_alive"] = 0 };
         try
         {
             using HttpResponseMessage response = await http.PostAsync("api/generate", AsContent(body), ct);
@@ -114,7 +117,7 @@ public sealed class OllamaProvider(HttpClient http, string model, int contextSiz
 
         return new JsonObject
         {
-            ["model"] = model,
+            ["model"] = Model,
             ["messages"] = messageArray,
             ["tools"] = toolArray,
             ["stream"] = false,
